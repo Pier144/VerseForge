@@ -46,6 +46,11 @@ $profile.Video.FrameRate.Denominator = 1
 $transcoder = New-Object Windows.Media.Transcoding.MediaTranscoder
 $transcoder.HardwareAccelerationEnabled = $true
 $prep = Await ($transcoder.PrepareFileTranscodeAsync($src, $dst, $profile)) ([Windows.Media.Transcoding.PrepareTranscodeResult])
+if (-not $prep.CanTranscode) {
+    # the hardware encoder can be unavailable (busy GPU, driver): fall back to the software one
+    $transcoder.HardwareAccelerationEnabled = $false
+    $prep = Await ($transcoder.PrepareFileTranscodeAsync($src, $dst, $profile)) ([Windows.Media.Transcoding.PrepareTranscodeResult])
+}
 if (-not $prep.CanTranscode) { throw "Cannot transcode: $($prep.FailureReason)" }
 AwaitActionProgress ($prep.TranscodeAsync()) ([double])
 "OK $((Get-Item $Out).Length) bytes"

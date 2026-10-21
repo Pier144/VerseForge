@@ -35,6 +35,30 @@ PRINT_DONE = "!!document.querySelector('#printStatus a[href]')"
 BROWSERS = [r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
             r"C:\Program Files\Google\Chrome\Application\chrome.exe"]
 
+# The videos are published: the page sees generic paths instead of the real ones of this PC
+# (settings dialog, "copy saved to …" toasts). Display only, nothing is saved.
+PRIVACY_JS = r"""
+(() => {
+  const fake = { p4k_path: "C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE\\Data.p4k",
+                 export_dir: "C:\\Users\\Citizen\\Documents\\VerseForge", blender: "" };
+  const realFetch = window.fetch;
+  window.fetch = async (...args) => {
+    const r = await realFetch(...args);
+    const url = String(args[0]);
+    if (url.startsWith("/api/status")) {
+      const j = Object.assign(await r.clone().json(), fake);
+      return new Response(JSON.stringify(j), { status: r.status, headers: r.headers });
+    }
+    if (url.startsWith("/api/export") && r.headers.get("X-Saved-To")) {
+      const h = new Headers(r.headers);
+      h.set("X-Saved-To", fake.export_dir);
+      return new Response(r.body, { status: r.status, headers: h });
+    }
+    return r;
+  };
+})();
+"""
+
 OVERLAY_JS = r"""
 (() => {
   if (window.__demo) return;
@@ -318,6 +342,8 @@ async def scene_search(p):
     await p.wait(0.8)
 
     await p.caption("On the right: the other files in the same folder", "parts, variants, interiors")
+    await p.click("#relBox summary")
+    await p.wait(0.6)
     await p.click_text("#related li", "_Int.cga")
     await p.model_loaded()
     await p.drag(-200, 40, 1.4, start=(820, 400))
@@ -485,6 +511,7 @@ async def record(name, browser):
             await p.send("Runtime.enable")
             await p.send("Emulation.setDeviceMetricsOverride", width=W, height=H, deviceScaleFactor=1, mobile=False)
             await p.send("Browser.setDownloadBehavior", behavior="allow", downloadPath=downloads)
+            await p.send("Page.addScriptToEvaluateOnNewDocument", source=PRIVACY_JS)
             await p.send("Page.addScriptToEvaluateOnNewDocument", source=f"window.addEventListener('DOMContentLoaded', () => {{ {OVERLAY_JS} }});")
             await p.send("Page.navigate", url=APP)
             await p.until("document.readyState === 'complete' && !!window.__demo", 30)
