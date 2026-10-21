@@ -14,7 +14,7 @@ from sc_explorer.p4k import P4kArchive  # noqa: E402
 from sc_explorer.server import CACHE_DIR, load_config  # noqa: E402
 
 P4K = load_config()["p4k_path"]
-pytestmark = pytest.mark.skipif(not os.path.isfile(P4K), reason="Data.p4k non trovato")
+pytestmark = pytest.mark.skipif(not os.path.isfile(P4K), reason="Data.p4k not found")
 
 
 @pytest.fixture(scope="module")
@@ -78,5 +78,5 @@ def test_catalog_search(archive):
     items = catalog.build(archive, catalog.game_names(archive))
     hits, _ = catalog.search(items, "p4-ar")
     assert hits and hits[0].name == "P4-AR Rifle"
-    ships, _ = catalog.search(items, "gladius", "navi")
+    ships, _ = catalog.search(items, "gladius", "ships")
     assert any(it.path.endswith("AEGS_Gladius.cga") for it in ships)

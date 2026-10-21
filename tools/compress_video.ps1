@@ -1,5 +1,5 @@
 # Re-encode an MP4 to H.264 at a given bitrate with Windows' built-in Media Foundation transcoder (no ffmpeg needed).
-# Usage: powershell -ExecutionPolicy Bypass -File comprimi_video.ps1 -In input.mp4 -Out output.mp4 [-Kbps 4000]
+# Usage: powershell -ExecutionPolicy Bypass -File compress_video.ps1 -In input.mp4 -Out output.mp4 [-Kbps 4000]
 param(
     [Parameter(Mandatory = $true)][string]$In,
     [Parameter(Mandatory = $true)][string]$Out,
@@ -46,6 +46,6 @@ $profile.Video.FrameRate.Denominator = 1
 $transcoder = New-Object Windows.Media.Transcoding.MediaTranscoder
 $transcoder.HardwareAccelerationEnabled = $true
 $prep = Await ($transcoder.PrepareFileTranscodeAsync($src, $dst, $profile)) ([Windows.Media.Transcoding.PrepareTranscodeResult])
-if (-not $prep.CanTranscode) { throw "Transcodifica non possibile: $($prep.FailureReason)" }
+if (-not $prep.CanTranscode) { throw "Cannot transcode: $($prep.FailureReason)" }
 AwaitActionProgress ($prep.TranscodeAsync()) ([double])
-"OK $((Get-Item $Out).Length) byte"
+"OK $((Get-Item $Out).Length) bytes"

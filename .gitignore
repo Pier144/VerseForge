@@ -3,13 +3,13 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
-esportazioni/
+exports/
 config.json
-build/
-dist/
+/build/
+/dist/
 build_log.txt
 *.log
-# strumenti locali dell'editor/assistente
+# local editor/assistant tools
 .claude/
-# video dimostrativi (~75 MB): si allegano alla Release di GitHub invece che al repository
+# demo videos (~75 MB): attached to the GitHub Release instead of the repository
 docs/video/

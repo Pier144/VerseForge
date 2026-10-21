@@ -1,144 +1,156 @@
 # VerseForge
 
-Programma locale per **cercare, vedere in 3D ed esportare** i modelli di Star Citizen (armi, accessori, strumenti,
-armature, abiti, navi, componenti, veicoli, oggetti…) direttamente dal `Data.p4k` del gioco installato.
-Non modifica i file del gioco e non scarica nulla: legge l'archivio in sola lettura.
+A local Windows tool to **search, view in 3D and export** Star Citizen models (weapons, attachments, tools, armor,
+clothing, ships, components, vehicles, props…) straight from the `Data.p4k` of your installed game.
+It never modifies the game files and downloads nothing: the archive is opened read-only.
 
-> **English:** VerseForge is a local Windows tool to search, view in 3D and export (GLB / OBJ / STL, plus a closed
-> STL ready for 3D printing) the models of Star Citizen, read directly from your own installed `Data.p4k`.
-> The interface is available in English and Italian. Download the installer from the [Releases](../../releases) page.
+![VerseForge in dark mode](docs/screenshot_dark.png)
 
-![](docs/screenshot_quartz_en.png)
+<details><summary>Light mode</summary>
 
-> Progetto non ufficiale di un fan, non affiliato né approvato da Cloud Imperium Games. Il repository **non contiene
-> file, modelli o texture del gioco**: serve una copia di Star Citizen installata.
+![VerseForge in light mode](docs/screenshot_light.png)
 
-I video dimostrativi (`01_cerca_e_visualizza.mp4`: ricerca, visualizzatore, navi, materiali; `02_esporta_e_stampa.mp4`:
-esportazione GLB/OBJ/STL, STL per la stampa 3D, impostazioni) sono allegati alla [Release](../../releases).
-Si rigenerano in `docs/video/` con `python tools/registra_video.py` mentre l'app è in esecuzione: lo script pilota
-Edge/Chrome in modalità headless e comprime in H.264 con il transcoder di Windows (`tools/comprimi_video.ps1`).
+</details>
 
-## Avvio
+<details><summary>Settings</summary>
 
-### Programma Windows (consigliato)
+![VerseForge settings](docs/screenshot_settings.png)
 
-Scarica **`VerseForge-<versione>-Setup.exe`** dalla pagina [Releases](../../releases) e installalo: non servono permessi
-di amministratore né Python. Crea la voce nel menu Start (e, se vuoi, l'icona sul desktop); si disinstalla da
-*Impostazioni → App*.
+</details>
 
-VerseForge si apre nella sua finestra, senza browser e senza console, e funziona anche senza internet.
+> Unofficial fan project, not affiliated with or endorsed by Cloud Imperium Games. The repository **contains no game
+> files, models or textures**: you need your own installed copy of Star Citizen.
 
-### Versione browser (da sorgente)
+The demo videos (`01_search_and_view.mp4`: search, viewer, ships, materials; `02_export_and_print.mp4`:
+GLB/OBJ/STL export, STL for 3D printing, settings) are attached to the [Release](../../releases).
+They are regenerated in `docs/video/` with `python tools/record_video.py` while the app is running: the script drives
+Edge/Chrome in headless mode and compresses to H.264 with the Windows transcoder (`tools/compress_video.ps1`).
 
-Doppio clic su **`Avvia VerseForge (browser).bat`**: serve Python 3.11+ (le dipendenze in `requirements.txt` si
-installano da sole), si apre il browser su <http://127.0.0.1:8765> e per chiudere basta chiudere la finestra nera.
-`python verseforge_app.py` avvia invece la versione a finestra da sorgente (richiede anche PySide6:
-`python -m pip install -r requirements-build.txt`).
+## Getting started
 
-### Dove salva i dati
+### Windows app (recommended)
 
-| Cosa | Dove |
+Download **`VerseForge-<version>-Setup.exe`** from the [Releases](../../releases) page and install it: no administrator
+rights and no Python needed. It adds a Start menu entry (and, if you want, a desktop icon); uninstall it from
+*Settings → Apps*.
+
+VerseForge opens in its own window, without a browser or a console, and also works offline.
+
+### Browser version (from source)
+
+Double-click **`Start VerseForge (browser).bat`**: it needs Python 3.11+ (the dependencies in `requirements.txt` are
+installed automatically), the browser opens on <http://127.0.0.1:8765>, and closing the black console window stops it.
+`python verseforge_app.py` runs the windowed version from source instead (it also needs PySide6:
+`python -m pip install -r requirements-build.txt`, which installs PySide6 and PyInstaller).
+
+### Where data is stored
+
+| What | Where |
 |---|---|
-| Impostazioni | `%APPDATA%\VerseForge\config.json` |
-| Cache (indice di Data.p4k, nomi) | `%LOCALAPPDATA%\VerseForge` (rigenerata da sola dopo ogni patch) |
-| Esportazioni | `Documenti\VerseForge` (cambiabile nelle impostazioni) |
-| Log della versione .exe | `%LOCALAPPDATA%\VerseForge\verseforge.log` |
+| Settings | `%APPDATA%\VerseForge\config.json` |
+| Cache (Data.p4k index, names) | `%LOCALAPPDATA%\VerseForge` (rebuilt automatically after every patch) |
+| Exports | `Documents\VerseForge` (can be changed in the settings) |
+| Log of the .exe version | `%LOCALAPPDATA%\VerseForge\verseforge.log` |
 
-Il gioco di default è cercato in `C:\Program Files\Roberts Space Industries\StarCitizen\LIVE\Data.p4k`;
-se è altrove (o per usare PTU) cambialo da **⚙ Impostazioni**. Per l'esportazione "stampa 3D" serve Blender
-(rilevato in automatico, oppure indicalo nelle impostazioni).
+By default the game is looked for in `C:\Program Files\Roberts Space Industries\StarCitizen\LIVE\Data.p4k`;
+if it is somewhere else (or to use the PTU) change it in **Settings** (gear icon, top right). The "3D print" export needs Blender
+(detected automatically, or set its path in the settings).
 
-### Ricostruire l'.exe
+### Rebuilding the .exe
 
-`build_exe.bat` rigenera `dist\VerseForge\` (PyInstaller, `VerseForge.spec`) e l'installer (Inno Setup,
-`installer\VerseForge.iss`). Le dipendenze per la build sono in `requirements-build.txt`.
-La versione si cambia in `sc_explorer/__init__.py`, `version_info.txt` e nello script .iss.
+`build_exe.bat` rebuilds `dist\VerseForge\` (PyInstaller, `VerseForge.spec`) and the installer (Inno Setup,
+`installer\VerseForge.iss`). The build dependencies (PySide6, PyInstaller) are in `requirements-build.txt`.
+The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and the .iss script.
 
-## Uso
+## Usage
 
-- **Ricerca**: scrivi nella casella in alto a sinistra. Funzionano i nomi del gioco ("P4-AR", "Morozov-SH",
-  "Arrowhead"), i nomi delle navi ("Gladius", "Cutlass") e i nomi dei file ("brfl_fps_behr"). Trattini e spazi
-  sono ignorati, più parole vanno tutte trovate.
-- **Categorie**: i bottoni filtrano per tipo. "Solo modelli principali" nasconde LOD, decal, proxy di fisica,
-  pezzi interni delle navi: toglilo per vedere ogni singolo file.
-- **Visualizzatore**: trascina per ruotare, rotella per lo zoom, tasto destro per spostare.
-  Tasti: `F` inquadra, `W` wireframe, `R` rotazione automatica, `G` griglia.
-  Puoi nascondere decal, vetri, proxy e i singoli materiali dal pannello di destra.
-- **Variante / verniciatura**: per armi, armature, navi e oggetti che nel gioco hanno più skin o livree compare un
-  menu nel pannello di destra (es. Quartz "Jungle Camo", livree del Gladius). Colori e materiali vengono dal database
-  del gioco (`Game2.dcb`); la prima voce è la verniciatura di serie. Anche l'esportazione usa la variante scelta.
-- **Altri file nella cartella**: elenco dei pezzi collegati (es. calcio, caricatori, ruote, interni).
-- **Lingua**: interfaccia in inglese o italiano, da **⚙ Impostazioni → Lingua**. Al primo avvio segue la lingua di
-  Windows. I nomi degli oggetti restano quelli del gioco (inglese).
+- **Search**: type in the box at the top left. In-game names ("P4-AR", "Morozov-SH", "Arrowhead"), ship names
+  ("Gladius", "Cutlass") and file names ("brfl_fps_behr") all work. Dashes and spaces are ignored; with several
+  words, all of them must match.
+- **Categories**: the buttons filter by type. The "Main models" switch hides LODs, decals, physics proxies and ship
+  interior parts: turn it off to see every single file.
+- **Viewer**: drag to rotate, wheel to zoom, right button to pan.
+  Keys: `F` frame, `W` wireframe, `R` auto-rotate, `G` grid (also in the toolbar at the bottom).
+  Textures, decals, glass and proxies are toggled at the top right of the viewer; single materials can be hidden
+  from the right panel.
+- **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows Windows
+  (also selectable in **Settings → Appearance**).
+- **Variant / paint**: for weapons, armor, ships and items that have several skins or liveries in the game, a menu
+  appears in the right panel (e.g. Quartz "Jungle Camo", Gladius liveries). Colours and materials come from the
+  game database (`Game2.dcb`); the first entry is the default paint. Exports use the selected variant too.
+- **Same folder**: list of the related parts (e.g. stock, magazines, wheels, interiors).
+- Item names are the in-game (English) names.
 
-## Esportazione
+## Export
 
-| Formato | Contenuto |
+| Format | Content |
 |---|---|
-| **GLB** | glTF binario con materiali e texture (colore + normal map, fino a 2048 px), metri, Y in alto. Si apre in Blender, Visualizzatore 3D di Windows, ecc. |
-| **OBJ** | zip con `.obj` + `.mtl` + cartella `textures/` (JPG/PNG), metri, Y in alto |
-| **STL** | superfici grezze del gioco in **millimetri**, Z in alto. Non è chiuso: va bene per riferimento, non per stampare |
-| **STL per stampa** | solido chiuso e riempito, in mm, pronto per lo slicer (Blender in background: solidify + voxel remesh, poi riempimento dell'interno). Su oggetti grandi può richiedere minuti |
+| **GLB** | Binary glTF with materials and textures (colour + normal map, up to 2048 px), metres, Y up. Opens in Blender, Windows 3D Viewer, etc. |
+| **OBJ** | Zip with `.obj` + `.mtl` + a `textures/` folder (JPG/PNG), metres, Y up |
+| **STL** | Raw game surfaces in **millimetres**, Z up. Not closed: fine as a reference, not for printing |
+| **STL for printing** | Closed, filled solid in mm, ready for the slicer (Blender in the background: solidify + voxel remesh, then the interior is filled). Large objects can take minutes |
 
-Le texture si possono escludere togliendo la spunta "texture in GLB/OBJ" (file molto più piccoli).
-Ogni esportazione viene anche salvata in `Documenti\VerseForge` (cambiabile nelle impostazioni).
-Per una stampa grande la divisione in pezzi con perni va fatta a parte (es. in Blender o nello slicer).
+Textures can be left out by turning off "Textures in GLB / OBJ" (much smaller files).
+Every export is also saved in `Documents\VerseForge` (can be changed in the settings).
+For a large print, splitting into pegged pieces has to be done separately (e.g. in Blender or in the slicer).
 
-## Limiti noti
+## Known limitations
 
-- **Texture approssimate**: vengono caricate la texture di colore (`_diff`) e la normal map (`_ddna`) di ogni
-  materiale; per i materiali a strati (`LayerBlend`, `HardSurface` di navi e armi) si usa il primo strato ripetuto
-  secondo il suo `UVTiling`, con i colori della tavolozza della variante scelta. Non sono ricostruiti usura, sporco,
-  maschere di miscela tra strati, luci emissive e decal colorate dalla tavolozza: il risultato è vicino al gioco ma non
-  identico. Interruttore **Texture** in basso nel visualizzatore per confrontare.
-- **Navi**: viene assemblato lo scafo con tutti i suoi nodi (ali, carrelli, portelli…). Armi, motori e componenti
-  montati sugli hardpoint e gli interni (file `.socpak`) sono oggetti separati, cercabili a parte.
-- **Nomi del gioco**: ricavati dall'ordine delle stringhe nel DataCore (non un'analisi completa). Sono corretti per
-  quasi tutte armi, armature, abiti e veicoli; per oggetti decorativi possono essere imprecisi, per questo nelle
-  categorie Ambienti/Altro restano i nomi dei file.
-- Alcuni `.cdf`/`.cga` sono solo contenitori senza geometria: il programma lo segnala.
-- I modelli sono di proprietà di Cloud Imperium Games / Roberts Space Industries: usali solo per scopi personali e
-  non commerciali.
+- **Approximate textures**: the colour texture (`_diff`) and the normal map (`_ddna`) of every material are loaded;
+  for layered materials (`LayerBlend`, `HardSurface` on ships and weapons) the first layer is used, repeated according
+  to its `UVTiling`, with the palette colours of the selected variant. Wear, dirt, blend masks between layers,
+  emissive lights and palette-coloured decals are not reconstructed: the result is close to the game but not
+  identical. Use the **Textures** toggle at the top right of the viewer to compare.
+- **Ships**: the hull is assembled with all its nodes (wings, landing gear, doors…). Weapons, engines and components
+  mounted on hardpoints, and interiors (`.socpak` files), are separate objects that can be searched on their own.
+- **In-game names**: derived from the order of the strings in DataCore (not a full parse). They are correct for
+  almost all weapons, armor, clothing and vehicles; for decorative props they can be inaccurate, which is why the
+  Environments/Other categories keep the file names.
+- Some `.cdf`/`.cga` files are only containers without geometry: the program reports it.
+- The models are the property of Cloud Imperium Games / Roberts Space Industries: use them only for personal,
+  non-commercial purposes.
 
-## Struttura
+## Project structure
 
 ```
-avvia.py                 versione browser: server (uvicorn) e apertura del browser
-sc_explorer/p4k.py       lettura di Data.p4k (ZIP64, zstd, AES)
-sc_explorer/ivo.py       formato geometria #ivo (.cgf/.cga/.skin/.chr + file *m)
-sc_explorer/cryxml.py    XML binario CryEngine (.mtl, .cdf)
-sc_explorer/materials.py materiali: nomi, colori, texture, tipo (solido/decal/vetro/proxy)
-sc_explorer/datacore.py  lettura del database del gioco (Game2.dcb, formato v8)
-sc_explorer/variants.py  verniciature: per ogni modello le skin/livree con materiale e tavolozza di colori
-sc_explorer/textures.py  texture .dds divise in mip (.dds.1 … .dds.N), decodifica BC1–BC7 (BC5 firmato a mano)
-sc_explorer/model.py     assemblaggio: nodi delle navi, attacchi dei .cdf sulle ossa
-sc_explorer/catalog.py   catalogo, categorie, nomi del gioco, ricerca
-sc_explorer/i18n.py      lingua dell'interfaccia: testi del server (inglese/italiano); quelli della pagina sono in web/app.js
+start.py                 browser version: server (uvicorn) and opening the browser
+sc_explorer/p4k.py       Data.p4k reader (ZIP64, zstd, AES)
+sc_explorer/ivo.py       #ivo geometry format (.cgf/.cga/.skin/.chr + *m files)
+sc_explorer/cryxml.py    CryEngine binary XML (.mtl, .cdf)
+sc_explorer/materials.py materials: names, colours, textures, kind (solid/decal/glass/proxy)
+sc_explorer/datacore.py  game database reader (Game2.dcb, format v8)
+sc_explorer/variants.py  paints: for every model, the skins/liveries with their material and colour palette
+sc_explorer/textures.py  .dds textures split into mips (.dds.1 … .dds.N), BC1–BC7 decoding (signed BC5 by hand)
+sc_explorer/model.py     assembly: ship nodes, .cdf attachments on bones
+sc_explorer/catalog.py   catalogue, categories, in-game names, search
+sc_explorer/i18n.py      texts produced by the server (status, categories, warnings)
 sc_explorer/export.py    GLB / OBJ / STL
-sc_explorer/printing.py  STL chiuso per la stampa 3D (Blender + riempimento)
-sc_explorer/server.py    API web
-web/                     interfaccia (HTML/CSS/JS); three.js 0.160 incluso in web/vendor (licenza MIT)
-verseforge_app.py        programma a finestra (Qt WebEngine), punto di ingresso di VerseForge.exe
-VerseForge.spec          configurazione PyInstaller; installer/VerseForge.iss per Inno Setup
-tests/test_formats.py    test sul gioco installato (python -m pytest tests; saltati se Data.p4k manca)
-tools/                   registrazione e compressione dei video dimostrativi
+sc_explorer/printing.py  closed STL for 3D printing (Blender + interior fill)
+sc_explorer/server.py    web API
+web/                     interface (HTML/CSS/JS); three.js 0.160 bundled in web/vendor (MIT license)
+verseforge_app.py        windowed app (Qt WebEngine), entry point of VerseForge.exe
+VerseForge.spec          PyInstaller configuration; installer/VerseForge.iss for Inno Setup
+tests/test_formats.py    tests against the installed game (python -m pytest tests; skipped if Data.p4k is missing)
+tools/                   recording and compression of the demo videos
 ```
 
-Dettagli dei formati scoperti durante lo sviluppo:
+Format details discovered during development:
 
-- Stream dei vertici `0xB3A70D5E`: posizione snorm16 scalata con `max(|max-min|/2, 1)` per asse e traslata al
-  centro del bounding box; `0x91329AE9`: posizione float32. L'header della mesh ha due bounding box: il primo
-  (offset +24) è in spazio oggetto, il secondo (+48) è l'unione dei box locali dei nodi. Se il file ha la tabella dei
-  nodi le posizioni vanno decodificate col secondo e poi trasformate dal nodo (`ivo.mesh(..., node_space=True)`):
-  col primo le navi grandi a più nodi (es. Perseus) uscivano spostate e deformate. I LOD senza nodi usano il primo.
-- Subset della mesh (48 byte): `materiale | nodo<<16`, primo indice, n. indici, primo vertice, **base degli indici**
-  (da sommare agli indici a 16 bit), n. vertici.
-- Chunk nodi `0x70697FDA`: record da 208 byte; la prima matrice 3×4 è la trasformazione nello spazio dell'oggetto.
-  Seguono indici, id materiali e la tabella dei nomi dei nodi.
-- Ossa `0xC2011111`: record da 68 byte (id, parent, quaternione e posizione relativi e mondo), nomi in coda.
+- Vertex stream `0xB3A70D5E`: snorm16 position scaled by `max(|max-min|/2, 1)` per axis and offset to the centre of
+  the bounding box; `0x91329AE9`: float32 position. The mesh header has two bounding boxes: the first (offset +24)
+  is in object space, the second (+48) is the union of the nodes' local boxes. If the file has a node table, the
+  positions must be decoded with the second one and then transformed by the node (`ivo.mesh(..., node_space=True)`):
+  with the first one, large multi-node ships (e.g. Perseus) came out shifted and distorted. LODs without nodes use the
+  first one.
+- Mesh subset (48 bytes): `material | node<<16`, first index, index count, first vertex, **index base**
+  (to be added to the 16-bit indices), vertex count.
+- Node chunk `0x70697FDA`: 208-byte records; the first 3×4 matrix is the transform into object space.
+  Indices, material ids and the node name table follow.
+- Bones `0xC2011111`: 68-byte records (id, parent, relative and world quaternion and position), names at the end.
 
-## Licenza
+## License
 
-Il codice di VerseForge è distribuito con licenza [MIT](LICENSE). La licenza riguarda solo il codice: Star Citizen,
-i suoi file e i modelli/texture letti da `Data.p4k` restano di Cloud Imperium Games / Roberts Space Industries e vanno
-usati solo per scopi personali e non commerciali. three.js (`web/vendor/three`) è incluso con licenza MIT.
+VerseForge's code is released under the [MIT](LICENSE) license. The license covers only the code: Star Citizen, its
+files and the models/textures read from `Data.p4k` remain the property of Cloud Imperium Games / Roberts Space
+Industries and should be used only for personal, non-commercial purposes. three.js (`web/vendor/three`) is bundled
+under the MIT license.

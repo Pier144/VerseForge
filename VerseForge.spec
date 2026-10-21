@@ -23,7 +23,7 @@ a = Analysis(["verseforge_app.py"], pathex=["."], binaries=binaries, datas=datas
 
 
 def _keep(dest):
-    """Drop Qt files VerseForge never uses (~170 MB): debug paks, devtools, QML, translations except it/en."""
+    """Drop Qt files VerseForge never uses (~170 MB): debug paks, devtools, QML, translations (English only)."""
     d = dest.replace("\\", "/").lower()
     if "pyside6/" not in d:
         return True
@@ -33,9 +33,9 @@ def _keep(dest):
     if "/qml/" in d or "/plugins/qmltooling/" in d:
         return False
     if "/translations/qtwebengine_locales/" in d:
-        return name in ("it.pak", "en-us.pak")
+        return name == "en-us.pak"
     if "/translations/" in d:
-        return name.endswith("_it.qm")
+        return False                  # Qt is English by default: no .qm files needed
     return True
 
 

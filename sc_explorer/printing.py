@@ -34,7 +34,6 @@ bpy.ops.wm.stl_export(filepath=dst)
 
 BLENDER_CANDIDATES = [
     r"C:\Program Files\Blender Foundation",
-    r"D:\Programmi",
     r"C:\Program Files",
     r"D:\Program Files",
 ]

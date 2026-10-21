@@ -3,11 +3,13 @@
 Drives a headless Edge/Chrome through the DevTools protocol, captures the page with Page.startScreencast,
 draws a visible cursor + captions inside the page, and encodes an H.264 MP4 with OpenCV (Windows Media Foundation).
 
-    python tools/registra_video.py            # the Italian videos into docs/video
-    python tools/registra_video.py ricerca    # only one
-    python tools/registra_video.py demo_en    # short English presentation (set the interface to English first)
-    python tools/registra_video.py demo_en_notext    # the same without captions, only opening and closing titles
-Requires the app running on http://127.0.0.1:8765 (avvia.py); another address with VERSEFORGE_URL.
+    python tools/record_video.py                   # the two tutorial videos (search, export) into docs/video
+    python tools/record_video.py search            # only one
+    python tools/record_video.py demo_en           # short presentation of the program
+    python tools/record_video.py demo_en_notext    # the same without captions, only opening and closing titles
+Requires the app running on http://127.0.0.1:8765 (start.py); another address with VERSEFORGE_URL.
+The scenes rely on element ids and data attributes (#q, #results li, [data-exp], [data-act], #btnPrint, #btnSettings…),
+never on interface text.
 """
 import asyncio
 import base64
@@ -28,6 +30,8 @@ APP = os.environ.get("VERSEFORGE_URL", "http://127.0.0.1:8765/").rstrip("/") + "
 W, H, FPS = 1600, 900, 30
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(HERE, "docs", "video")
+# the print job is done when its download link appears (independent of the interface text)
+PRINT_DONE = "!!document.querySelector('#printStatus a[href]')"
 BROWSERS = [r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
             r"C:\Program Files\Google\Chrome\Application\chrome.exe"]
 
@@ -135,7 +139,7 @@ class Page:
             const e = els[{index}]; if (!e) return null; e.scrollIntoView({{block:'nearest'}});
             const b = e.getBoundingClientRect(); return [b.left + b.width/2, b.top + b.height/2]; }})()""")
         if r is None:
-            raise RuntimeError(f"elemento non trovato: {selector}")
+            raise RuntimeError(f"element not found: {selector}")
         return r
 
     async def move(self, x, y, duration=0.6, buttons=0):
@@ -161,7 +165,7 @@ class Page:
     async def click_text(self, selector, text):
         idx = await self.js(f"[...document.querySelectorAll({json.dumps(selector)})].findIndex(e => e.textContent.includes({json.dumps(text)}))")
         if idx is None or idx < 0:
-            raise RuntimeError(f"testo non trovato: {text}")
+            raise RuntimeError(f"text not found: {text}")
         await self.click(selector, idx)
 
     async def drag(self, dx, dy, duration=1.2, start=None, button="left"):
@@ -191,6 +195,10 @@ class Page:
     async def clear_field(self, selector):
         await self.js(f"(() => {{ const e = document.querySelector({json.dumps(selector)}); e.value=''; e.dispatchEvent(new Event('input')); }})()")
 
+    async def close_dialog(self):
+        """Close the open settings dialog (like pressing Esc)."""
+        await self.js("(() => { const d = document.querySelector('dialog[open]'); if (d) d.close(); })()")
+
     async def until(self, expr, timeout=120):
         t = time.time()
         while time.time() - t < timeout:
@@ -208,7 +216,7 @@ class Page:
     def encode(self, path, t_start, t_end):
         frames = [(t, f) for t, f in self.frames if t <= t_end]
         if not frames:
-            raise RuntimeError("nessun frame catturato")
+            raise RuntimeError("no frames captured")
         warps = sorted(self.warps)
 
         def warp(t):  # wall time -> playback time
@@ -243,22 +251,22 @@ class Page:
 
 
 # ---------------------------------------------------------------------- scenes
-async def scene_ricerca(p):
-    await p.title("VerseForge", "Cerca, guarda in 3D ed esporta i modelli di Star Citizen")
+async def scene_search(p):
+    await p.title("VerseForge", "Search, view in 3D and export Star Citizen models")
     await p.wait(2.8)
     await p.title(None)
     await p.wait(0.8)
 
-    await p.caption("1 · Cerca un oggetto", "funzionano i nomi del gioco, delle navi e dei file")
+    await p.caption("1 · Search for an item", "in-game names, ship names and file names all work")
     await p.click("#q")
     await p.type("P4-AR")
     await p.wait(1.4)
-    await p.caption("2 · Clicca un risultato per aprirlo in 3D")
-    await p.click(".results li", 0)
+    await p.caption("2 · Click a result to open it in 3D")
+    await p.click("#results li", 0)
     await p.model_loaded()
     await p.wait(1.2)
 
-    await p.caption("3 · Trascina per ruotare, rotella per lo zoom", "tasto destro per spostare la vista")
+    await p.caption("3 · Drag to rotate, wheel to zoom", "right button to pan the view")
     await p.drag(260, 40, 1.6, start=(800, 420))
     await p.drag(-120, -70, 1.2)
     await p.wheel(-120, 7)
@@ -268,7 +276,7 @@ async def scene_ricerca(p):
     await p.drag(90, 0, 0.9, button="right")
     await p.wait(0.4)
 
-    await p.caption("Inquadra, wireframe, rotazione automatica, griglia…", "a destra misure reali, triangoli e materiali")
+    await p.caption("Frame, wireframe, auto-rotate, grid…", "on the right: real dimensions, triangles and materials")
     await p.click('[data-act="reset"]')
     await p.wait(0.8)
     await p.click('[data-act="wire"]')
@@ -280,21 +288,21 @@ async def scene_ricerca(p):
     await p.click('[data-act="rotate"]')
     await p.wait(0.6)
 
-    await p.caption("4 · Filtra per categoria", "es. Navi: lo scafo viene assemblato con tutti i suoi pezzi")
+    await p.caption("4 · Filter by category", "e.g. Ships: the hull is assembled with all its parts")
     await p.clear_field("#q")
-    await p.click('.chip[data-id="navi"]')
+    await p.click('#cats [data-id="ships"]')
     await p.wait(1.2)
     await p.click("#q")
     await p.type("gladius")
     await p.wait(1.2)
-    await p.click(".results li", 0)
+    await p.click("#results li", 0)
     await p.model_loaded()
     await p.wait(0.8)
     await p.drag(-300, 30, 2.0, start=(820, 400))
     await p.wheel(-120, 5)
     await p.wait(0.8)
 
-    await p.caption("5 · Mostra o nascondi decal, vetri e singoli materiali")
+    await p.caption("5 · Show or hide decals, glass and single materials")
     await p.click('[data-kind="decal"]')
     await p.wait(1.0)
     await p.click('[data-kind="decal"]')
@@ -309,33 +317,33 @@ async def scene_ricerca(p):
     await p.click('[data-kind="glass"]')
     await p.wait(0.8)
 
-    await p.caption("Nel pannello a destra: gli altri file della stessa cartella", "pezzi, varianti, interni")
+    await p.caption("On the right: the other files in the same folder", "parts, variants, interiors")
     await p.click_text("#related li", "_Int.cga")
     await p.model_loaded()
     await p.drag(-200, 40, 1.4, start=(820, 400))
     await p.wheel(-120, 4)
     await p.wait(1.5)
     await p.caption(None)
-    await p.title("Buona esplorazione!", "VerseForge.exe")
+    await p.title("Happy exploring!", "VerseForge.exe")
     await p.wait(2.5)
 
 
-async def scene_esporta(p):
-    await p.title("Esportare e stampare in 3D", "GLB · OBJ · STL · STL solido per la stampa")
+async def scene_export(p):
+    await p.title("Export and 3D print", "GLB · OBJ · STL · solid STL for printing")
     await p.wait(2.6)
     await p.title(None)
     await p.wait(0.8)
 
-    await p.caption("Apri un modello", "qui il caricatore del P4-AR")
+    await p.caption("Open a model", "here the P4-AR magazine")
     await p.click("#q")
     await p.type("p4-ar magazine")
     await p.wait(1.2)
-    await p.click(".results li", 0)
+    await p.click("#results li", 0)
     await p.model_loaded()
     await p.drag(200, 20, 1.2, start=(800, 420))
     await p.wait(0.6)
 
-    await p.caption("Esporta con un clic: GLB, OBJ o STL", "il file si scarica e una copia va nella cartella «esportazioni»")
+    await p.caption("Export with one click: GLB, OBJ or STL", "the file is downloaded and a copy goes to the exports folder")
     await p.click('[data-exp="glb"]')
     await p.wait(2.2)
     await p.click('[data-exp="obj"]')
@@ -343,24 +351,24 @@ async def scene_esporta(p):
     await p.click('[data-exp="stl"]')
     await p.wait(2.4)
 
-    await p.caption("Stampa 3D: «Crea STL per stampa»", "Blender rende il modello un solido chiuso e lo riempie, in millimetri")
+    await p.caption("3D printing: make a printable STL", "Blender turns the model into a closed, filled solid, in millimetres")
     await p.click("#btnPrint")
     await p.wait(2.5)
-    await p.caption("Elaborazione in corso…", "video accelerato ×8")
+    await p.caption("Processing…", "video sped up ×8")
     p.speed(8.0)
-    await p.until("document.getElementById('printStatus').textContent.startsWith('Pronto')", 600)
+    await p.until(PRINT_DONE, 600)
     p.speed(1.0)
-    await p.caption("Pronto: STL chiuso, con misure e volume", "si scarica dal link oppure dalla cartella esportazioni")
+    await p.caption("Ready: closed STL, with dimensions and volume", "download it from the link or from the exports folder")
     await p.move(*await p.center("#printStatus"), 0.8)
     await p.wait(3.5)
 
-    await p.caption("Impostazioni: percorso del gioco, cartella esportazioni, Blender")
+    await p.caption("Settings: game path, exports folder, Blender")
     await p.click("#btnSettings")
     await p.wait(3.0)
-    await p.click('#settings button[value="cancel"]')
+    await p.close_dialog()
     await p.wait(0.8)
     await p.caption(None)
-    await p.title("Pronto per lo slicer", "STL in millimetri, asse Z in alto")
+    await p.title("Ready for the slicer", "STL in millimetres, Z axis up")
     await p.wait(2.5)
 
 
@@ -391,7 +399,7 @@ async def scene_demo_en(p, captions=True):
     await p.click("#q")
     await p.type("quartz")
     await p.wait(1.2)
-    await p.click_text(".results li", "Quartz Energy SMG")
+    await p.click_text("#results li", "Quartz Energy SMG")
     await p.model_loaded()
     await p.wait(0.8)
 
@@ -422,7 +430,7 @@ async def scene_demo_en(p, captions=True):
     await p.click("#q")
     await p.type("gladius")
     await p.wait(1.2)
-    await p.click_text(".results li", "Gladius")
+    await p.click_text("#results li", "Gladius")
     await p.model_loaded()
     await p.drag(-300, 30, 2.0, start=(820, 420))
     await p.wheel(-120, 4)
@@ -446,11 +454,11 @@ async def scene_demo_en(p, captions=True):
 
 
 # name -> (output file, scene, bitrate in kbit/s)
-SCENES = {"ricerca": ("01_cerca_e_visualizza.mp4", scene_ricerca, 3000),
-          "esporta": ("02_esporta_e_stampa.mp4", scene_esporta, 3000),
+SCENES = {"search": ("01_search_and_view.mp4", scene_search, 3000),
+          "export": ("02_export_and_print.mp4", scene_export, 3000),
           "demo_en": ("verseforge_demo_en.mp4", scene_demo_en, 2000),   # small enough to attach to a support ticket
           "demo_en_notext": ("verseforge_demo_en_notext.mp4", lambda p: scene_demo_en(p, captions=False), 2000)}
-ITALIAN = ("ricerca", "esporta")
+TUTORIALS = ("search", "export")
 
 
 # ---------------------------------------------------------------------- runner
@@ -480,7 +488,7 @@ async def record(name, browser):
             await p.send("Page.addScriptToEvaluateOnNewDocument", source=f"window.addEventListener('DOMContentLoaded', () => {{ {OVERLAY_JS} }});")
             await p.send("Page.navigate", url=APP)
             await p.until("document.readyState === 'complete' && !!window.__demo", 30)
-            await p.until("document.querySelectorAll('.chip').length > 3", 120)   # catalogue ready
+            await p.until("document.querySelectorAll('#cats [data-id]').length > 3", 120)   # catalogue ready
             await p.title("VerseForge", "")
             await p.wait(0.5)
             await p.send("Page.startScreencast", format="jpeg", quality=88, maxWidth=W, maxHeight=H, everyNthFrame=1)
@@ -494,7 +502,7 @@ async def record(name, browser):
             os.makedirs(OUT_DIR, exist_ok=True)
             dur = p.encode(raw, t0, t1)
             compress(raw, out, kbps)
-            print(f"{filename}: {dur:.1f} s, {len(p.frames)} frame catturati, {os.path.getsize(out) / 1e6:.1f} MB")
+            print(f"{filename}: {dur:.1f} s, {len(p.frames)} frames captured, {os.path.getsize(out) / 1e6:.1f} MB")
             p.reader.cancel()
     finally:
         proc.terminate()
@@ -508,25 +516,25 @@ async def record(name, browser):
 
 def compress(raw, out, kbps=3000):
     """OpenCV's Media Foundation writer ignores quality settings (~40 Mbit/s): re-encode with Windows' transcoder."""
-    script = os.path.join(HERE, "tools", "comprimi_video.ps1")
+    script = os.path.join(HERE, "tools", "compress_video.ps1")
     r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-In", raw, "-Out", out,
                         "-Kbps", str(kbps)], capture_output=True, text=True)
     if r.returncode == 0 and os.path.exists(out):
         os.remove(raw)
     else:
-        print("Compressione non riuscita, tengo il file grezzo:", r.stdout[-300:], r.stderr[-300:])
+        print("Compression failed, keeping the raw file:", r.stdout[-300:], r.stderr[-300:])
         os.replace(raw, out)
 
 
 def main():
     browser = next((b for b in BROWSERS if os.path.isfile(b)), None)
     if not browser:
-        sys.exit("Edge o Chrome non trovati")
+        sys.exit("Edge or Chrome not found")
     try:
         urllib.request.urlopen(APP + "api/status", timeout=2)
     except OSError:
-        sys.exit("Avvia prima l'app (avvia.py)")
-    for name in (sys.argv[1:] or ITALIAN):
+        sys.exit("Start the app first (start.py)")
+    for name in (sys.argv[1:] or TUTORIALS):
         asyncio.run(record(name, browser))
 
 

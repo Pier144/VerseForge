@@ -29,12 +29,13 @@ DEFAULT_P4K = r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE\Data.
 
 def load_config():
     cfg = {"p4k_path": DEFAULT_P4K, "export_dir": DEFAULT_EXPORTS, "blender": "", "language": "english",
-           "ui_lang": i18n.system_lang()}
+           "appearance": "system"}
     if os.path.exists(CONFIG_FILE):
         try:
             cfg.update(json.load(open(CONFIG_FILE, encoding="utf-8")))
         except (OSError, ValueError):
             pass
+    cfg.pop("ui_lang", None)          # setting of older versions (the interface is English only now)
     return cfg
 
 
@@ -51,7 +52,7 @@ class State:
         self.items = []
         self.by_path = {}
         self.variants = {}               # geometry path (lowercase) -> paint variants from DataCore
-        # messages are (i18n key, {args}) tuples, translated when the interface asks for them
+        # messages are (i18n key, {args}) tuples, turned into text when the interface asks for them
         self.status = {"ready": False, "message": ("starting",), "progress": 0.0, "error": None}
         self.models = OrderedDict()       # path -> Model (small LRU)
         self.lock = threading.Lock()
@@ -156,22 +157,18 @@ state = State()
 app = FastAPI(title=APP_NAME, version=__version__)
 
 
-def lang():
-    return i18n.norm(state.cfg.get("ui_lang"))
-
-
 def tr(key, **kw):
-    return i18n.t(lang(), key, **kw)
+    return i18n.t(key, **kw)
 
 
 def _msg(m):
     if isinstance(m, tuple) and m and m[0] == "models_ready":
-        return tr("models_ready", n=i18n.fmt_int(m[1]["n"], lang()))
-    return i18n.msg(m, lang()) if m is not None else None
+        return tr("models_ready", n=i18n.fmt_int(m[1]["n"]))
+    return i18n.msg(m) if m is not None else None
 
 
 def _err(e):
-    """Exception as a message that can be translated later."""
+    """Exception as a message that is turned into text later."""
     return (e.key, e.kw) if isinstance(e, i18n.LocalizedError) else str(e)
 
 
@@ -186,7 +183,7 @@ def _require_ready():
 
 
 def _item_json(it):
-    return {"path": it.path, "name": it.name, "subtitle": catalog.subtitle(it, lang()), "category": it.category, "ext": it.ext,
+    return {"path": it.path, "name": it.name, "subtitle": catalog.subtitle(it), "category": it.category, "ext": it.ext,
             "size": it.size, "main": it.main, "game_name": it.game_name}
 
 
@@ -198,7 +195,7 @@ def _stem(path):
 def status():
     return {**state.status, "message": _msg(state.status["message"]), "error": _msg(state.status["error"]),
             "app": APP_NAME, "version": __version__, "p4k_path": state.cfg["p4k_path"], "export_dir": state.cfg["export_dir"],
-            "blender": printing.find_blender(state.cfg.get("blender")), "ui_lang": lang()}
+            "blender": printing.find_blender(state.cfg.get("blender")), "appearance": state.cfg.get("appearance", "system")}
 
 
 @app.get("/api/categories")
@@ -207,8 +204,7 @@ def categories():
     for it in state.items:
         if it.main:
             counts[it.category] = counts.get(it.category, 0) + 1
-    labels = i18n.CATEGORIES[lang()]
-    return [{"id": k, "label": labels[k], "count": counts.get(k, 0)} for k in catalog.CATEGORIES]
+    return [{"id": k, "label": i18n.CATEGORIES[k], "count": counts.get(k, 0)} for k in catalog.CATEGORIES]
 
 
 @app.get("/api/search")
@@ -327,7 +323,7 @@ def print_file(job_id: str):
 
 # ------------------------------------------------------------------ settings
 @app.post("/api/config")
-def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", ui_lang: str = ""):
+def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", appearance: str = ""):
     changed_p4k = p4k_path and p4k_path != state.cfg["p4k_path"]
     if p4k_path:
         state.cfg["p4k_path"] = p4k_path
@@ -335,8 +331,8 @@ def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", ui_l
         state.cfg["export_dir"] = export_dir
     if blender:
         state.cfg["blender"] = blender
-    if ui_lang in i18n.LANGS:
-        state.cfg["ui_lang"] = ui_lang
+    if appearance in ("system", "light", "dark"):
+        state.cfg["appearance"] = appearance
     save_config(state.cfg)
     if changed_p4k:
         threading.Thread(target=state.load, daemon=True).start()
@@ -354,7 +350,7 @@ def open_exports():
 @app.exception_handler(Exception)
 def _errors(_request, exc):
     traceback.print_exc()
-    return JSONResponse({"detail": i18n.error_text(exc, lang())}, status_code=500)
+    return JSONResponse({"detail": i18n.error_text(exc)}, status_code=500)
 
 
 @app.middleware("http")

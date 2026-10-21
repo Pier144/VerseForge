@@ -14,66 +14,19 @@ const api = async (url, opts) => {
   return r;
 };
 
-// ---------------------------------------------------------------- language (the server keeps it in config.json)
+// ---------------------------------------------------------------- texts built by the script
 const STRINGS = {
-  en: {
-    starting: "Starting…", settings: "Settings", settingsBtn: "⚙ Settings", searchPh: "Search: P4-AR, Gladius, Morozov, multitool…",
-    mainOnly: "Main models only", emptyMsg: "Search for an item on the left and click it to view it in 3D.",
-    emptyHint: "Drag to rotate · wheel to zoom · right button to pan", loading: "Loading…", loadingOf: "Loading {name}…",
-    frame: "⤢ Frame", frameT: "Frame (F)", wire: "▦ Wireframe", wireT: "Wireframe (W)", rotate: "⟳ Rotate", rotateT: "Auto-rotate (R)",
-    grid: "# Grid", gridT: "Grid (G)", bg: "◐ Background", bgT: "Light/dark background", shot: "📷 Screenshot", shotT: "Save PNG image",
-    tex: "Textures", texT: "Game textures (colour and normal map). Turn off to see only the material colours",
-    decals: "Decals", glass: "Glass", proxy: "Proxy/physics", noModel: "No model selected.", export: "Export",
-    glbT: "Binary glTF with materials and textures (Blender, Windows 3D Viewer…)", objT: "OBJ + MTL + textures in a zip",
-    stlT: "Raw STL in millimetres, game surfaces as they are", expDecals: "include decals in OBJ/STL", expTex: "textures in GLB/OBJ",
-    print: "3D printing", printHint: "Creates a solid, closed STL (in mm), ready for the slicer. Uses Blender in the background; large objects can take a few minutes.",
-    fill: "fill interior", printBtn: "Create printable STL", openExports: "📂 Open exports folder", materials: "Materials",
-    clickHide: "(click to hide)", related: "Other files in the folder", cfgP4k: "Data.p4k path", cfgExport: "Exports folder",
-    cfgBlender: "Blender (blender.exe, for 3D printing)", autoDetected: "detected automatically", cfgLang: "Language",
-    cancel: "Cancel", save: "Save", width: "Width", length: "Length", height: "Height", triangles: "Triangles", parts: "Parts",
-    variant: "Variant / paint", loadFailed: "Could not load the model: {error}", exported: "Exported {name} (copy saved to {dir})",
-    exportsDir: "exports", exportFailed: "Export failed: {error}", print3d: "3D print: {error}",
-    printReady: "Ready: {size} mm, {volume} cm³, {closed}.", closedYes: "closed ✓", closedNo: "not fully closed",
-    downloadStl: "Download STL", printDone: "Printable STL of {name} ready", results: "{n} results", resultsOf: "{n} results (first {shown})",
-    all: "All", openSettings: "open Settings to fix the path", serverDown: "Server not reachable…", saved: "Settings saved",
-    kindDecal: "decal", kindGlass: "glass", kindProxy: "proxy",
-  },
-  it: {
-    starting: "Avvio…", settings: "Impostazioni", settingsBtn: "⚙ Impostazioni", searchPh: "Cerca: P4-AR, Gladius, Morozov, multitool…",
-    mainOnly: "Solo modelli principali", emptyMsg: "Cerca un oggetto a sinistra e cliccalo per vederlo in 3D.",
-    emptyHint: "Trascina per ruotare · rotella per lo zoom · tasto destro per spostare", loading: "Caricamento…", loadingOf: "Caricamento di {name}…",
-    frame: "⤢ Inquadra", frameT: "Inquadra (F)", wire: "▦ Wireframe", wireT: "Wireframe (W)", rotate: "⟳ Ruota", rotateT: "Rotazione automatica (R)",
-    grid: "# Griglia", gridT: "Griglia (G)", bg: "◐ Sfondo", bgT: "Sfondo chiaro/scuro", shot: "📷 Screenshot", shotT: "Salva immagine PNG",
-    tex: "Texture", texT: "Texture del gioco (colore e rilievo). Disattiva per vedere solo i colori dei materiali",
-    decals: "Decal", glass: "Vetri", proxy: "Proxy/fisica", noModel: "Nessun modello selezionato.", export: "Esporta",
-    glbT: "glTF binario con materiali e texture (Blender, Windows 3D Viewer…)", objT: "OBJ + MTL + texture in uno zip",
-    stlT: "STL grezzo in millimetri, superfici del gioco così come sono", expDecals: "includi decal in OBJ/STL", expTex: "texture in GLB/OBJ",
-    print: "Stampa 3D", printHint: "Crea un STL solido e chiuso (in mm), pronto per lo slicer. Usa Blender in background; per oggetti grandi può richiedere qualche minuto.",
-    fill: "riempi interno", printBtn: "Crea STL per stampa", openExports: "📂 Apri cartella esportazioni", materials: "Materiali",
-    clickHide: "(clic per nascondere)", related: "Altri file nella cartella", cfgP4k: "Percorso di Data.p4k", cfgExport: "Cartella esportazioni",
-    cfgBlender: "Blender (blender.exe, per la stampa 3D)", autoDetected: "rilevato automaticamente", cfgLang: "Lingua",
-    cancel: "Annulla", save: "Salva", width: "Larghezza", length: "Lunghezza", height: "Altezza", triangles: "Triangoli", parts: "Parti",
-    variant: "Variante / verniciatura", loadFailed: "Impossibile caricare il modello: {error}", exported: "Esportato {name} (copia salvata in {dir})",
-    exportsDir: "esportazioni", exportFailed: "Esportazione fallita: {error}", print3d: "Stampa 3D: {error}",
-    printReady: "Pronto: {size} mm, {volume} cm³, {closed}.", closedYes: "chiuso ✓", closedNo: "non del tutto chiuso",
-    downloadStl: "Scarica STL", printDone: "STL per la stampa di {name} pronto", results: "{n} risultati", resultsOf: "{n} risultati (primi {shown})",
-    all: "Tutto", openSettings: "apri le Impostazioni per correggere il percorso", serverDown: "Server non raggiungibile…", saved: "Impostazioni salvate",
-    kindDecal: "decal", kindGlass: "vetro", kindProxy: "proxy",
-  },
+  loading: "Loading…", loadingOf: "Loading {name}…", width: "Width", length: "Length", height: "Height",
+  triangles: "Triangles", parts: "Parts", materials: "Materials", variant: "Variant / paint",
+  loadFailed: "Could not load the model: {error}", exported: "Exported {name} (copy saved to {dir})",
+  exportsDir: "exports", exportFailed: "Export failed: {error}", print3d: "3D print: {error}",
+  printReady: "Ready: {size} mm, {volume} cm³, {closed}.", closedYes: "watertight ✓", closedNo: "not fully closed",
+  downloadStl: "Download STL", printDone: "Printable STL of {name} ready", results: "{n} results",
+  resultsOf: "{n} results · showing {shown}", all: "All", openSettings: "open Settings to fix the path",
+  serverDown: "Server not reachable…", saved: "Settings saved", kindDecal: "decal", kindGlass: "glass", kindProxy: "proxy",
 };
-let lang = "en";
-const T = (key, vars = {}) => (STRINGS[lang][key] ?? STRINGS.en[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
-const num = (n) => n.toLocaleString(lang === "it" ? "it-IT" : "en-US");
-
-function setLang(l) {
-  if (!STRINGS[l] || (l === lang && document.documentElement.lang === l)) return false;
-  lang = l;
-  document.documentElement.lang = l;
-  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = T(el.dataset.i18n); });
-  document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.title = T(el.dataset.i18nTitle); });
-  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => { el.placeholder = T(el.dataset.i18nPlaceholder); });
-  return true;
-}
+const T = (key, vars = {}) => (STRINGS[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
+const num = (n) => n.toLocaleString("en-US");
 
 const CAT_LABELS = {};
 const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy" };
@@ -114,13 +67,26 @@ let grid = null;
 let modelRoot = null;
 let wireframe = false;
 
-function resize() {
+// Part of the canvas hidden behind the floating panels (the viewer fills the whole window):
+// the camera is shifted so the model is centred in the area that stays visible.
+function covered() {
   const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (getComputedStyle(wrap.parentElement).position !== "fixed") return { l: 0, r: 0, t: 0, w, h };
+  const vis = (el) => el && el.offsetParent !== null ? el.getBoundingClientRect() : null;
+  const side = vis($(".sidebar")), panel = vis($(".panel")), top = vis($(".topbar"));
+  return { l: side ? side.right : 0, r: panel ? w - panel.left : 0, t: top ? top.bottom : 0, w, h };
+}
+
+function resize() {
+  const { l, r, t, w, h } = covered();
   renderer.setSize(w, h, false);
   camera.aspect = w / Math.max(h, 1);
+  if (l || r || t) camera.setViewOffset(w, h, (r - l) / 2, -t / 2, w, h);
+  else camera.clearViewOffset();
   camera.updateProjectionMatrix();
 }
 new ResizeObserver(resize).observe(wrap);
+window.addEventListener("resize", resize);
 resize();
 
 renderer.setAnimationLoop(() => {
@@ -134,7 +100,12 @@ function frame() {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(size.length() / 2, 0.01);
-  const dist = radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.05;
+  // fit the bounding sphere both vertically and horizontally inside the visible part of the canvas
+  const { l, r, t, w, h } = covered();
+  const half = THREE.MathUtils.degToRad(camera.fov / 2);
+  const halfH = Math.atan(Math.tan(half) * camera.aspect);
+  const dist = Math.max(radius / Math.sin(half) * h / Math.max(h - t, 1),
+                        radius / Math.sin(halfH) * w / Math.max(w - l - r, 1)) * 1.05;
   camera.near = dist / 1000;
   camera.far = dist * 100;
   camera.updateProjectionMatrix();
@@ -145,13 +116,18 @@ function frame() {
   sun.position.copy(center).add(new THREE.Vector3(radius * 2, radius * 3, radius * 2.5));
 }
 
+function cssColor(name, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v ? new THREE.Color(v) : new THREE.Color(fallback);
+}
+
 function buildGrid(box) {
   if (grid) scene.remove(grid);
   const size = box.getSize(new THREE.Vector3());
   const span = Math.max(size.x, size.z) * 1.6;
   const step = Math.pow(10, Math.floor(Math.log10(span / 10)));
   const cells = Math.ceil(span / step);
-  grid = new THREE.GridHelper(cells * step, cells, 0x2f4a60, 0x1c2a36);
+  grid = new THREE.GridHelper(cells * step, cells, cssColor("--grid-major", "#2f4a60"), cssColor("--grid-minor", "#1c2a36"));
   grid.position.set((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2);
   grid.visible = $('[data-act="grid"]').classList.contains("on");
   scene.add(grid);
@@ -189,7 +165,7 @@ async function loadModel(item, keepView = false) {
   $("#empty").classList.add("hidden");
   $("#loading").classList.remove("hidden");
   $("#loadingText").textContent = T("loadingOf", { name: item.name });
-  $("#info").innerHTML = `<h2>${esc(item.name)}</h2><div class="path">${esc(item.path)}</div><p class="muted">${T("loading")}</p>`;
+  if (!keepView) $("#info").innerHTML = infoHead(item) + `<p class="hint">${T("loading")}</p>`;
   try {
     const [infoRes, glbRes] = await Promise.all([
       api(`/api/model/info?path=${encodeURIComponent(item.path)}${v}`),
@@ -221,7 +197,7 @@ async function loadModel(item, keepView = false) {
     showMaterials();
     loadRelated(item);
   } catch (e) {
-    $("#info").innerHTML = `<h2>${esc(item.name)}</h2><div class="path">${esc(item.path)}</div><p class="warn">${esc(e.message)}</p>`;
+    $("#info").innerHTML = infoHead(item) + `<p class="warn">${esc(e.message)}</p>`;
     toast(T("loadFailed", { error: e.message }), true);
   } finally {
     $("#loading").classList.add("hidden");
@@ -229,35 +205,38 @@ async function loadModel(item, keepView = false) {
 }
 
 function fmtLen(m) {
-  if (m >= 10) return `${m.toFixed(2)} m`;
-  if (m >= 1) return `${m.toFixed(3)} m`;
-  return `${(m * 1000).toFixed(1)} mm`;
+  if (m >= 10) return `${m.toFixed(2)}<small>m</small>`;
+  if (m >= 1) return `${m.toFixed(3)}<small>m</small>`;
+  return `${(m * 1000).toFixed(1)}<small>mm</small>`;
+}
+
+function infoHead(item) {
+  const sub = item.subtitle || CAT_LABELS[item.category] || "";
+  return `<div class="info-head">
+      ${sub ? `<div class="eyebrow">${esc(sub)}</div>` : ""}
+      <h2>${esc(item.name)}</h2>
+      <div class="path" title="${esc(item.path)}">${esc(item.path)}</div>
+    </div>`;
 }
 
 function showInfo(item, info) {
   const s = info.stats;
   const [x, y, z] = s.size_m;
-  $("#info").classList.remove("muted");
-  $("#info").innerHTML = `
-    <h2>${esc(item.name)}</h2>
-    <div class="muted">${esc(item.subtitle || CAT_LABELS[item.category] || "")}</div>
-    <div class="path">${esc(item.path)}</div>
-    <dl class="stats">
-      <dt>${T("width")}</dt><dd>${fmtLen(x)}</dd>
-      <dt>${T("length")}</dt><dd>${fmtLen(y)}</dd>
-      <dt>${T("height")}</dt><dd>${fmtLen(z)}</dd>
-      <dt>${T("triangles")}</dt><dd>${num(s.triangles)}</dd>
-      <dt>${T("parts")}</dt><dd>${s.parts}</dd>
-      <dt>${T("materials")}</dt><dd>${s.materials.length}</dd>
-    </dl>
-    ${info.variants.length > 1 ? `<label class="variant">${T("variant")}
+  const stat = (k, v) => `<div class="stat"><span class="k">${T(k)}</span><span class="v">${v}</span></div>`;
+  $("#info").innerHTML = `${infoHead(item)}
+    <div class="stats">
+      ${stat("width", fmtLen(x))}${stat("length", fmtLen(y))}${stat("height", fmtLen(z))}
+      ${stat("triangles", num(s.triangles))}${stat("parts", s.parts)}${stat("materials", s.materials.length)}
+    </div>
+    ${info.variants.length > 1 ? `<label class="variant"><span>${T("variant")}</span>
       <select id="variantSel">${info.variants.map((v) => `<option value="${esc(v.tag)}"${v.tag === info.variant ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>` : ""}
-    ${info.warnings.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join("")}`;
+    ${info.warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join("")}`;
   $("#variantSel")?.addEventListener("change", (e) => {
     state.variant = e.target.value;
     loadModel(state.current, true);
   });
   $("#exportBox").classList.remove("hidden");
+  $("#printBox").classList.remove("hidden");
 }
 
 function showMaterials() {
@@ -271,7 +250,8 @@ function showMaterials() {
   ul.innerHTML = "";
   [...mats.entries()].sort().forEach(([name, m]) => {
     const li = document.createElement("li");
-    li.innerHTML = `<span class="swatch" style="background:#${m.color}"></span><span>${esc(name)}</span><span class="kind">${KIND_LABELS[m.kind] ? T(KIND_LABELS[m.kind]) : ""}</span>`;
+    li.innerHTML = `<span class="swatch" style="background:#${m.color}"></span><span class="mname">${esc(name)}</span><span class="kind">${KIND_LABELS[m.kind] ? T(KIND_LABELS[m.kind]) : ""}</span>`;
+    li.title = name;
     li.classList.toggle("off", state.matOff.has(name));
     li.onclick = () => {
       state.matOff.has(name) ? state.matOff.delete(name) : state.matOff.add(name);
@@ -280,6 +260,7 @@ function showMaterials() {
     };
     ul.appendChild(li);
   });
+  $("#matCount").textContent = mats.size;
   $("#matBox").classList.toggle("hidden", mats.size === 0);
 }
 
@@ -291,11 +272,12 @@ async function loadRelated(item) {
     ul.innerHTML = "";
     others.forEach((r) => {
       const li = document.createElement("li");
-      li.innerHTML = `<span>${esc(r.path.split("/").pop())}</span><span class="sub">${r.ext}</span>`;
+      li.innerHTML = `<span class="mname">${esc(r.path.split("/").pop())}</span><span class="badge">${r.ext}</span>`;
       li.title = r.name;
       li.onclick = () => loadModel(r);
       ul.appendChild(li);
     });
+    $("#relCount").textContent = others.length;
     $("#relBox").classList.toggle("hidden", others.length === 0);
   } catch { $("#relBox").classList.add("hidden"); }
 }
@@ -307,10 +289,10 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
   if (a === "wire") { wireframe = !wireframe; b.classList.toggle("on", wireframe); applyWireframe(); }
   if (a === "rotate") { controls.autoRotate = !controls.autoRotate; b.classList.toggle("on", controls.autoRotate); }
   if (a === "grid") { b.classList.toggle("on"); if (grid) grid.visible = b.classList.contains("on"); }
-  if (a === "bg") wrap.classList.toggle("light");
+  if (a === "bg") { wrap.classList.toggle("alt"); b.classList.toggle("on", wrap.classList.contains("alt")); }
   if (a === "shot") {
     const link = document.createElement("a");
-    link.download = `${(state.current?.path.split("/").pop() || "modello").replace(/\.\w+$/, "")}.png`;
+    link.download = `${(state.current?.path.split("/").pop() || "model").replace(/\.\w+$/, "")}.png`;
     link.href = renderer.domElement.toDataURL("image/png");
     link.click();
   }
@@ -326,7 +308,7 @@ document.querySelectorAll("[data-kind]").forEach((c) => c.addEventListener("chan
   applyVisibility();
 }));
 window.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT") return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   const k = { f: "reset", w: "wire", r: "rotate", g: "grid" }[e.key.toLowerCase()];
   if (k) act(k);
 });
@@ -341,7 +323,7 @@ document.querySelectorAll("[data-exp]").forEach((b) => b.addEventListener("click
       (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "");
     const r = await api(url);
     const blob = await r.blob();
-    const name = (r.headers.get("Content-Disposition") || "").match(/filename="(.+)"/)?.[1] || `modello.${fmt}`;
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="(.+)"/)?.[1] || `model.${fmt}`;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -421,14 +403,15 @@ function renderResults({ total, items }) {
     const li = document.createElement("li");
     li.dataset.path = it.path;
     if (state.current?.path === it.path) li.classList.add("active");
-    li.innerHTML = `<div class="name">${esc(it.name)}<span class="badge">${it.ext}</span></div>
-      <div class="sub">${esc(it.subtitle || CAT_LABELS[it.category] || "")}</div>
-      <div class="sub">${esc(it.path.split("/").pop())}</div>`;
+    const sub = it.subtitle || CAT_LABELS[it.category] || "";
+    li.innerHTML = `<div class="name"><span>${esc(it.name)}</span><span class="badge">${it.ext}</span></div>
+      <div class="sub">${sub ? `${esc(sub)} · ` : ""}<span class="file">${esc(it.path.split("/").pop())}</span></div>`;
     li.title = it.path;
     li.onclick = () => loadModel(it);
     frag.appendChild(li);
   });
   ul.appendChild(frag);
+  ul.scrollTop = 0;
 }
 
 async function loadCategories() {
@@ -436,7 +419,7 @@ async function loadCategories() {
   const box = $("#cats");
   box.innerHTML = "";
   const mk = (id, label, n) => {
-    const c = document.createElement("span");
+    const c = document.createElement("button");
     c.className = "chip" + (state.cat === id ? " on" : "");
     c.innerHTML = `${esc(label)}${n != null ? `<span class="n">${num(n)}</span>` : ""}`;
     c.onclick = () => { state.cat = state.cat === id ? "" : id; loadCategoriesUI(); runSearch(); };
@@ -453,14 +436,40 @@ function loadCategoriesUI() {
 $("#q").addEventListener("input", scheduleSearch);
 $("#mainOnly").addEventListener("change", runSearch);
 
+// ---------------------------------------------------------------- appearance (light / dark)
+// "system" follows Windows; the choice is kept in config.json so the .exe remembers it too
+let appearance = document.documentElement.dataset.mode === "dark" ? "dark" : "light";
+try { appearance = localStorage.getItem("vf.appearance") || "system"; } catch { /* storage unavailable */ }
+const systemDark = matchMedia("(prefers-color-scheme: dark)");
+
+function applyAppearance(pref) {
+  appearance = ["light", "dark"].includes(pref) ? pref : "system";
+  try { localStorage.setItem("vf.appearance", appearance); } catch { /* storage unavailable */ }
+  const mode = appearance === "system" ? (systemDark.matches ? "dark" : "light") : appearance;
+  document.documentElement.dataset.mode = mode;
+  $("#btnMode use").setAttribute("href", mode === "dark" ? "#i-sun" : "#i-moon");
+  $("#btnMode").title = mode === "dark" ? "Switch to light" : "Switch to dark";
+  if (modelRoot) buildGrid(new THREE.Box3().setFromObject(modelRoot));
+}
+systemDark.addEventListener("change", () => { if (appearance === "system") applyAppearance("system"); });
+applyAppearance(appearance);
+
+$("#btnMode").addEventListener("click", () => {
+  applyAppearance(document.documentElement.dataset.mode === "dark" ? "light" : "dark");
+  api(`/api/config?appearance=${appearance}`, { method: "POST" }).catch(() => { /* kept locally anyway */ });
+});
+
 // ---------------------------------------------------------------- status & settings
+let appearanceLoaded = false;
 async function pollStatus() {
+  const el = $("#status");
   try {
     const s = await (await api("/api/status")).json();
-    const el = $("#status");
+    if (!appearanceLoaded && s.appearance) { appearanceLoaded = true; applyAppearance(s.appearance); }
     el.classList.toggle("err", !!s.error);
-    if (setLang(s.ui_lang)) refreshTexts();
-    el.textContent = s.error ? `⚠ ${s.error} — ${T("openSettings")}` : s.message + (s.ready ? "" : ` (${Math.round(s.progress * 100)}%)`);
+    el.classList.toggle("ready", !!s.ready && !s.error);
+    // once the catalogue is ready the status line has nothing useful to say: it only shows progress and errors
+    el.textContent = s.error ? `${s.error} — ${T("openSettings")}` : s.ready ? "" : `${s.message} (${Math.round(s.progress * 100)}%)`;
     el.title = s.p4k_path;
     window.__status = s;
     if (s.ready) {
@@ -468,7 +477,7 @@ async function pollStatus() {
       runSearch();
       return;
     }
-  } catch { $("#status").textContent = T("serverDown"); }
+  } catch { el.textContent = T("serverDown"); }
   setTimeout(pollStatus, 1000);
 }
 
@@ -477,26 +486,20 @@ $("#btnSettings").addEventListener("click", async () => {
   $("#cfgP4k").value = s.p4k_path || "";
   $("#cfgExport").value = s.export_dir || "";
   $("#cfgBlender").value = s.blender || "";
-  $("#cfgLang").value = s.ui_lang || lang;
+  $("#cfgAppearance").value = appearance;
   $("#settings").showModal();
 });
 $("#settings").addEventListener("close", async () => {
   if ($("#settings").returnValue !== "save") return;
   const p = new URLSearchParams({ p4k_path: $("#cfgP4k").value, export_dir: $("#cfgExport").value, blender: $("#cfgBlender").value,
-    ui_lang: $("#cfgLang").value });
+    appearance: $("#cfgAppearance").value });
+  applyAppearance($("#cfgAppearance").value);
   try {
     await api(`/api/config?${p}`, { method: "POST" });
-    if (setLang($("#cfgLang").value)) refreshTexts();
     toast(T("saved"));
     pollStatus();
   } catch (e) { toast(e.message, true); }
 });
-
-// texts built by the script (model info, results, categories) are redrawn in the new language
-function refreshTexts() {
-  if (state.current) loadModel(state.current, true);
-  else $("#info").textContent = T("noModel");
-}
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

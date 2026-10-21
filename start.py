@@ -14,7 +14,7 @@ sys.path.insert(0, HERE)
 def main():
     ap = argparse.ArgumentParser(description="VerseForge")
     ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--no-browser", action="store_true", help="non aprire il browser")
+    ap.add_argument("--no-browser", action="store_true", help="do not open the browser")
     args = ap.parse_args()
     url = f"http://127.0.0.1:{args.port}/"
 
@@ -22,8 +22,8 @@ def main():
         import uvicorn
         from sc_explorer.server import app
     except ImportError as e:
-        print(f"Dipendenza mancante: {e.name}. Esegui:  python -m pip install -r requirements.txt")
-        input("Premi Invio per chiudere…")
+        print(f"Missing dependency: {e.name}. Run:  python -m pip install -r requirements.txt")
+        input("Press Enter to close…")
         return
 
     if not args.no_browser:
@@ -37,7 +37,7 @@ def main():
                     time.sleep(0.2)
         threading.Thread(target=open_when_ready, daemon=True).start()
 
-    print(f"VerseForge in esecuzione su {url}  (chiudi questa finestra per fermarlo)")
+    print(f"VerseForge running at {url}  (close this window to stop it)")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 

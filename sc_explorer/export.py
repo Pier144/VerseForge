@@ -117,7 +117,7 @@ def _safe(name):
 
 def to_obj_zip(model, stem, include_decals=True, textures=None, tex_size=2048):
     obj, mtl = io.StringIO(), io.StringIO()
-    obj.write(f"# {model.path}\n# Esportato da VerseForge - metri, Y in alto\nmtllib {stem}.mtl\n")
+    obj.write(f"# {model.path}\n# Exported by VerseForge - metres, Y up\nmtllib {stem}.mtl\n")
     files, used = {}, set()
     off = vt_off = 1
     for i, (mat, v, f, uv) in enumerate(merged_by_material(select(model, include_decals=include_decals))):

@@ -5,7 +5,7 @@ trimesh>=4.0
 zstandard>=0.22
 pycryptodome>=3.20
 pillow>=10.0
-# solo per "Crea STL per stampa" (insieme a Blender installato)
+# only for the printable STL export (together with an installed Blender)
 scipy>=1.11
 scikit-image>=0.22
 manifold3d>=2.4

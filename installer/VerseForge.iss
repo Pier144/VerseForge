@@ -9,8 +9,8 @@ AppId={{7C2E1B9A-4F3D-4C8E-9A61-5E0B2D7F3A10}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
-AppPublisher=Progetto personale
-AppComments=Cerca, guarda in 3D ed esporta i modelli di Star Citizen. Progetto non ufficiale.
+AppPublisher=VerseForge (personal project)
+AppComments=Search, view in 3D and export Star Citizen models. Unofficial fan project.
 ; per-user install: no administrator rights needed
 PrivilegesRequired=lowest
 DefaultDirName={localappdata}\Programs\{#AppName}
@@ -27,7 +27,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
-Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -37,7 +37,7 @@ Source: "..\dist\VerseForge\*"; DestDir: "{app}"; Flags: ignoreversion recursesu
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
-Name: "{group}\Disinstalla {#AppName}"; Filename: "{uninstallexe}"
+Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]

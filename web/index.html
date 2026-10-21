@@ -4,7 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VerseForge</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 2 30 16 16 30 2 16z' fill='%2340c4ff'/></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 2 30 16 16 30 2 16z' fill='%230a84ff'/></svg>">
+  <script>
+    // light/dark is set before the stylesheet paints; the saved setting arrives later from /api/status
+    (() => {
+      let pref = "system";
+      try { pref = localStorage.getItem("vf.appearance") || pref; } catch { /* storage unavailable */ }
+      const dark = pref === "dark" || (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.mode = dark ? "dark" : "light";
+    })();
+  </script>
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
     { "imports": {
@@ -14,89 +23,130 @@
   </script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand"><span class="logo">◆</span> VerseForge</div>
-    <div id="status" class="status" data-i18n="starting">Starting…</div>
-    <button id="btnSettings" class="ghost" data-i18n="settingsBtn" data-i18n-title="settings">⚙ Settings</button>
-  </header>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-logo" viewBox="0 0 24 24"><path d="M12 2.5 21.5 12 12 21.5 2.5 12z" fill="currentColor" opacity=".25"/><path d="M12 6.5 17.5 12 12 17.5 6.5 12z" fill="currentColor"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.6-2-3.4-2.4.9a7.6 7.6 0 0 0-2.6-1.5L14 2.4h-4l-.4 2.5A7.6 7.6 0 0 0 7 6.4l-2.4-.9-2 3.4 2 1.6a7.6 7.6 0 0 0 0 3l-2 1.6 2 3.4 2.4-.9a7.6 7.6 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 2.6-1.5l2.4.9 2-3.4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-frame" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></symbol>
+      <symbol id="i-wire" viewBox="0 0 24 24"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z M12 3v18 M4 7.5l16 9 M20 7.5l-16 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18 3.5v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24"><path d="M3 9h18M3 15h18M9 3v18M15 3v18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+      <symbol id="i-contrast" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12.8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4l2 2h8A1.5 1.5 0 0 1 20.5 9v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.2 8.2 0 1 0 10.6 10.6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+      <symbol id="i-cube"viewBox="0 0 24 24"><path d="M12 2.8 20.2 7.4v9.2L12 21.2l-8.2-4.6V7.4z M3.8 7.4 12 12l8.2-4.6 M12 12v9.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
 
-  <main class="layout">
-    <aside class="sidebar">
-      <div class="search">
-        <input id="q" type="search" data-i18n-placeholder="searchPh" placeholder="Search: P4-AR, Gladius, Morozov, multitool…" autocomplete="off" autofocus>
-      </div>
-      <div id="cats" class="cats"></div>
-      <label class="check"><input id="mainOnly" type="checkbox" checked> <span data-i18n="mainOnly">Main models only</span></label>
-      <div id="count" class="count"></div>
-      <ul id="results" class="results"></ul>
-    </aside>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><svg class="logo"><use href="#i-logo"/></svg><span>VerseForge</span></div>
+      <div id="status" class="status">Starting…</div>
+      <button id="btnMode" class="icon-btn" title="Switch light / dark" aria-label="Switch light / dark"><svg class="i"><use href="#i-moon"/></svg></button>
+      <button id="btnSettings" class="icon-btn" title="Settings" aria-label="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
+    </header>
 
-    <section class="viewport">
-      <div id="canvasWrap" class="canvas-wrap">
-        <div id="empty" class="empty">
-          <div class="empty-icon">◆</div>
-          <p data-i18n="emptyMsg">Search for an item on the left and click it to view it in 3D.</p>
-          <p class="hint" data-i18n="emptyHint">Drag to rotate · wheel to zoom · right button to pan</p>
+    <main class="layout">
+      <aside class="sidebar pane">
+        <label class="search">
+          <svg class="i"><use href="#i-search"/></svg>
+          <input id="q" type="search" placeholder="Search P4-AR, Gladius, Morozov…" autocomplete="off" autofocus>
+        </label>
+        <div id="cats" class="cats"></div>
+        <div class="list-head">
+          <span id="count" class="count"></span>
+          <label class="switch" title="Hide LODs, decals, physics proxies and ship interior pieces">
+            <input id="mainOnly" type="checkbox" checked><span class="track"></span><span>Main models</span>
+          </label>
         </div>
-        <div id="loading" class="loading hidden"><div class="spinner"></div><span id="loadingText" data-i18n="loading">Loading…</span></div>
-      </div>
-      <div class="toolbar">
-        <button data-act="reset" data-i18n="frame" data-i18n-title="frameT">⤢ Frame</button>
-        <button data-act="wire" class="toggle" data-i18n="wire" data-i18n-title="wireT">▦ Wireframe</button>
-        <button data-act="rotate" class="toggle" data-i18n="rotate" data-i18n-title="rotateT">⟳ Rotate</button>
-        <button data-act="grid" class="toggle on" data-i18n="grid" data-i18n-title="gridT"># Grid</button>
-        <button data-act="bg" data-i18n="bg" data-i18n-title="bgT">◐ Background</button>
-        <button data-act="shot" data-i18n="shot" data-i18n-title="shotT">📷 Screenshot</button>
-        <span class="sep"></span>
-        <label class="check small" data-i18n-title="texT"><input id="texOn" type="checkbox" checked> <span data-i18n="tex">Textures</span></label>
-        <label class="check small"><input type="checkbox" data-kind="decal"> <span data-i18n="decals">Decals</span></label>
-        <label class="check small"><input type="checkbox" data-kind="glass" checked> <span data-i18n="glass">Glass</span></label>
-        <label class="check small"><input type="checkbox" data-kind="hidden"> <span data-i18n="proxy">Proxy/physics</span></label>
-      </div>
-    </section>
+        <ul id="results" class="results"></ul>
+      </aside>
 
-    <aside class="panel">
-      <div id="info" class="info muted">No model selected.</div>
-      <div id="exportBox" class="box hidden">
-        <h3 data-i18n="export">Export</h3>
-        <div class="btnrow">
-          <button data-exp="glb" data-i18n-title="glbT">GLB</button>
-          <button data-exp="obj" data-i18n-title="objT">OBJ</button>
-          <button data-exp="stl" data-i18n-title="stlT">STL</button>
+      <section class="viewport">
+        <div id="canvasWrap" class="canvas-wrap">
+          <div id="empty" class="empty">
+            <svg class="empty-icon"><use href="#i-cube"/></svg>
+            <p class="empty-title">Pick a model to inspect</p>
+            <p class="empty-hint">Search on the left, then drag to orbit · scroll to zoom · right-drag to pan</p>
+          </div>
+          <div id="loading" class="loading hidden"><div class="spinner"></div><span id="loadingText">Loading…</span></div>
+
+          <div class="layers floating" aria-label="Visible layers">
+            <label class="pill" title="Game textures (colour and normal map). Turn off to see only the material colours"><input id="texOn" type="checkbox" checked><span>Textures</span></label>
+            <label class="pill" title="Decals"><input type="checkbox" data-kind="decal"><span>Decals</span></label>
+            <label class="pill" title="Glass"><input type="checkbox" data-kind="glass" checked><span>Glass</span></label>
+            <label class="pill" title="Physics proxies"><input type="checkbox" data-kind="hidden"><span>Proxy</span></label>
+          </div>
+
+          <div class="toolbar floating">
+            <button data-act="reset" class="tool" title="Frame (F)"><svg class="i"><use href="#i-frame"/></svg><span>Frame</span></button>
+            <button data-act="wire" class="tool toggle" title="Wireframe (W)"><svg class="i"><use href="#i-wire"/></svg><span>Wireframe</span></button>
+            <button data-act="rotate" class="tool toggle" title="Auto-rotate (R)"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
+            <button data-act="grid" class="tool toggle on" title="Grid (G)"><svg class="i"><use href="#i-grid"/></svg><span>Grid</span></button>
+            <button data-act="bg" class="tool" title="Swap the 3D backdrop between light and dark"><svg class="i"><use href="#i-contrast"/></svg><span>Backdrop</span></button>
+            <span class="tool-sep"></span>
+            <button data-act="shot" class="tool" title="Save a PNG screenshot"><svg class="i"><use href="#i-camera"/></svg><span>Snapshot</span></button>
+          </div>
         </div>
-        <label class="check small"><input id="expDecals" type="checkbox"> <span data-i18n="expDecals">include decals in OBJ/STL</span></label>
-        <label class="check small"><input id="expTex" type="checkbox" checked> <span data-i18n="expTex">textures in GLB/OBJ</span></label>
-        <h3 data-i18n="print">3D printing</h3>
-        <p class="hint" data-i18n="printHint">Creates a solid, closed STL (in mm), ready for the slicer. Uses Blender in the background; large objects can take a few minutes.</p>
-        <div class="row">
-          <label>Voxel (mm) <input id="voxel" type="number" min="0" step="0.05" placeholder="auto"></label>
-          <label class="check small"><input id="fill" type="checkbox" checked> <span data-i18n="fill">fill interior</span></label>
+      </section>
+
+      <aside class="panel pane">
+        <div id="info" class="info">
+          <div class="info-empty">No model selected</div>
         </div>
-        <button id="btnPrint" class="primary" data-i18n="printBtn">Create printable STL</button>
-        <div id="printStatus" class="hint"></div>
-        <button id="btnOpenExports" class="ghost small" data-i18n="openExports">📂 Open exports folder</button>
-      </div>
-      <div id="matBox" class="box hidden">
-        <h3><span data-i18n="materials">Materials</span> <span class="hint" data-i18n="clickHide">(click to hide)</span></h3>
-        <ul id="mats" class="mats"></ul>
-      </div>
-      <div id="relBox" class="box hidden">
-        <h3 data-i18n="related">Other files in the folder</h3>
-        <ul id="related" class="related"></ul>
-      </div>
-    </aside>
-  </main>
+
+        <section id="exportBox" class="box hidden">
+          <h3>Export</h3>
+          <div class="formats">
+            <button data-exp="glb" title="Binary glTF with materials and textures (Blender, Windows 3D Viewer…)"><b>GLB</b><small>glTF binary</small></button>
+            <button data-exp="obj" title="OBJ + MTL + textures in a zip"><b>OBJ</b><small>zip archive</small></button>
+            <button data-exp="stl" title="Raw STL in millimetres, game surfaces as they are"><b>STL</b><small>raw, mm</small></button>
+          </div>
+          <label class="switch"><input id="expTex" type="checkbox" checked><span class="track"></span><span>Textures in GLB / OBJ</span></label>
+          <label class="switch"><input id="expDecals" type="checkbox"><span class="track"></span><span>Decals in OBJ / STL</span></label>
+        </section>
+
+        <section id="printBox" class="box print hidden">
+          <h3>3D print</h3>
+          <p class="hint">A solid, watertight STL in millimetres, ready for the slicer. Runs Blender in the background; large models can take a few minutes.</p>
+          <div class="print-opts">
+            <label class="field">Voxel <input id="voxel" type="number" min="0" step="0.05" placeholder="auto"><em>mm</em></label>
+            <label class="switch"><input id="fill" type="checkbox" checked><span class="track"></span><span>Fill interior</span></label>
+          </div>
+          <button id="btnPrint" class="primary">Create printable STL</button>
+          <div id="printStatus" class="hint print-status"></div>
+          <button id="btnOpenExports" class="link-btn"><svg class="i"><use href="#i-folder"/></svg>Open exports folder</button>
+        </section>
+
+        <details id="matBox" class="box fold hidden" open>
+          <summary><h3>Materials <span id="matCount" class="n"></span></h3><svg class="chev"><use href="#i-chevron"/></svg></summary>
+          <p class="hint">Click a material to hide it.</p>
+          <ul id="mats" class="mats"></ul>
+        </details>
+        <details id="relBox" class="box fold hidden">
+          <summary><h3>Same folder <span id="relCount" class="n"></span></h3><svg class="chev"><use href="#i-chevron"/></svg></summary>
+          <ul id="related" class="related"></ul>
+        </details>
+      </aside>
+    </main>
+  </div>
 
   <dialog id="settings">
     <form method="dialog" class="settings">
-      <h2 data-i18n="settings">Settings</h2>
-      <label><span data-i18n="cfgP4k">Data.p4k path</span><input id="cfgP4k" type="text"></label>
-      <label><span data-i18n="cfgExport">Exports folder</span><input id="cfgExport" type="text"></label>
-      <label><span data-i18n="cfgBlender">Blender (blender.exe, for 3D printing)</span><input id="cfgBlender" type="text" data-i18n-placeholder="autoDetected" placeholder="detected automatically"></label>
-      <label><span data-i18n="cfgLang">Language</span><select id="cfgLang"><option value="en">English</option><option value="it">Italiano</option></select></label>
-      <div class="btnrow right">
-        <button value="cancel" class="ghost" data-i18n="cancel">Cancel</button>
-        <button id="cfgSave" value="save" class="primary" data-i18n="save">Save</button>
+      <h2>Settings</h2>
+      <label class="field-col"><span>Data.p4k location</span><input id="cfgP4k" type="text" spellcheck="false"></label>
+      <label class="field-col"><span>Exports folder</span><input id="cfgExport" type="text" spellcheck="false"></label>
+      <label class="field-col"><span>Blender executable <em>for 3D printing</em></span><input id="cfgBlender" type="text" placeholder="Detected automatically" spellcheck="false"></label>
+      <label class="field-col"><span>Appearance</span>
+        <select id="cfgAppearance"><option value="system">Match system</option><option value="light">Light</option><option value="dark">Dark</option></select>
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Cancel</button>
+        <button id="cfgSave" value="save" class="primary">Save</button>
       </div>
     </form>
   </dialog>

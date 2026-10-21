@@ -71,7 +71,7 @@ def main():
         server = _start_server(port)
     except Exception as e:
         traceback.print_exc()
-        QMessageBox.critical(None, APP_NAME, f"Could not start {APP_NAME} / Impossibile avviare {APP_NAME}:\n{e}")
+        QMessageBox.critical(None, APP_NAME, f"Could not start {APP_NAME}:\n{e}")
         return 1
 
     from sc_explorer.server import state
@@ -90,8 +90,7 @@ def main():
         # exports are already saved in the export folder; this dialog lets the user keep an extra copy elsewhere
         folder = state.cfg.get("export_dir") or os.path.expanduser("~")
         os.makedirs(folder, exist_ok=True)
-        title = "Salva file" if state.cfg.get("ui_lang") == "it" else "Save file"
-        path, _ = QFileDialog.getSaveFileName(win, title, os.path.join(folder, req.downloadFileName()))
+        path, _ = QFileDialog.getSaveFileName(win, "Save file",os.path.join(folder, req.downloadFileName()))
         if not path:
             req.cancel()
             return

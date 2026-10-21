@@ -8,8 +8,8 @@ from . import i18n
 GEOMETRY_EXT = (".cgf", ".cga", ".skin", ".cdf", ".chr")
 
 # category ids in display order; labels in i18n.CATEGORIES
-CATEGORIES = ["armi", "accessori", "strumenti", "armature", "abiti", "navi", "componenti", "veicoli", "personaggi",
-              "oggetti", "ambienti", "altro"]
+CATEGORIES = ["weapons", "attachments", "tools", "armor", "clothing", "ships", "components", "vehicles", "characters",
+              "props", "environments", "other"]
 
 CAT_ORDER = {k: i for i, k in enumerate(CATEGORIES)}
 
@@ -28,7 +28,7 @@ MANUFACTURERS = {
 }
 
 # weapon type codes found in file names (brfl, smg, pstl…); their names are in i18n.WEAPON_TYPES
-WEAPON_TYPES = set(i18n.WEAPON_TYPES["en"])
+WEAPON_TYPES = set(i18n.WEAPON_TYPES)
 
 JUNK = re.compile(r"(_lod\d|lod\d$|_proxy|proxy_|physics|visarea|_phys$|_dmg|damage|destroyed|debris|"
                   r"decal|_glow|glow_|cinematic|_shadow|occluder|_collision|_ph$|_helper|placeholder)", re.I)
@@ -49,8 +49,8 @@ class Item:
     stem: str = ""     # file name, shown under in-game names
 
 
-def subtitle(it, lang):
-    kind = i18n.t(lang, "hull") if it.kind == "hull" else i18n.WEAPON_TYPES[i18n.norm(lang)].get(it.kind, "")
+def subtitle(it):
+    kind = i18n.t("hull") if it.kind == "hull" else i18n.WEAPON_TYPES.get(it.kind, "")
     return " · ".join(x for x in (it.manu, kind, it.stem) if x)
 
 
@@ -61,31 +61,31 @@ def compact(s):
 def categorize(p):
     l = p.lower()
     if l.startswith("objects/fps_weapons/attachments"):
-        return "accessori"
+        return "attachments"
     if l.startswith("objects/fps_weapons/gadgets") or "/multitool" in l or "/fps_devices" in l or l.startswith("objects/usables"):
-        return "strumenti"
+        return "tools"
     if l.startswith(("objects/fps_weapons", "objects/weapon/")):
-        return "armi"
+        return "weapons"
     if l.startswith("objects/characters/human/"):
         if "/armor/" in l:
-            return "armature"
+            return "armor"
         if any(k in l for k in ("/clothing/", "/wearables/", "/backpack/")):
-            return "abiti"
-        return "personaggi"
+            return "clothing"
+        return "characters"
     if l.startswith("objects/characters/powersuit") or l.startswith("objects/vehicles"):
-        return "veicoli"
+        return "vehicles"
     if l.startswith("objects/characters"):
-        return "personaggi"
+        return "characters"
     if l.startswith("objects/spaceships/ships/"):
-        return "navi"
+        return "ships"
     if l.startswith("objects/spaceships"):
-        return "componenti"
+        return "components"
     if l.startswith(("objects/props", "objects/persistent_universe", "objects/gameplay", "objects/salvage")):
-        return "oggetti"
+        return "props"
     if l.startswith(("objects/buildingsets", "objects/planet", "objects/space", "objects/stations", "objects/landscape",
                      "objects/brush", "objects/organics", "objects/dfm", "objects/facility")):
-        return "ambienti"
-    return "altro"
+        return "environments"
+    return "other"
 
 
 def pretty(path):
@@ -157,12 +157,12 @@ def build(archive, names=None):
         name, manu, kind = pretty(path)
         ext = path.rsplit(".", 1)[-1].lower()
         main = not JUNK.search(stem) and ext != "chr"
-        labels = names.get(path.lower(), []) if cat not in ("ambienti", "altro") else []
+        labels = names.get(path.lower(), []) if cat not in ("environments", "other") else []
         key = compact(path) + compact(manu) + compact(labels[0] if labels else name) + "".join(compact(x) for x in labels)
         it = Item(path, labels[0] if labels else name, manu, kind, cat, ext, int(archive.usize[i]), main, key)
         if labels:
             it.game_name, it.stem = True, stem
-        if cat == "navi":
+        if cat == "ships":
             segs = path.split("/")
             if len(segs) >= 5:
                 ship_folders["/".join(segs[:5])].append(it)
