@@ -33,6 +33,78 @@ const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden:
 const state = { cat: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null };
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
 
+// ---------------------------------------------------------------- dropdown
+// Drawn by the page instead of the native <select> popup: Chromium (and Qt WebEngine) left the rows the mouse
+// had passed over highlighted. The <select> stays underneath, invisible, so its value and "change" event work as before.
+function dropdown(sel) {
+  const wrap = document.createElement("div");
+  wrap.className = "dd";
+  sel.before(wrap);
+  sel.classList.add("dd-native");
+  sel.tabIndex = -1;
+  sel.setAttribute("aria-hidden", "true");
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "dd-btn";
+  btn.setAttribute("aria-haspopup", "listbox");
+  const list = document.createElement("ul");
+  list.className = "dd-list";
+  list.setAttribute("role", "listbox");
+  list.hidden = true;
+  wrap.append(sel, btn, list);
+  let active = -1;
+
+  const sync = () => { btn.textContent = sel.selectedOptions[0]?.text ?? ""; };
+  const setActive = (i) => {
+    active = i;
+    [...list.children].forEach((li, k) => li.classList.toggle("active", k === i));
+    list.children[i]?.scrollIntoView({ block: "nearest" });
+  };
+  const close = () => { list.hidden = true; wrap.classList.remove("open"); btn.setAttribute("aria-expanded", "false"); };
+  const pick = (i) => {
+    close();
+    btn.focus();
+    if (i < 0 || i === sel.selectedIndex) return;
+    sel.selectedIndex = i;
+    sync();
+    sel.dispatchEvent(new Event("change"));
+  };
+  const open = () => {
+    list.innerHTML = "";
+    [...sel.options].forEach((o, i) => {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.setAttribute("aria-selected", String(o.selected));
+      li.textContent = o.text;
+      li.onmouseenter = () => setActive(i);
+      li.onclick = () => pick(i);
+      list.appendChild(li);
+    });
+    list.hidden = false;
+    wrap.classList.add("open");
+    btn.setAttribute("aria-expanded", "true");
+    setActive(sel.selectedIndex);
+  };
+
+  btn.addEventListener("click", () => (list.hidden ? open() : close()));
+  btn.addEventListener("keydown", (e) => {
+    const n = sel.options.length;
+    if (list.hidden) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); open(); }
+      return;
+    }
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(Math.min(active + 1, n - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(Math.max(active - 1, 0)); }
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(active); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }   // not the settings dialog
+    else if (e.key === "Tab") close();
+  });
+  document.addEventListener("pointerdown", (e) => { if (!wrap.contains(e.target)) close(); });
+  sel.addEventListener("change", sync);
+  sync();
+  return { sync };
+}
+
 // ---------------------------------------------------------------- toast
 let toastTimer;
 function toast(msg, isErr = false) {
@@ -228,13 +300,17 @@ function showInfo(item, info) {
       ${stat("width", fmtLen(x))}${stat("length", fmtLen(y))}${stat("height", fmtLen(z))}
       ${stat("triangles", num(s.triangles))}${stat("parts", s.parts)}${stat("materials", s.materials.length)}
     </div>
-    ${info.variants.length > 1 ? `<label class="variant"><span>${T("variant")}</span>
-      <select id="variantSel">${info.variants.map((v) => `<option value="${esc(v.tag)}"${v.tag === info.variant ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>` : ""}
+    ${info.variants.length > 1 ? `<div class="variant"><span>${T("variant")}</span>
+      <select id="variantSel">${info.variants.map((v) => `<option value="${esc(v.tag)}"${v.tag === info.variant ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>` : ""}
     ${info.warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join("")}`;
-  $("#variantSel")?.addEventListener("change", (e) => {
-    state.variant = e.target.value;
-    loadModel(state.current, true);
-  });
+  const variantSel = $("#variantSel");
+  if (variantSel) {
+    dropdown(variantSel);
+    variantSel.addEventListener("change", (e) => {
+      state.variant = e.target.value;
+      loadModel(state.current, true);
+    });
+  }
   $("#exportBox").classList.remove("hidden");
   $("#printBox").classList.remove("hidden");
 }
@@ -460,6 +536,7 @@ $("#btnMode").addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------- status & settings
+const appearanceDropdown = dropdown($("#cfgAppearance"));
 let appearanceLoaded = false;
 async function pollStatus() {
   const el = $("#status");
@@ -487,6 +564,7 @@ $("#btnSettings").addEventListener("click", async () => {
   $("#cfgExport").value = s.export_dir || "";
   $("#cfgBlender").value = s.blender || "";
   $("#cfgAppearance").value = appearance;
+  appearanceDropdown.sync();
   $("#settings").showModal();
 });
 $("#settings").addEventListener("close", async () => {

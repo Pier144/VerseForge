@@ -49,7 +49,7 @@
   --float-bg: rgba(30, 32, 40, .52); --float-border: rgba(255, 255, 255, .10);
   --float-shadow: 0 12px 32px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .06);
   --backdrop: rgba(0, 0, 0, .45);
-  --option-bg: #1c1e26;
+  --menu-bg: #22242e;
   --empty-icon: #fff;
   --grid-major: #34466a; --grid-minor: #1b2235;
   color-scheme: dark;
@@ -80,7 +80,7 @@
   --float-bg: rgba(255, 255, 255, .62); --float-border: rgba(255, 255, 255, .85);
   --float-shadow: 0 10px 30px rgba(30, 40, 70, .14), inset 0 1px 0 #fff;
   --backdrop: rgba(30, 35, 50, .22);
-  --option-bg: #fff;
+  --menu-bg: #fff;
   --empty-icon: var(--accent);
   --grid-major: #a9b5ca; --grid-minor: #cfd6e2;
   color-scheme: light;
@@ -113,7 +113,28 @@ select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center; background-size: 12px;
 }
-select option { background: var(--option-bg); color: var(--text); }
+
+/* dropdown drawn by app.js over an invisible <select> */
+.dd { position: relative; }
+.dd-native { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+.dd-btn {
+  width: 100%; height: 34px; padding: 0 30px 0 10px; text-align: left; font-size: 13px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--input-bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center / 12px;
+  border: 1px solid var(--input-border); border-radius: 11px; outline: none; transition: border-color .15s, box-shadow .15s;
+}
+.dd-btn:focus-visible, .dd.open .dd-btn { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+.dd-list {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 5px; list-style: none;
+  max-height: 264px; overflow-y: auto; background: var(--menu-bg); border: 1px solid var(--float-border); border-radius: 12px;
+  box-shadow: var(--float-shadow); animation: pop .14s ease-out;
+}
+.dd-list li {
+  position: relative; padding: 7px 10px 7px 28px; border-radius: 8px; font-size: 13px; color: var(--text); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none;
+}
+.dd-list li.active { background: var(--accent); color: var(--accent-ink); }
+.dd-list li[aria-selected="true"]::before { content: "✓"; position: absolute; left: 10px; font-weight: 600; }
 
 button.primary {
   width: 100%; height: 38px; border: 0; border-radius: 11px; background: var(--accent-grad); color: var(--accent-ink);
@@ -318,7 +339,7 @@ details[open] .chev { transform: rotate(90deg); }
 
 /* ------------------------------------------------------------------ dialog & toast */
 dialog {
-  width: min(540px, 92vw); padding: 0; color: var(--text); background: var(--pane); border: 1px solid var(--pane-border);
+  width: min(540px, 92vw); padding: 0; overflow: visible; color: var(--text); background: var(--pane); border: 1px solid var(--pane-border);
   border-radius: 24px; box-shadow: 0 30px 80px rgba(0, 0, 0, .35);
   backdrop-filter: var(--pane-filter); -webkit-backdrop-filter: var(--pane-filter);
 }
