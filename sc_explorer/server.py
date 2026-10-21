@@ -382,8 +382,8 @@ def _run_update(job):
         path = updates.download(state.update["installer"], lambda f: job.update(progress=f))
         job.update(state="launching", message=("update_launching",), progress=1.0)
         updates.launch(path)
-        # leave the files free for the installer (it also closes VerseForge itself if it is still open)
-        threading.Timer(1.5, lambda: os._exit(0)).start()
+        # leave the files free for the installer at once (it also waits for VerseForge, and closes it if needed)
+        threading.Timer(0.3, lambda: os._exit(0)).start()
     except Exception as e:
         traceback.print_exc()
         job.update(state="error", message=("update_checksum",) if str(e) == "checksum" else str(e))

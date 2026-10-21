@@ -83,8 +83,8 @@ def download(installer, progress=None, timeout=30):
 
 
 def launch(installer_path):
-    """Start the installer detached: /SILENT shows only its progress window, it closes VerseForge if it is still open
-    and starts it again when done (see installer/VerseForge.iss)."""
+    """Start the installer detached: /SILENT shows only its progress window; it waits for VerseForge to quit (closing it
+    if needed) and starts it again when done (see installer/VerseForge.iss)."""
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     subprocess.Popen([installer_path, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"],
                      creationflags=flags, close_fds=True)

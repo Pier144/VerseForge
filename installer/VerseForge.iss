@@ -48,3 +48,40 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 ; silent install = update started from inside VerseForge: reopen it when done
 Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
+
+[Code]
+function ProcessRunning(Image: String): Boolean;
+var
+  Code: Integer;
+begin
+  // tasklist lists the process when it runs, find returns 0 when it sees it
+  Result := Exec(ExpandConstant('{cmd}'), '/C tasklist /FI "IMAGENAME eq ' + Image + '" /NH | find /I "' + Image + '" >nul',
+                 '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
+end;
+
+function InitializeSetup(): Boolean;
+var
+  Code, I: Integer;
+begin
+  Result := True;
+  if WizardSilent then
+  begin
+    // in-app update: VerseForge quits right after starting this installer. Its Qt window does not answer the
+    // Restart Manager, so wait for it here and, if it is still open after 15 s, close it.
+    I := 0;
+    while ProcessRunning('{#AppExe}') and (I < 30) do
+    begin
+      Sleep(500);
+      I := I + 1;
+    end;
+    if ProcessRunning('{#AppExe}') then
+      Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM {#AppExe} /F /T', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    // its browser engine helpers end with it
+    I := 0;
+    while ProcessRunning('QtWebEngineProcess.exe') and (I < 10) do
+    begin
+      Sleep(500);
+      I := I + 1;
+    end;
+  end;
+end;
