@@ -1,0 +1,14 @@
+fastapi>=0.110
+uvicorn>=0.29
+numpy>=1.26
+trimesh>=4.0
+zstandard>=0.22
+pycryptodome>=3.20
+pillow>=10.0
+# solo per "Crea STL per stampa" (insieme a Blender installato)
+scipy>=1.11
+scikit-image>=0.22
+manifold3d>=2.4
+embreex; platform_system == "Windows"
+# test
+pytest

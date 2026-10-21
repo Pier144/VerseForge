@@ -1,0 +1,7 @@
+-r requirements.txt
+# programma a finestra (verseforge_app.py) e VerseForge.exe
+PySide6>=6.6
+pyinstaller>=6.0
+# solo per tools/registra_video.py
+opencv-python>=4.8
+websockets>=12.0

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VerseForge</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 2 30 16 16 30 2 16z' fill='%2340c4ff'/></svg>">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": {
+        "three": "./vendor/three/build/three.module.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">◆</span> VerseForge</div>
+    <div id="status" class="status" data-i18n="starting">Starting…</div>
+    <button id="btnSettings" class="ghost" data-i18n="settingsBtn" data-i18n-title="settings">⚙ Settings</button>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="search">
+        <input id="q" type="search" data-i18n-placeholder="searchPh" placeholder="Search: P4-AR, Gladius, Morozov, multitool…" autocomplete="off" autofocus>
+      </div>
+      <div id="cats" class="cats"></div>
+      <label class="check"><input id="mainOnly" type="checkbox" checked> <span data-i18n="mainOnly">Main models only</span></label>
+      <div id="count" class="count"></div>
+      <ul id="results" class="results"></ul>
+    </aside>
+
+    <section class="viewport">
+      <div id="canvasWrap" class="canvas-wrap">
+        <div id="empty" class="empty">
+          <div class="empty-icon">◆</div>
+          <p data-i18n="emptyMsg">Search for an item on the left and click it to view it in 3D.</p>
+          <p class="hint" data-i18n="emptyHint">Drag to rotate · wheel to zoom · right button to pan</p>
+        </div>
+        <div id="loading" class="loading hidden"><div class="spinner"></div><span id="loadingText" data-i18n="loading">Loading…</span></div>
+      </div>
+      <div class="toolbar">
+        <button data-act="reset" data-i18n="frame" data-i18n-title="frameT">⤢ Frame</button>
+        <button data-act="wire" class="toggle" data-i18n="wire" data-i18n-title="wireT">▦ Wireframe</button>
+        <button data-act="rotate" class="toggle" data-i18n="rotate" data-i18n-title="rotateT">⟳ Rotate</button>
+        <button data-act="grid" class="toggle on" data-i18n="grid" data-i18n-title="gridT"># Grid</button>
+        <button data-act="bg" data-i18n="bg" data-i18n-title="bgT">◐ Background</button>
+        <button data-act="shot" data-i18n="shot" data-i18n-title="shotT">📷 Screenshot</button>
+        <span class="sep"></span>
+        <label class="check small" data-i18n-title="texT"><input id="texOn" type="checkbox" checked> <span data-i18n="tex">Textures</span></label>
+        <label class="check small"><input type="checkbox" data-kind="decal"> <span data-i18n="decals">Decals</span></label>
+        <label class="check small"><input type="checkbox" data-kind="glass" checked> <span data-i18n="glass">Glass</span></label>
+        <label class="check small"><input type="checkbox" data-kind="hidden"> <span data-i18n="proxy">Proxy/physics</span></label>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div id="info" class="info muted">No model selected.</div>
+      <div id="exportBox" class="box hidden">
+        <h3 data-i18n="export">Export</h3>
+        <div class="btnrow">
+          <button data-exp="glb" data-i18n-title="glbT">GLB</button>
+          <button data-exp="obj" data-i18n-title="objT">OBJ</button>
+          <button data-exp="stl" data-i18n-title="stlT">STL</button>
+        </div>
+        <label class="check small"><input id="expDecals" type="checkbox"> <span data-i18n="expDecals">include decals in OBJ/STL</span></label>
+        <label class="check small"><input id="expTex" type="checkbox" checked> <span data-i18n="expTex">textures in GLB/OBJ</span></label>
+        <h3 data-i18n="print">3D printing</h3>
+        <p class="hint" data-i18n="printHint">Creates a solid, closed STL (in mm), ready for the slicer. Uses Blender in the background; large objects can take a few minutes.</p>
+        <div class="row">
+          <label>Voxel (mm) <input id="voxel" type="number" min="0" step="0.05" placeholder="auto"></label>
+          <label class="check small"><input id="fill" type="checkbox" checked> <span data-i18n="fill">fill interior</span></label>
+        </div>
+        <button id="btnPrint" class="primary" data-i18n="printBtn">Create printable STL</button>
+        <div id="printStatus" class="hint"></div>
+        <button id="btnOpenExports" class="ghost small" data-i18n="openExports">📂 Open exports folder</button>
+      </div>
+      <div id="matBox" class="box hidden">
+        <h3><span data-i18n="materials">Materials</span> <span class="hint" data-i18n="clickHide">(click to hide)</span></h3>
+        <ul id="mats" class="mats"></ul>
+      </div>
+      <div id="relBox" class="box hidden">
+        <h3 data-i18n="related">Other files in the folder</h3>
+        <ul id="related" class="related"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="settings">
+    <form method="dialog" class="settings">
+      <h2 data-i18n="settings">Settings</h2>
+      <label><span data-i18n="cfgP4k">Data.p4k path</span><input id="cfgP4k" type="text"></label>
+      <label><span data-i18n="cfgExport">Exports folder</span><input id="cfgExport" type="text"></label>
+      <label><span data-i18n="cfgBlender">Blender (blender.exe, for 3D printing)</span><input id="cfgBlender" type="text" data-i18n-placeholder="autoDetected" placeholder="detected automatically"></label>
+      <label><span data-i18n="cfgLang">Language</span><select id="cfgLang"><option value="en">English</option><option value="it">Italiano</option></select></label>
+      <div class="btnrow right">
+        <button value="cancel" class="ghost" data-i18n="cancel">Cancel</button>
+        <button id="cfgSave" value="save" class="primary" data-i18n="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast hidden"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

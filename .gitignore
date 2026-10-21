@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+esportazioni/
+config.json
+build/
+dist/
+build_log.txt
+*.log
+# strumenti locali dell'editor/assistente
+.claude/
+# video dimostrativi (~75 MB): si allegano alla Release di GitHub invece che al repository
+docs/video/
