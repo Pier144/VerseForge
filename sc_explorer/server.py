@@ -8,6 +8,7 @@ import time
 import traceback
 import uuid
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -156,7 +157,16 @@ class State:
 
 
 state = State()
-app = FastAPI(title=APP_NAME, version=__version__)
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    # the catalogue loads in the background: the interface is served at once and shows the progress
+    threading.Thread(target=state.load, daemon=True).start()
+    yield
+
+
+app = FastAPI(title=APP_NAME, version=__version__, lifespan=_lifespan)
 
 
 def tr(key, **kw):
@@ -172,11 +182,6 @@ def _msg(m):
 def _err(e):
     """Exception as a message that is turned into text later."""
     return (e.key, e.kw) if isinstance(e, i18n.LocalizedError) else str(e)
-
-
-@app.on_event("startup")
-def _startup():
-    threading.Thread(target=state.load, daemon=True).start()
 
 
 def _require_ready():
