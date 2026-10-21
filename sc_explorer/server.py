@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import APP_NAME, __version__, catalog, export, i18n, model, printing, textures, variants
+from . import APP_NAME, __version__, catalog, export, i18n, model, printing, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,7 +29,7 @@ DEFAULT_P4K = r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE\Data.
 
 def load_config():
     cfg = {"p4k_path": DEFAULT_P4K, "export_dir": DEFAULT_EXPORTS, "blender": "", "language": "english",
-           "appearance": "system"}
+           "appearance": "system", "check_updates": True, "skip_version": ""}
     if os.path.exists(CONFIG_FILE):
         try:
             cfg.update(json.load(open(CONFIG_FILE, encoding="utf-8")))
@@ -57,6 +57,8 @@ class State:
         self.models = OrderedDict()       # path -> Model (small LRU)
         self.lock = threading.Lock()
         self.jobs = {}
+        self.update = None                # last answer from GitHub (checked at most once an hour)
+        self.update_time = 0.0
 
     def load(self):
         self.status = {"ready": False, "message": ("reading_index",), "progress": 0.05, "error": None}
@@ -195,7 +197,8 @@ def _stem(path):
 def status():
     return {**state.status, "message": _msg(state.status["message"]), "error": _msg(state.status["error"]),
             "app": APP_NAME, "version": __version__, "p4k_path": state.cfg["p4k_path"], "export_dir": state.cfg["export_dir"],
-            "blender": printing.find_blender(state.cfg.get("blender")), "appearance": state.cfg.get("appearance", "system")}
+            "blender": printing.find_blender(state.cfg.get("blender")), "appearance": state.cfg.get("appearance", "system"),
+            "check_updates": bool(state.cfg.get("check_updates", True))}
 
 
 @app.get("/api/categories")
@@ -323,8 +326,10 @@ def print_file(job_id: str):
 
 # ------------------------------------------------------------------ settings
 @app.post("/api/config")
-def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", appearance: str = ""):
+def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", appearance: str = "", check_updates: str = ""):
     changed_p4k = p4k_path and p4k_path != state.cfg["p4k_path"]
+    if check_updates in ("true", "false"):
+        state.cfg["check_updates"] = check_updates == "true"
     if p4k_path:
         state.cfg["p4k_path"] = p4k_path
     if export_dir:
@@ -345,6 +350,73 @@ def open_exports():
     if hasattr(os, "startfile"):
         os.startfile(state.cfg["export_dir"])
     return {"ok": True, "dir": state.cfg["export_dir"]}
+
+
+# ------------------------------------------------------------------ updates
+@app.get("/api/update/check")
+def update_check(force: bool = False):
+    """New release on GitHub? Without force it respects the "check at startup" setting and asks GitHub once an hour."""
+    enabled = bool(state.cfg.get("check_updates", True))
+    if not (enabled or force):
+        return {"enabled": False, "available": False, "current": __version__}
+    if force or not state.update or time.time() - state.update_time > 3600:
+        try:
+            state.update = updates.check(__version__)
+        except Exception as e:                       # offline, GitHub down, rate limit: try again next time
+            return {"enabled": enabled, "available": False, "current": __version__, "error": str(e)}
+        state.update_time = time.time()
+    u = state.update
+    return {**u, "enabled": enabled, "skipped": u["latest"] == state.cfg.get("skip_version"),
+            "can_install": updates.can_install() and bool(u["installer"])}
+
+
+@app.post("/api/update/skip")
+def update_skip(version: str):
+    state.cfg["skip_version"] = version
+    save_config(state.cfg)
+    return {"ok": True}
+
+
+def _run_update(job):
+    try:
+        path = updates.download(state.update["installer"], lambda f: job.update(progress=f))
+        job.update(state="launching", message=("update_launching",), progress=1.0)
+        updates.launch(path)
+        # leave the files free for the installer (it also closes VerseForge itself if it is still open)
+        threading.Timer(1.5, lambda: os._exit(0)).start()
+    except Exception as e:
+        traceback.print_exc()
+        job.update(state="error", message=("update_checksum",) if str(e) == "checksum" else str(e))
+
+
+@app.post("/api/update/install")
+def update_install():
+    if not updates.can_install():
+        raise HTTPException(400, tr("update_source"))
+    if not state.update or not state.update.get("available") or not state.update.get("installer"):
+        raise HTTPException(400, tr("update_no_installer"))
+    job = state.jobs.get("update")
+    if not job or job["state"] == "error":
+        job = state.jobs["update"] = {"id": "update", "state": "running", "message": ("update_downloading",), "progress": 0.0}
+        threading.Thread(target=_run_update, args=(job,), daemon=True).start()
+    return update_progress()
+
+
+@app.get("/api/update/progress")
+def update_progress():
+    job = state.jobs.get("update")
+    if not job:
+        raise HTTPException(404, tr("unknown_job"))
+    return {**job, "message": _msg(job["message"])}
+
+
+@app.post("/api/open-release")
+def open_release():
+    """Open the release page in the default browser (only GitHub pages of this project)."""
+    import webbrowser
+    page = (state.update or {}).get("page") or updates.RELEASES_PAGE
+    webbrowser.open(page if page.startswith(updates.RELEASES_PAGE) else updates.RELEASES_PAGE)
+    return {"ok": True}
 
 
 @app.exception_handler(Exception)

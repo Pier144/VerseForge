@@ -75,6 +75,10 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   from the right panel.
 - **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows Windows
   (also selectable in **Settings → Appearance**).
+- **Updates**: at startup VerseForge checks the [Releases](../../releases) page. When a newer version exists it shows
+  what is new and asks whether to update: **Update now** downloads the installer (checking its SHA-256), installs it
+  and reopens the program; **Later** keeps an "Update" button in the top bar; **Skip this version** stops asking until
+  the next one. The check can be turned off, or run by hand, in **Settings → Updates**. Nothing else is sent anywhere.
 - **Variant / paint**: for weapons, armor, ships and items that have several skins or liveries in the game, a menu
   appears in the right panel (e.g. Quartz "Jungle Camo", Gladius liveries). Colours and materials come from the
   game database (`Game2.dcb`); the first entry is the default paint. Exports use the selected variant too.
@@ -127,10 +131,12 @@ sc_explorer/i18n.py      texts produced by the server (status, categories, warni
 sc_explorer/export.py    GLB / OBJ / STL
 sc_explorer/printing.py  closed STL for 3D printing (Blender + interior fill)
 sc_explorer/server.py    web API
+sc_explorer/updates.py   new versions: GitHub releases check, installer download and hand-over
 web/                     interface (HTML/CSS/JS); three.js 0.160 bundled in web/vendor (MIT license)
 verseforge_app.py        windowed app (Qt WebEngine), entry point of VerseForge.exe
 VerseForge.spec          PyInstaller configuration; installer/VerseForge.iss for Inno Setup
 tests/test_formats.py    tests against the installed game (python -m pytest tests; skipped if Data.p4k is missing)
+tests/test_updates.py    version comparison and release parsing of the updater (no network needed)
 tools/                   recording and compression of the demo videos
 ```
 

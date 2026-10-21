@@ -355,6 +355,37 @@ dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(6px); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .dialog-actions .primary { width: auto; height: 34px; padding: 0 20px; }
 
+/* updates */
+.update-pill {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-text); font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.update-pill:hover { background: var(--accent); color: var(--accent-ink); }
+.update-pill .i { width: 15px; height: 15px; }
+.update-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.update-row .link-btn { margin: 0; }
+.version-line { font-size: 11.5px; }
+.update-head { display: flex; align-items: center; gap: 14px; }
+.update-head h2 { margin: 0 0 2px; }
+.update-icon {
+  width: 44px; height: 44px; padding: 10px; flex: none; border-radius: 14px; color: #fff; background: var(--accent-grad);
+  box-shadow: 0 6px 18px var(--accent-glow);
+}
+.update-notes {
+  max-height: 260px; overflow-y: auto; padding: 12px 14px; border-radius: 12px; background: var(--tile-bg);
+  border: 1px solid var(--tile-border); font-size: 12.5px; line-height: 1.5; color: var(--text-2);
+}
+.update-notes h4 { margin: 10px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.update-notes h4:first-child { margin-top: 0; }
+.update-notes ul { margin: 0; padding-left: 18px; }
+.update-notes p { margin: 0 0 6px; }
+.update-notes ul + p { margin-top: 8px; }
+.update-progress .bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.update-progress .bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.update-progress .hint { margin-top: 6px; }
+.dialog-actions .skip { margin-right: auto; color: var(--muted); }
+
 .toast {
   position: fixed; z-index: 20; top: calc(var(--ov-t) + 62px); left: calc(var(--ov-l) + (100vw - var(--ov-l) - var(--ov-r)) / 2);
   transform: translateX(-50%); max-width: min(560px, calc(100vw - var(--ov-l) - var(--ov-r) - 40px));

@@ -535,6 +535,109 @@ $("#btnMode").addEventListener("click", () => {
   api(`/api/config?appearance=${appearance}`, { method: "POST" }).catch(() => { /* kept locally anyway */ });
 });
 
+// ---------------------------------------------------------------- updates (new releases on GitHub)
+let update = null, updateChecked = false;
+
+// release notes are Markdown: keep headings, bullets and paragraphs, drop images and rules; everything is escaped
+function notesHtml(md) {
+  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*([^*\s][^*]*)\*/g, "<i>$1</i>")
+    .replace(/`([^`]+)`/g, "$1").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  let html = "", list = false;
+  for (const raw of md.split(/\r?\n/)) {
+    const line = raw.trim();
+    const bullet = /^[-*] (.+)/.exec(line);
+    if (list && !bullet) { html += "</ul>"; list = false; }
+    if (!line || /^!\[/.test(line) || /^-{3,}$/.test(line)) continue;
+    if (bullet) { if (!list) { html += "<ul>"; list = true; } html += `<li>${inline(bullet[1])}</li>`; }
+    else if (/^#{1,6} /.test(line)) html += `<h4>${inline(line.replace(/^#+ /, ""))}</h4>`;
+    else html += `<p>${inline(line)}</p>`;
+  }
+  return html + (list ? "</ul>" : "");
+}
+
+function showUpdatePill() {
+  const pill = $("#btnUpdate");
+  pill.classList.toggle("hidden", !update?.available || update.skipped);
+  if (update?.available) pill.querySelector("span").textContent = `Update to ${update.latest}`;
+}
+
+function openUpdateDialog() {
+  if (!update?.available) return;
+  $("#updText").textContent = `VerseForge ${update.latest} is available. You have ${update.current}.`;
+  $("#updNotes").innerHTML = notesHtml(update.notes || "") || `<p>${esc("No release notes.")}</p>`;
+  $("#updNotes").classList.toggle("hidden", !update.notes);
+  $("#updGo").textContent = update.can_install ? "Update now" : "Open download page";
+  $("#updProgress").classList.add("hidden");
+  $("#updateDlg").querySelectorAll("button").forEach((b) => { b.disabled = false; });
+  if (!$("#updateDlg").open) $("#updateDlg").showModal();
+}
+
+async function checkUpdates(force) {
+  try {
+    update = await (await api(`/api/update/check?force=${force}`)).json();
+  } catch (e) {
+    if (force) toast(`Could not check for updates: ${e.message}`, true);
+    return;
+  }
+  showUpdatePill();
+  if (force) {
+    if (update.error) toast(`Could not reach GitHub: ${update.error}`, true);
+    else if (update.available) { $("#settings").close(); openUpdateDialog(); }
+    else toast(`VerseForge ${update.current} is the latest version`);
+  } else if (update.enabled && update.available && !update.skipped && !document.querySelector("dialog[open]")) {
+    openUpdateDialog();
+  }
+}
+
+let installing = false;
+async function pollUpdate() {
+  const box = $("#updProgress");
+  try {
+    const job = await (await api("/api/update/progress")).json();
+    box.querySelector(".bar span").style.width = `${Math.round(job.progress * 100)}%`;
+    box.querySelector(".hint").textContent = job.state === "running" ? `${job.message} ${Math.round(job.progress * 100)}%` : job.message;
+    if (job.state === "error") throw new Error(job.message);
+    if (job.state === "running") setTimeout(pollUpdate, 400);
+    // "launching": the installer takes over and closes this window
+  } catch (e) {
+    installing = false;
+    $("#updateDlg").querySelectorAll("button").forEach((b) => { b.disabled = false; });
+    // after the app has quit for the installer the server stops answering: that is expected, not an error
+    if (box.querySelector(".hint").textContent.startsWith("Installing")) return;
+    box.classList.add("hidden");
+    toast(`Update failed: ${e.message}`, true);
+  }
+}
+
+$("#updGo").addEventListener("click", async () => {
+  if (!update?.can_install) {
+    api("/api/open-release", { method: "POST" }).catch((e) => toast(e.message, true));
+    $("#updateDlg").close("later");
+    return;
+  }
+  installing = true;
+  $("#updateDlg").querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  $("#updProgress").classList.remove("hidden");
+  try {
+    await api("/api/update/install", { method: "POST" });
+    pollUpdate();
+  } catch (e) {
+    installing = false;
+    $("#updateDlg").querySelectorAll("button").forEach((b) => { b.disabled = false; });
+    $("#updProgress").classList.add("hidden");
+    toast(`Update failed: ${e.message}`, true);
+  }
+});
+$("#updateDlg").addEventListener("cancel", (e) => { if (installing) e.preventDefault(); });
+$("#updateDlg").addEventListener("close", () => {
+  if ($("#updateDlg").returnValue !== "skip" || !update) return;
+  api(`/api/update/skip?version=${encodeURIComponent(update.latest)}`, { method: "POST" }).catch(() => { /* asked again next time */ });
+  update.skipped = true;
+  showUpdatePill();
+});
+$("#btnUpdate").addEventListener("click", openUpdateDialog);
+$("#btnCheckUpdates").addEventListener("click", () => checkUpdates(true));
+
 // ---------------------------------------------------------------- status & settings
 const appearanceDropdown = dropdown($("#cfgAppearance"));
 let appearanceLoaded = false;
@@ -543,6 +646,7 @@ async function pollStatus() {
   try {
     const s = await (await api("/api/status")).json();
     if (!appearanceLoaded && s.appearance) { appearanceLoaded = true; applyAppearance(s.appearance); }
+    if (!updateChecked) { updateChecked = true; setTimeout(() => checkUpdates(false), 1500); }
     el.classList.toggle("err", !!s.error);
     el.classList.toggle("ready", !!s.ready && !s.error);
     // once the catalogue is ready the status line has nothing useful to say: it only shows progress and errors
@@ -565,12 +669,14 @@ $("#btnSettings").addEventListener("click", async () => {
   $("#cfgBlender").value = s.blender || "";
   $("#cfgAppearance").value = appearance;
   appearanceDropdown.sync();
+  $("#cfgUpdates").checked = s.check_updates !== false;
+  $("#versionLine").textContent = `You are using VerseForge ${s.version}`;
   $("#settings").showModal();
 });
 $("#settings").addEventListener("close", async () => {
   if ($("#settings").returnValue !== "save") return;
   const p = new URLSearchParams({ p4k_path: $("#cfgP4k").value, export_dir: $("#cfgExport").value, blender: $("#cfgBlender").value,
-    appearance: $("#cfgAppearance").value });
+    appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked });
   applyAppearance($("#cfgAppearance").value);
   try {
     await api(`/api/config?${p}`, { method: "POST" });

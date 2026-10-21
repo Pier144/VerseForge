@@ -1,7 +1,7 @@
 ; Inno Setup script for VerseForge  ->  "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\VerseForge.iss
 ; Builds dist\VerseForge-<version>-Setup.exe from the PyInstaller folder dist\VerseForge.
 #define AppName "VerseForge"
-#define AppVersion "1.3.1"
+#define AppVersion "1.4.0"
 #define AppExe "VerseForge.exe"
 
 [Setup]
@@ -25,6 +25,10 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; in-app updates run this installer with /SILENT /CLOSEAPPLICATIONS: close a VerseForge that is still open,
+; VerseForge is started again by the [Run] entry below (not by the Restart Manager)
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -42,3 +46,5 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; silent install = update started from inside VerseForge: reopen it when done
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent

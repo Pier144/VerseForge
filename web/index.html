@@ -37,7 +37,8 @@
       <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4l2 2h8A1.5 1.5 0 0 1 20.5 9v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
       <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
       <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.2 8.2 0 1 0 10.6 10.6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
-      <symbol id="i-cube"viewBox="0 0 24 24"><path d="M12 2.8 20.2 7.4v9.2L12 21.2l-8.2-4.6V7.4z M3.8 7.4 12 12l8.2-4.6 M12 12v9.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4.5 16.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 2.8 20.2 7.4v9.2L12 21.2l-8.2-4.6V7.4z M3.8 7.4 12 12l8.2-4.6 M12 12v9.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
       <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     </defs>
   </svg>
@@ -46,6 +47,7 @@
     <header class="topbar">
       <div class="brand"><svg class="logo"><use href="#i-logo"/></svg><span>VerseForge</span></div>
       <div id="status" class="status">Starting…</div>
+      <button id="btnUpdate" class="update-pill hidden" title="A new version of VerseForge is available"><svg class="i"><use href="#i-download"/></svg><span></span></button>
       <button id="btnMode" class="icon-btn" title="Switch light / dark" aria-label="Switch light / dark"><svg class="i"><use href="#i-moon"/></svg></button>
       <button id="btnSettings" class="icon-btn" title="Settings" aria-label="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
     </header>
@@ -144,9 +146,35 @@
       <div class="field-col"><span>Appearance</span>
         <select id="cfgAppearance"><option value="system">Match system</option><option value="light">Light</option><option value="dark">Dark</option></select>
       </div>
+      <div class="field-col"><span>Updates</span>
+        <div class="update-row">
+          <label class="switch"><input id="cfgUpdates" type="checkbox" checked><span class="track"></span><span>Check for new versions at startup</span></label>
+          <button id="btnCheckUpdates" type="button" class="link-btn">Check now</button>
+        </div>
+        <em id="versionLine" class="version-line"></em>
+      </div>
       <div class="dialog-actions">
         <button value="cancel" class="ghost">Cancel</button>
         <button id="cfgSave" value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="updateDlg">
+    <form method="dialog" class="settings update">
+      <div class="update-head">
+        <svg class="update-icon"><use href="#i-download"/></svg>
+        <div>
+          <h2>Update available</h2>
+          <p id="updText" class="hint"></p>
+        </div>
+      </div>
+      <div id="updNotes" class="update-notes"></div>
+      <div id="updProgress" class="update-progress hidden"><div class="bar"><span></span></div><p class="hint"></p></div>
+      <div class="dialog-actions">
+        <button id="updSkip" value="skip" class="link-btn skip">Skip this version</button>
+        <button value="later" class="ghost">Later</button>
+        <button id="updGo" type="button" class="primary">Update now</button>
       </div>
     </form>
   </dialog>
