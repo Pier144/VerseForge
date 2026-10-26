@@ -13,6 +13,23 @@ CATEGORIES = ["weapons", "attachments", "tools", "armor", "clothing", "ships", "
 
 CAT_ORDER = {k: i for i, k in enumerate(CATEGORIES)}
 
+# sub-category ids of each category in display order; labels in i18n.SUBCATEGORIES.
+# Ships are split by manufacturer instead: their ids are the manufacturer folders (aegs, drak…)
+SUBCATEGORIES = {
+    "weapons": ["pistols", "smgs", "rifles", "shotguns", "snipers", "lmgs", "launchers", "special", "melee", "grenades",
+                "ammo", "mounted", "other"],
+    "attachments": ["optics", "magazines", "muzzle", "underbarrel", "stocks", "charms", "other"],
+    "tools": ["multitool", "medical", "extinguishers", "gadgets", "usables"],
+    "armor": ["helmets", "light", "medium", "heavy", "undersuits", "other"],
+    "clothing": ["tops", "bottoms", "outfits", "footwear", "gloves", "headwear", "backpacks", "other"],
+    "components": ["weapons", "turrets", "missiles", "thrusters", "power", "coolers", "shields", "quantum", "systems",
+                   "interior", "derelicts", "other"],
+    "vehicles": ["ground", "exosuits", "derelicts", "other"],
+    "characters": ["heads", "bodies", "creatures", "aliens", "other"],
+    "props": ["branding", "flair", "missions", "mining", "salvage", "uee", "other"],
+    "environments": ["buildings", "hangars", "flora", "caves", "rocks", "space", "racetracks", "other"],
+}
+
 MANUFACTURERS = {
     "aegs": "Aegis Dynamics", "anvl": "Anvil Aerospace", "argo": "Argo Astronautics", "banu": "Banu",
     "cnou": "Consolidated Outland", "crus": "Crusader Industries", "drak": "Drake Interplanetary",
@@ -26,6 +43,9 @@ MANUFACTURERS = {
     "qrt": "Quirinus Tech", "vgl": "Virgil Ltd", "doom": "Doomsday", "grey": "Greycat Industrial",
     "mxox": "MaxOx", "jokr": "Joker Engineering", "wlop": "Wei-Tek", "wetk": "Wei-Tek", "aopo": "Aopoa",
 }
+
+# manufacturer code -> first code with the same name (ships are grouped by name)
+_MANU_IDS = {code: next(c for c, m in MANUFACTURERS.items() if m == manu) for code, manu in MANUFACTURERS.items()}
 
 # weapon type codes found in file names (brfl, smg, pstl…); their names are in i18n.WEAPON_TYPES
 WEAPON_TYPES = set(i18n.WEAPON_TYPES)
@@ -47,6 +67,7 @@ class Item:
     key: str           # lowercase alphanumeric search key
     game_name: bool = False
     stem: str = ""     # file name, shown under in-game names
+    sub: str = ""      # sub-category id (see SUBCATEGORIES)
 
 
 def subtitle(it):
@@ -86,6 +107,134 @@ def categorize(p):
                      "objects/brush", "objects/organics", "objects/dfm", "objects/facility")):
         return "environments"
     return "other"
+
+
+# weapons_v7/<manufacturer>/<type folder>/…, else the type code that starts the file name (bpst, esmg, lrfl…)
+_WEAPON_DIRS = {"pistol": "pistols", "toy_pistol": "pistols", "smg": "smgs", "rifle": "rifles", "shotgun": "shotguns",
+                "sniper": "snipers", "lmg": "lmgs", "hmg": "lmgs", "launcher": "launchers", "special": "special",
+                "crossbow": "special"}
+_WEAPON_CODES = {"pst": "pistols", "smg": "smgs", "rfl": "rifles", "sgn": "shotguns", "snp": "snipers", "lmg": "lmgs",
+                 "msl": "launchers", "spc": "special", "crb": "special"}
+_ATTACHMENT_DIRS = {"sights_scopes": "optics", "ironsights": "optics", "sights_projected": "optics",
+                    "magazines": "magazines", "canisters": "magazines", "compensators": "muzzle",
+                    "suppressors": "muzzle", "energy_silencers": "muzzle", "flashhiders": "muzzle",
+                    "energy_stabilizer": "muzzle", "flashlights": "underbarrel", "laserpointers": "underbarrel",
+                    "grips": "underbarrel", "stocks": "stocks", "charms": "charms"}
+_COMPONENT_DIRS = {"weapons": "weapons", "weapons_bespoke": "weapons", "weapon_mounts": "weapons",
+                   "rocket_pods": "weapons", "turrets": "turrets", "missile_racks": "missiles", "bomb_racks": "missiles",
+                   "torpedo_racks": "missiles", "ammo": "missiles", "emp_pods": "missiles", "thrusters": "thrusters",
+                   "intakes": "thrusters", "blades": "thrusters", "power_plants": "power", "coolers": "coolers",
+                   "shields": "shields", "quantum_drives": "quantum", "avionics": "systems", "radar": "systems",
+                   "relay": "systems", "fuel_tanks": "systems", "life_support": "systems", "batteries": "systems",
+                   "jump_modules": "systems", "components": "systems", "utilities": "systems", "seats": "interior",
+                   "seataccess": "interior", "screens": "interior", "doors": "interior", "switches": "interior",
+                   "lighting": "interior", "usables": "interior", "escape_pods": "interior", "cargo": "interior",
+                   "derelicts": "derelicts"}
+_CLOTHING_WORDS = [("headwear", {"hat", "cap", "helmet", "mask", "glasses", "goggles", "beanie", "bandana", "hood",
+                                 "headphones", "headset", "beret"}),
+                   ("footwear", {"shoes", "boots", "sneakers", "sandals", "slippers", "heels"}),
+                   ("gloves", {"gloves", "glove"}),
+                   ("bottoms", {"pants", "shorts", "skirt", "trousers", "leggings"}),
+                   ("tops", {"jacket", "shirt", "tshirt", "vest", "coat", "sweater", "hoodie", "top", "blouse",
+                             "tanktop", "sweatshirt", "poncho", "shirts", "longsleeve", "trenchcoat"}),
+                   ("outfits", {"jumpsuit", "uniform", "suit", "dress", "gown", "apron", "coveralls", "robe",
+                                "flightsuit", "bodysuit", "outfit", "scrubs"})]
+
+
+def subcategorize(p, cat, name=""):
+    """Sub-category id of a geometry path, from its folders, the words in its file name and its in-game name."""
+    l = p.lower()
+    segs = l.split("/")
+    dirs, stem = segs[1:-1], segs[-1].rsplit(".", 1)[0]
+    words = set(re.split(r"[_\-]+", stem))
+    if cat == "weapons":
+        if l.startswith("objects/weapon/"):
+            return "mounted"
+        if l.startswith("objects/fps_weapons/ammo"):
+            return "ammo"
+        if l.startswith(("objects/fps_weapons/grenades", "objects/fps_weapons/deployables")):
+            return "grenades"
+        if any(d.startswith(("knife", "melee")) or d == "fsk8" for d in dirs) or words & {"knife", "combatknife"}:
+            return "melee"
+        typ = next((_WEAPON_DIRS[d] for d in dirs[3:] if d in _WEAPON_DIRS), None)
+        m = re.match(r"([a-z]?)(pst|smg|rfl|sgn|snp|lmg|msl|spc|crb)_", stem)
+        if m and m.groups() == ("m", "spc"):
+            return "melee"            # mspc_…: melee "special" items
+        return typ or (_WEAPON_CODES[m.group(2)] if m else "other")
+    if cat == "attachments":
+        return _ATTACHMENT_DIRS.get(segs[3] if len(segs) > 4 else "", "other")
+    if cat == "tools":
+        if l.startswith("objects/usables"):
+            return "usables"
+        if any(k in l for k in ("multitool", "/salvage", "/tractor", "/mining")):
+            return "multitool"
+        if "/crlf" in l or "medical" in l:
+            return "medical"
+        return "extinguishers" if "extinguisher" in l else "gadgets"
+    if cat == "armor":
+        if "helmet" in l or "visor" in words or "helmet" in name.lower():
+            return "helmets"
+        if words & {"heavy", "superheavy", "heavyarmor"}:
+            return "heavy"
+        if words & {"medium", "med", "mediumarmor"}:
+            return "medium"
+        if words & {"light", "lightarmor"}:
+            return "light"
+        if words & {"undersuit", "flightsuit", "suit", "necksock"} or "flightsuit" in l:
+            return "undersuits"
+        return "other"
+    if cat == "clothing":
+        if "backpack" in l:
+            return "backpacks"
+        return next((sub for sub, keys in _CLOTHING_WORDS if words & keys), "other")
+    if cat == "ships":
+        # one id per manufacturer name (xian and xnaa are both Aopoa)
+        return _MANU_IDS.get(segs[3], segs[3]) if len(segs) > 4 else "other"
+    if cat == "components":
+        return _COMPONENT_DIRS.get(segs[2] if len(segs) > 3 else "", "other")
+    if cat == "vehicles":
+        if l.startswith("objects/characters/powersuit"):
+            return "exosuits"
+        if l.startswith("objects/vehicles/derelicts"):
+            return "derelicts"
+        if len(segs) > 3 and segs[2] in ("seats", "turrets", "weapons", "repair"):
+            return "other"
+        return "ground"
+    if cat == "characters":
+        if "/heads/" in l:
+            return "heads"
+        if l.startswith("objects/characters/creatures"):
+            return "creatures"
+        if l.startswith(("objects/characters/vanduul", "objects/characters/banu")):
+            return "aliens"
+        return "bodies" if l.startswith("objects/characters/human") else "other"
+    if cat == "props":
+        top = "/".join(segs[1:3])
+        if top in ("props/branding", "props/flair"):
+            return segs[2]
+        if top in ("props/mission", "props/reward", "props/loot"):
+            return "missions"
+        if top == "gameplay/mining":
+            return "mining"
+        if segs[1] == "salvage":
+            return "salvage"
+        return "uee" if segs[1] == "persistent_universe" else "other"
+    if cat == "environments":
+        top = segs[1]
+        if top == "buildingsets" or top == "facility":
+            return "hangars" if len(segs) > 3 and segs[2] in ("hangar", "garage") else "buildings"
+        if top == "dfm":
+            return "racetracks"
+        if top in ("space", "spacescape", "stations") or "/asteroids" in l:
+            return "space"
+        if "/flora" in l or "/botanical" in l:
+            return "flora"
+        if "/cave" in l:
+            return "caves"
+        if top in ("planet", "planets", "landscape", "brush", "organics"):
+            return "rocks" if any(k in l for k in ("geology", "/rock", "terrain", "brush/", "/ice")) else "other"
+        return "other"
+    return ""
 
 
 def pretty(path):
@@ -159,7 +308,8 @@ def build(archive, names=None):
         main = not JUNK.search(stem) and ext != "chr"
         labels = names.get(path.lower(), []) if cat not in ("environments", "other") else []
         key = compact(path) + compact(manu) + compact(labels[0] if labels else name) + "".join(compact(x) for x in labels)
-        it = Item(path, labels[0] if labels else name, manu, kind, cat, ext, int(archive.usize[i]), main, key)
+        it = Item(path, labels[0] if labels else name, manu, kind, cat, ext, int(archive.usize[i]), main, key,
+                  sub=subcategorize(path, cat, labels[0] if labels else ""))
         if labels:
             it.game_name, it.stem = True, stem
         if cat == "ships":
@@ -184,11 +334,36 @@ def build(archive, names=None):
     return items
 
 
-def search(items, query="", category=None, main_only=True, limit=300):
+def subcategory_label(cat, sub):
+    if cat == "ships":
+        return MANUFACTURERS.get(sub, sub.upper())
+    return i18n.SUBCATEGORIES.get(cat, {}).get(sub, sub)
+
+
+def subcategories(items):
+    """{category: [(id, label, main models)]} in display order; empty sub-categories are left out."""
+    total, main = defaultdict(int), defaultdict(int)
+    for it in items:
+        total[it.category, it.sub] += 1
+        main[it.category, it.sub] += it.main
+    out = {}
+    for cat in CATEGORIES:
+        if cat == "ships":
+            subs = {s for c, s in total if c == cat and s != "other"}
+            order = sorted(subs, key=lambda s: subcategory_label(cat, s).lower()) + ["other"]
+        else:
+            order = SUBCATEGORIES.get(cat, [])
+        out[cat] = [(s, subcategory_label(cat, s), main[cat, s]) for s in order if total.get((cat, s))]
+    return out
+
+
+def search(items, query="", category=None, main_only=True, limit=300, sub=None):
     tokens = [compact(t) for t in query.split() if compact(t)]
     out = []
     for it in items:
         if category and it.category != category:
+            continue
+        if sub and it.sub != sub:
             continue
         if main_only and not it.main:
             continue

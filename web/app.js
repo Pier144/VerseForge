@@ -30,7 +30,8 @@ const num = (n) => n.toLocaleString("en-US");
 
 const CAT_LABELS = {};
 const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy" };
-const state = { cat: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null };
+const SUBCATS = {};
+const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null };
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
 
 // ---------------------------------------------------------------- dropdown
@@ -460,7 +461,7 @@ function scheduleSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(
 async function runSearch() {
   const seq = ++searchSeq;
   const q = $("#q").value.trim();
-  const params = new URLSearchParams({ q, cat: state.cat, main: $("#mainOnly").checked, limit: 400 });
+  const params = new URLSearchParams({ q, cat: state.cat, sub: state.sub, main: $("#mainOnly").checked, limit: 400 });
   try {
     const data = await (await api(`/api/search?${params}`)).json();
     if (seq !== searchSeq) return;
@@ -495,18 +496,40 @@ async function loadCategories() {
   const box = $("#cats");
   box.innerHTML = "";
   const mk = (id, label, n) => {
-    const c = document.createElement("button");
-    c.className = "chip" + (state.cat === id ? " on" : "");
-    c.innerHTML = `${esc(label)}${n != null ? `<span class="n">${num(n)}</span>` : ""}`;
-    c.onclick = () => { state.cat = state.cat === id ? "" : id; loadCategoriesUI(); runSearch(); };
-    c.dataset.id = id;
+    const c = chip(id, label, n);
+    c.onclick = () => { state.cat = state.cat === id ? "" : id; state.sub = ""; loadCategoriesUI(); runSearch(); };
     return c;
   };
   box.appendChild(mk("", T("all")));
-  cats.forEach((c) => { CAT_LABELS[c.id] = c.label; box.appendChild(mk(c.id, c.label, c.count)); });
+  cats.forEach((c) => { CAT_LABELS[c.id] = c.label; SUBCATS[c.id] = c.subs; box.appendChild(mk(c.id, c.label, c.count)); });
+  loadCategoriesUI();
+}
+function chip(id, label, n) {
+  const c = document.createElement("button");
+  c.className = "chip";
+  c.textContent = label;
+  if (n != null) {
+    const s = document.createElement("span");
+    s.className = "n";
+    s.textContent = num(n);
+    c.appendChild(s);
+  }
+  c.dataset.id = id;
+  return c;
 }
 function loadCategoriesUI() {
-  document.querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c.dataset.id === state.cat));
+  $("#cats").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c.dataset.id === state.cat));
+  // the sub-categories of the selected category, in a second row
+  const box = $("#subcats"), subs = SUBCATS[state.cat] || [];
+  box.replaceChildren();
+  box.hidden = subs.length < 2;
+  if (box.hidden) return;
+  [{ id: "", label: T("all") }, ...subs].forEach((s) => {
+    const c = chip(s.id, s.label, s.count);
+    c.classList.toggle("on", s.id === state.sub);
+    c.onclick = () => { state.sub = state.sub === s.id ? "" : s.id; loadCategoriesUI(); runSearch(); };
+    box.appendChild(c);
+  });
 }
 
 $("#q").addEventListener("input", scheduleSearch);

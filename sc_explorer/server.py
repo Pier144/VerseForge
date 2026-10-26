@@ -212,13 +212,15 @@ def categories():
     for it in state.items:
         if it.main:
             counts[it.category] = counts.get(it.category, 0) + 1
-    return [{"id": k, "label": i18n.CATEGORIES[k], "count": counts.get(k, 0)} for k in catalog.CATEGORIES]
+    subs = catalog.subcategories(state.items)
+    return [{"id": k, "label": i18n.CATEGORIES[k], "count": counts.get(k, 0),
+             "subs": [{"id": s, "label": label, "count": n} for s, label, n in subs[k]]} for k in catalog.CATEGORIES]
 
 
 @app.get("/api/search")
-def search(q: str = "", cat: str = "", main: bool = True, limit: int = 300):
+def search(q: str = "", cat: str = "", sub: str = "", main: bool = True, limit: int = 300):
     _require_ready()
-    items, total = catalog.search(state.items, q, cat or None, main, min(limit, 2000))
+    items, total = catalog.search(state.items, q, cat or None, main, min(limit, 2000), sub or None)
     return {"total": total, "items": [_item_json(it) for it in items]}
 
 

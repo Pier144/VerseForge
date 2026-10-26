@@ -47,6 +47,36 @@ CATEGORIES = {"weapons": "Weapons", "attachments": "Weapon attachments", "tools"
               "characters": "Characters and creatures", "props": "Props",
               "environments": "Environments and structures", "other": "Other"}
 
+# category id -> {sub-category id -> label} (ids and display order are in catalog.SUBCATEGORIES; ships use manufacturers)
+SUBCATEGORIES = {
+    "weapons": {"pistols": "Pistols", "smgs": "SMGs", "rifles": "Rifles", "shotguns": "Shotguns",
+                "snipers": "Sniper rifles", "lmgs": "LMGs and HMGs", "launchers": "Launchers",
+                "special": "Special weapons", "melee": "Knives and melee",
+                "grenades": "Grenades and deployables", "ammo": "Ammo", "mounted": "Turrets and mounted guns",
+                "other": "Other"},
+    "attachments": {"optics": "Optics and sights", "magazines": "Magazines", "muzzle": "Muzzle",
+                    "underbarrel": "Underbarrel", "stocks": "Stocks", "charms": "Charms", "other": "Other"},
+    "tools": {"multitool": "Multi-tools and modules", "medical": "Medical", "extinguishers": "Fire extinguishers",
+              "gadgets": "Gadgets", "usables": "Usables and nav nodes"},
+    "armor": {"helmets": "Helmets", "light": "Light armor", "medium": "Medium armor", "heavy": "Heavy armor",
+              "undersuits": "Undersuits and flight suits", "other": "Other"},
+    "clothing": {"tops": "Jackets and shirts", "bottoms": "Pants", "outfits": "Jumpsuits and uniforms",
+                 "footwear": "Shoes and boots", "gloves": "Gloves", "headwear": "Hats, masks and glasses",
+                 "backpacks": "Backpacks", "other": "Other"},
+    "components": {"weapons": "Weapons", "turrets": "Turrets", "missiles": "Missiles, bombs and racks",
+                   "thrusters": "Thrusters and intakes", "power": "Power plants", "coolers": "Coolers",
+                   "shields": "Shields", "quantum": "Quantum drives", "systems": "Avionics and other systems",
+                   "interior": "Seats and interior", "derelicts": "Derelicts and wrecks", "other": "Other"},
+    "vehicles": {"ground": "Ground vehicles", "exosuits": "Exosuits", "derelicts": "Derelicts", "other": "Other"},
+    "characters": {"heads": "Heads", "bodies": "Bodies", "creatures": "Creatures", "aliens": "Vanduul and Banu",
+                   "other": "Other"},
+    "props": {"branding": "Branding", "flair": "Flair and decorations", "missions": "Mission items and loot",
+              "mining": "Mining", "salvage": "Salvage", "uee": "UEE", "other": "Other"},
+    "environments": {"buildings": "Buildings", "hangars": "Hangars and garages", "flora": "Plants",
+                     "caves": "Caves", "rocks": "Rocks and terrain", "space": "Space and stations",
+                     "racetracks": "Race tracks and arenas", "other": "Other"},
+}
+
 # weapon type code found in file names -> readable name
 WEAPON_TYPES = {"brfl": "rifle", "rfl": "rifle", "smg": "SMG", "lmg": "LMG", "sgun": "shotgun", "shtg": "shotgun",
                 "snpr": "sniper rifle", "pstl": "pistol", "glau": "grenade launcher", "rlau": "rocket launcher",
