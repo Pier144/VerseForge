@@ -59,7 +59,8 @@ def _floats(text, default):
 
 def classify(name, shader):
     n, s = name.lower(), shader.lower()
-    if s == "nodraw" or "proxy" in n or "nodraw" in n or "physics" in n:
+    # UIPlane: the cockpit's holographic HUD, drawn live by the UI (an empty grey card without it)
+    if s in ("nodraw", "uiplane") or "proxy" in n or "nodraw" in n or "physics" in n:
         return "hidden"
     if s == "displayscreen":       # in game its picture is drawn live by the UI ($RenderToTexture)
         return "screen"
@@ -173,12 +174,24 @@ def _material(el, archive=None, palette=None):
         else:
             mat.kind = "hidden"
     gen = el.get("StringGenMask") or ""
+    # decal shaders with no picture of their own: placeholders filled by liveries, ship names drawn live
+    # ($RenderToTexture). Drawn as they are they were plain white slabs over the hull (Cutlass Black)
+    if mat.kind == "decal" and shader.lower() in ("meshdecal", "decal") and not mat.diffuse and not mat.normal \
+            and not mat.stencil_colors:
+        mat.kind = "hidden"
     if mat.kind == "decal":
         pp = el.find("PublicParams")
         mat.opacity = max(0.0, min(1.0, _pp_float(el, "Opacity", 1.0) * _pp_float(pp, "DecalDiffuseOpacity", 1.0)))
-        if "%PARALLAX_OCCLUSION_MAPPING" in gen and not mat.stencil_colors and shader.lower() == "meshdecal":
+        # POM decals: MeshDecal, and Illum meshes flagged %DECAL (Aopoa/Xi'an ships). Their texture is a near-white
+        # multiplier (seams, outlines): drawn as plain colour it showed as white or black slabs on the hull
+        s = shader.lower()
+        # (Illum decals with a real colour of their own - buttons, stitches - keep it: only the "pom" atlases)
+        illum_pom = s.startswith("illum") and "%DECAL" in gen and (
+            "pom" in name.lower() or "pom" in (mat.diffuse or "").lower().rsplit("/", 1)[-1])
+        if "%PARALLAX_OCCLUSION_MAPPING" in gen and not mat.stencil_colors and (s == "meshdecal" or illum_pom):
             mat.pom = True
-            mat.height_map = _slot(el, "TexSlot4")
+            # MeshDecal keeps the height in TexSlot4; Illum keeps its _spec there
+            mat.height_map = _slot(el, "TexSlot4") if s == "meshdecal" else None
     if "%STENCIL_MAP" in gen and mat.kind == "solid":
         _hull_stencil(mat, el, palette)
     if mat.kind == "screen":
@@ -292,7 +305,37 @@ def resolve_path(archive, geometry_path, mtl_name):
         c = cand if cand.lower().endswith(".mtl") else cand + ".mtl"
         if archive.exists(c):
             return c
+    # some names differ from the file by "-"/"_" and the file sits a folder or two up (KLWE_las_rep_s1_3 ->
+    # Weapons/KLWE/KLWE_las_rep_s1-3.mtl): the closest .mtl with the same name, within two folders up
+    found = _mtl_index(archive).get(_mtl_key(name.rsplit("/", 1)[-1]))
+    if found:
+        parts = folder.lower().split("/")
+        for up in range(3):
+            base = "/".join(parts[:len(parts) - up]) + "/"
+            near = [p for p in found if p.lower().startswith(base)]
+            if near:
+                return min(near, key=lambda p: (p.count("/"), p.lower()))
     return None
+
+
+def _mtl_key(name):
+    stem = name.lower()
+    stem = stem[:-4] if stem.endswith(".mtl") else stem
+    return stem.replace("-", "_")
+
+
+def _mtl_index(archive):
+    """{name key: [paths]} of every .mtl in the archive (built once per archive)."""
+    idx = getattr(archive, "_mtl_index", None)
+    if idx is None:
+        idx = {}
+        for n in archive.names:
+            if n.lower().endswith(".mtl"):
+                p = n.replace("\\", "/")
+                p = p[5:] if p.lower().startswith("data/") else p
+                idx.setdefault(_mtl_key(p.rsplit("/", 1)[-1]), []).append(p)
+        archive._mtl_index = idx
+    return idx
 
 
 def shading(mat):

@@ -103,3 +103,35 @@ def test_armour_does_not_load_the_player_animation_set(archive):
     from sc_explorer import model
     m = model.load_model(archive, "Objects/Characters/Human/male_v7/armor/qrt/quirinus/m_qrt_utility_heavy_core_01.cdf")
     assert m.parts and not m.anim_sets and not m.animations
+
+
+NOX_MTL = "Objects/Spaceships/Ships/XIAN/Nox/XIAN_Nox.mtl"
+
+
+def test_illum_pom_decals_shade_the_paint(archive):
+    # Aopoa/Xi'an POM decals use Illum + %DECAL: a near-white multiplier atlas, not white or black slabs
+    mats = {m.name: m for m in materials.load(archive, NOX_MTL)}
+    for name in ("decals_pom", "decals_pom2"):
+        assert mats[name].kind == "decal" and mats[name].pom and mats[name].height_map is None
+    assert not mats["decals_diff"].pom          # plain colour decal, no parallax
+
+
+def test_hud_plane_is_hidden(archive):
+    mats = {m.name: m for m in materials.load(archive, NOX_MTL)}
+    assert mats["UI_HUD_RTT"].kind == "hidden" and mats["screen_rtt"].kind == "hidden"
+
+
+def test_material_name_with_dash(archive):
+    # the KLWE repeater names "KLWE_las_rep_s1_3"; the file is Weapons/KLWE/KLWE_las_rep_s1-3.mtl, two folders up
+    geo = "Objects/Spaceships/Weapons/KLWE/KLWE_Merged_Weapons/KLWE_Las_Rep_S1/KLWE_Las_Rep_S1_L1.cga"
+    p = materials.resolve_path(archive, geo, "KLWE_las_rep_s1_3")
+    assert p and p.lower() == "objects/spaceships/weapons/klwe/klwe_las_rep_s1-3.mtl"
+    assert materials.resolve_path(archive, geo, "no_such_material_xyz") is None
+
+
+def test_empty_decals_are_hidden(archive):
+    # a texture-less placeholder and the live ship-name decal ($RenderToTexture) were white slabs on the hull
+    mats = {m.name: m for m in materials.load(
+        archive, "Objects/Spaceships/Ships/DRAK/Cutlass/cutlass_black/DRAK_Cutlass_Black.mtl")}
+    assert mats["decal_placeholder"].kind == "hidden" and mats["RTT_Text_To_Decal"].kind == "hidden"
+    assert mats["Decals_EXT"].kind == "decal" and mats["POM_EXT"].kind == "decal"
