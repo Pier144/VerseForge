@@ -84,6 +84,12 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   appears in the right panel (e.g. Quartz "Jungle Camo", Gladius liveries). Colours and materials come from the
   game database (`Game2.dcb`); the first entry is the default paint. Exports use the selected variant too.
 - **Same folder**: list of the related parts (e.g. stock, magazines, wheels, interiors).
+- **Animations**: when the game links animations to the object (weapons firing and reloading, multi-tools, ship
+  canopies, ladders, landing-gear doors, component panels…), an *Animations* panel lists them by group (Canopy:
+  Open · Close · Eject). Several can stay applied at once; *Loop* repeats the current one, the slider scrubs it and
+  *Rest pose* puts everything back. They are found automatically from the object's `.chrparams` (clips in `.caf`
+  files or `.dba` databases) and named after the game's Mannequin database (`.adb`) when it has one. The GLB export
+  includes them (switch *Animations in GLB*): in Blender each clip becomes an action.
 - Item names are the in-game (English) names.
 
 ## Export
@@ -108,6 +114,9 @@ For a large print, splitting into pegged pieces has to be done separately (e.g. 
   identical. Use the **Textures** toggle at the top right of the viewer to compare.
 - **Ships**: the hull is assembled with all its nodes (wings, landing gear, doors…). Weapons, engines and components
   mounted on hardpoints, and interiors (`.socpak` files), are separate objects that can be searched on their own.
+- **Animations**: moving parts are rigid (skinned meshes follow their main bone, fine for mechanical parts);
+  additive clips (offsets such as `*_add`) are left out. On ships only the hull moves: landing-gear legs and other
+  hardpoint items are separate objects with their own animations.
 - **In-game names**: derived from the order of the strings in DataCore (not a full parse). They are correct for
   almost all weapons, armor, clothing and vehicles; for decorative props they can be inaccurate, which is why the
   Environments/Other categories keep the file names.
