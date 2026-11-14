@@ -2,8 +2,10 @@
 
 - "adb": which Mannequin animation database (.adb) gives an object's clips their meaning;
 - "vehicles": for ships and ground vehicles, the factory loadout as a tree of {port, geometry, adb, children}
-  plus the landing-gear legs ({port: hull bone, geometry}), used by the "Full ship" assembly."""
-from .datacore import DataCore
+  plus the landing-gear legs ({port: hull bone, geometry}), used by the "Full ship" assembly, and the object
+  containers of the interior ({file: .socpak, bone, pos, rot});
+- "classes": entity class GUID -> [geometry, material], for the entities placed inside object containers."""
+from .datacore import DataCore, _guid
 
 ADB_ROOT = "Animations/Mannequin/ADB/"
 MAX_DEPTH = 4
@@ -100,6 +102,36 @@ def _gears(dc, comps):
     return out
 
 
+def _containers(comps):
+    """Object containers a vehicle loads (interior rooms): .socpak file, hull bone and offset (pos, Ang3 degrees)."""
+    out = []
+    for c in comps:
+        if c.type != "VehicleComponentParams" or not c.has("objectContainers"):
+            continue
+        for oc in c["objectContainers"] or []:
+            if oc is None:
+                continue
+            f = _data_path(oc["fileName"] or "")
+            if not f.lower().endswith(".socpak"):
+                continue
+            off = oc["Offset"]
+            pos = [float(off["Position"][k]) for k in "xyz"] if off is not None else [0.0, 0.0, 0.0]
+            rot = [float(off["Rotation"][k]) for k in "xyz"] if off is not None else [0.0, 0.0, 0.0]
+            out.append({"file": f, "bone": oc["boneName"] or "", "pos": pos, "rot": rot})
+    return out
+
+
+def _geometry_material(comps):
+    for c in comps:
+        if c.type == "SGeometryResourceParams":
+            try:
+                m = c["Geometry"]["Geometry"]["Material"]
+                return _data_path(m["path"]) if m is not None else ""
+            except (KeyError, TypeError):
+                return ""
+    return ""
+
+
 def _ammo(idx, comps):
     """{"max", "low"} of a weapon: its own ammo container (energy weapons) or the factory magazine's."""
     def container(cs):
@@ -124,11 +156,12 @@ def _ammo(idx, comps):
 def build(data: bytes):
     dc = DataCore(data)
     idx = _Index(dc)
-    found, vehicles, ammo = {}, {}, {}
+    found, vehicles, ammo, classes = {}, {}, {}, {}
     for ri in dc.records_of("EntityClassDefinition"):
         geo, adb, comps = idx.info(ri)
         if not geo:
             continue
+        classes[_guid(dc.records[ri]["guid"].tobytes())] = [geo, _geometry_material(comps)]
         rec_name = dc.record_name(ri).split(".", 1)[-1]
         if adb:
             found.setdefault(_norm(geo), []).append((rec_name, adb))
@@ -138,8 +171,10 @@ def build(data: bytes):
         if any(c.type == "VehicleComponentParams" for c in comps):
             tree = idx.tree(idx.entries(comps))
             gears = _gears(dc, comps)
-            if tree or gears:
-                vehicles.setdefault(_norm(geo), []).append((rec_name, {"tree": tree, "gears": gears}))
+            ocs = _containers(comps)
+            if tree or gears or ocs:
+                vehicles.setdefault(_norm(geo), []).append((rec_name, {"tree": tree, "gears": gears,
+                                                                       "containers": ocs}))
     adbs = {}
     for geo, recs in found.items():
         recs.sort()
@@ -150,7 +185,7 @@ def build(data: bytes):
         stem = geo.rsplit("/", 1)[-1].rsplit(".", 1)[0]
         recs.sort(key=lambda r: (not r[0].lower().endswith(stem), -len(r[1]["tree"]), r[0]))
         veh[geo] = recs[0][1]
-    return {"adb": adbs, "vehicles": veh, "ammo": ammo}
+    return {"adb": adbs, "vehicles": veh, "ammo": ammo, "classes": classes}
 
 
 def adb_for(index, path):
@@ -159,6 +194,10 @@ def adb_for(index, path):
 
 def ammo_for(index, path):
     return (index or {}).get("ammo", {}).get(_norm(path))
+
+
+def classes_of(index):
+    return (index or {}).get("classes", {})
 
 
 def vehicle_for(index, path):

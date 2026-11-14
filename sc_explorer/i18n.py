@@ -32,6 +32,8 @@ MESSAGES = {
     "warn_no_geometry": "No geometry found in this file.",
     "warn_anim_error": "animation {clip} skipped: {error}",
     "warn_ports_missing": "{n} loadout item(s) not mounted: their port is not in the model",
+    "warn_interior_missing": "{n} interior object(s) could not be loaded",
+    "warn_interior_truncated": "Interior shown in part: it stops at {n} pieces",
     "update_source": "Updates are installed by the Windows app (VerseForge.exe); from source, use git pull.",
     "update_no_installer": "This release has no installer to download.",
     "update_checksum": "The downloaded installer is damaged (size or checksum mismatch): try again.",

@@ -281,6 +281,9 @@ button.ghost:hover { background: var(--hover); }
 .tool.on { background: var(--accent-soft); color: var(--accent-text); }
 .tool-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--divider); }
 .layers { top: calc(var(--ov-t) + 14px); right: calc(var(--ov-r) + 14px); gap: 2px; padding: 4px; }
+.cutbox { top: calc(var(--ov-t) + 60px); right: calc(var(--ov-r) + 14px); gap: 10px; padding: 6px 12px; font-size: 12px; color: var(--muted); }
+.cutbox input { width: 150px; accent-color: var(--accent); }
+.cutbox #cutVal { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
 .pill { position: relative; }
 .pill input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }
 .pill span {

@@ -32,9 +32,14 @@ def select(model, include_hidden=False, include_decals=True, include_glass=True)
 def merged_by_material(parts, uv2=False):
     """Merge parts sharing a material so the viewer gets few draw calls -> [(material, verts, faces, uvs|None)].
     uv2=True adds a fifth item: the second UV set (stencils) when every part of the group has one, else None."""
-    groups = {}
+    # grouped by the material's content, not the object: interiors load each prop on its own, so equal materials
+    # come as separate copies (3,400 draw calls on the Perseus interior instead of a few hundred)
+    groups, keys = {}, {}
     for p in parts:
-        groups.setdefault(id(p.material), []).append(p)
+        k = keys.get(id(p.material))
+        if k is None:
+            k = keys[id(p.material)] = repr(p.material)
+        groups.setdefault(k, []).append(p)
     out = []
     for ps in groups.values():
         verts, faces, uvs, off = [], [], [], 0
@@ -129,11 +134,17 @@ def _sid(mat):
     return materials.shading_id(sh) if sh else ""
 
 
-def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True, uv2=None):
+def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True, uv2=None, lite=False):
+    """lite: for the viewer's game look, which loads the textures itself (/api/texture): materials it rebuilds get
+    their UVs but no embedded images (saves encoding and hashing them on every load)."""
     name, kind = mat.name, mat.kind
     if kind == "screen":
         return _screen_mesh(mat, v, f, uv, axis)
-    base, normal, uv_scale = material_textures(mat, textures, tex_size) if uv is not None else (None, None, 1.0)
+    sh = materials.shading(mat) if lite else None
+    if sh and not mat.stencil_colors:
+        base, normal, uv_scale = None, None, sh["uv_scale"]
+    else:
+        base, normal, uv_scale = material_textures(mat, textures, tex_size) if uv is not None else (None, None, 1.0)
     rgb = _srgb(mat.color)
     alpha = 0.35 if kind == "glass" else 1.0
     if base is not None and base.mode == "RGBA":
@@ -146,7 +157,7 @@ def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True, uv2=None):
         alphaMode=alpha_mode, alphaCutoff=(mat.alpha_test or 0.5) if alpha_mode == "MASK" else None,
         emissiveFactor=list(_srgb(mat.emissive)) if mat.emissive else None, doubleSided=True)
     mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T if axis else v, f, process=False)
-    if base is not None or normal is not None:
+    if uv is not None and (base is not None or normal is not None or sh):
         # trimesh expects OpenGL UVs (V up) and flips them back when writing glTF
         t = uv.astype(np.float64) * uv_scale
         mesh.visual = trimesh.visual.TextureVisuals(uv=np.column_stack([t[:, 0], 1.0 - t[:, 1]]), material=pbr)
@@ -171,22 +182,24 @@ def _screen_mesh(mat, v, f, uv, axis):
     return mesh
 
 
-def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=None):
-    """sources: animations.sources() -> animated GLB for models with a skeleton."""
+def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=None, lite=False):
+    """sources: animations.sources() -> animated GLB for models with a skeleton.
+    lite: viewer GLB (see _glb_mesh); also without normals, which the viewer computes (a third of the file)."""
     parts = select(model, include_hidden=include_hidden)
     if sources and model.skeleton:
-        return _to_glb_animated(model, parts, textures, tex_size, sources)
+        return _to_glb_animated(model, parts, textures, tex_size, sources, lite)
     scene = trimesh.Scene()
     for i, (mat, v, f, uv, uv2) in enumerate(merged_by_material(parts, uv2=True)):
         node = f"{mat.kind}|{mat.name}|{i}"
-        scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, uv2=uv2), node_name=node, geom_name=node)
-    return scene.export(file_type="glb", include_normals=True)
+        scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, uv2=uv2, lite=lite), node_name=node,
+                           geom_name=node)
+    return scene.export(file_type="glb", include_normals=not lite)
 
 
 ROOT_NODE = "__root__"
 
 
-def _to_glb_animated(model, parts, textures, tex_size, sources):
+def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False):
     """Node hierarchy for the bones/nodes the clips move (and their ancestors); everything else stays merged by
     material under the root, so a ship does not explode into hundreds of draw calls."""
     from . import anim_glb
@@ -241,9 +254,10 @@ def _to_glb_animated(model, parts, textures, tex_size, sources):
         for mat, v, f, uv, uv2 in merged_by_material(ps, uv2=True):
             node = f"{mat.kind}|{mat.name}|{n}"
             n += 1
-            scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False, uv2=uv2), node_name=node,
+            scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False, uv2=uv2, lite=lite),
+                               node_name=node,
                                geom_name=node, parent_node_name=frame)
-    glb = scene.export(file_type="glb", include_normals=True)
+    glb = scene.export(file_type="glb", include_normals=not lite)
     return anim_glb.add_animations(glb, [(n, c, {h: v for h, v in t.items() if v in kept}) for n, c, t in sources])
 
 

@@ -128,7 +128,7 @@ class State:
 
     def _entities(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"entities_v3_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"entities_v4_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
@@ -148,9 +148,26 @@ class State:
     def can_full(self, path):
         return entities.vehicle_for(self.entities, path) is not None
 
-    def get_model(self, path, variant=None, full=False):
+    def can_interior(self, path):
+        return bool((entities.vehicle_for(self.entities, path) or {}).get("containers"))
+
+    def get_model(self, path, variant=None, full=False, interior=False):
         """Model with a paint variant applied (None = the item's default paint, when DataCore has one).
-        full: ships and vehicles with their factory loadout and landing gear mounted (assembly.load_full)."""
+        full: ships and vehicles with their factory loadout and landing gear mounted (assembly.load_full).
+        interior: the rooms of the ship's object containers placed inside (assembly.load_interior)."""
+        if interior and self.can_interior(path):
+            key = (path.lower(), "interior", variant, bool(full))
+            with self.lock:
+                if key in self.models:
+                    self.models.move_to_end(key)
+                    return self.models[key]
+            m = assembly.load_interior(self.archive, self.get_model(path, variant, full),
+                                       entities.vehicle_for(self.entities, path), entities.classes_of(self.entities))
+            with self.lock:
+                self.models[key] = m
+                while len(self.models) > 8:
+                    self.models.popitem(last=False)
+            return m
         full = bool(full) and self.can_full(path)
         vs = self.variant_list(path)
         v = next((x for x in vs if x["tag"] == variant), vs[0] if vs else None)
@@ -267,9 +284,9 @@ def related(path: str):
 
 
 @app.get("/api/model/info")
-def model_info(path: str, variant: str = None, full: bool = False):
+def model_info(path: str, variant: str = None, full: bool = False, interior: bool = False):
     _require_ready()
-    m = state.get_model(path, variant, full)
+    m = state.get_model(path, variant, full, interior)
     s = m.stats()
     it = state.by_path.get(path.lower())
     vs = state.variant_list(path)
@@ -278,6 +295,7 @@ def model_info(path: str, variant: str = None, full: bool = False):
             "variants": [{"tag": v["tag"], "label": v["label"]} for v in vs],
             "variant": variant if any(v["tag"] == variant for v in vs) else (vs[0]["tag"] if vs else None),
             "can_full": state.can_full(path), "full": bool(full) and state.can_full(path),
+            "can_interior": state.can_interior(path), "interior": bool(interior) and state.can_interior(path),
             "ground_vehicle": "/vehicles/" in path.lower().replace("\\", "/"),
             "ammo": entities.ammo_for(state.entities, path),
             "screen": _screen_info(m, it),
@@ -339,15 +357,16 @@ def _sources(m):
 
 
 @app.get("/api/model/glb")
-def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = True, full: bool = False):
+def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = True, full: bool = False,
+              interior: bool = False, lite: bool = False):
     _require_ready()
-    m = state.get_model(path, variant, full)
+    m = state.get_model(path, variant, full, interior)
     if not m.parts:
         raise HTTPException(422, "; ".join(_msg(w) for w in m.warnings) or tr("no_geometry"))
-    key = ("glb", tex, anim)
+    key = ("glb", tex, anim, lite)
     if key not in m.cache:
         m.cache[key] = export.to_glb(m, textures=state.textures if tex else None, tex_size=1024,
-                                     sources=_sources(m) if anim else None)
+                                     sources=_sources(m) if anim else None, lite=lite)
     return Response(m.cache[key], media_type="model/gltf-binary")
 
 
@@ -361,12 +380,13 @@ def _save_export(data, filename):
 
 @app.get("/api/export")
 def export_model(path: str, fmt: str = Query("glb", pattern="^(glb|obj|stl)$"), decals: bool = False, tex: bool = True,
-                 variant: str = None, anim: bool = True, full: bool = False):
+                 variant: str = None, anim: bool = True, full: bool = False, interior: bool = False):
     _require_ready()
-    m = state.get_model(path, variant, full)
+    m = state.get_model(path, variant, full, interior)
     if not m.parts:
         raise HTTPException(422, tr("nothing_to_export"))
-    stem = _stem(path) + ("_full" if full and state.can_full(path) else "")
+    stem = (_stem(path) + ("_full" if full and state.can_full(path) else "")
+            + ("_interior" if interior and state.can_interior(path) else ""))
     tex_cache = state.textures if tex else None
     if fmt == "glb":
         data, name = export.to_glb(m, include_hidden=False, textures=tex_cache, tex_size=2048,

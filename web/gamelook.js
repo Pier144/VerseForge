@@ -73,17 +73,21 @@ export class GameLook {
         lightDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() },
       },
       defines: { ...(normal || old.normalMap ? { HAS_NORMAL: "" } : {}), ...(height ? { HAS_HEIGHT: "" } : {}) },
-      vertexShader: `varying vec2 vUv;
+      clipping: true,      // the "Interiors" section plane cuts decals too
+      vertexShader: `#include <clipping_planes_pars_vertex>
+varying vec2 vUv;
 varying vec3 vNormalV;
 varying vec3 vViewPos;
 void main() {
   vUv = uv;
   vNormalV = normalize( normalMatrix * normal );
-  vec4 mv = modelViewMatrix * vec4( position, 1.0 );
-  vViewPos = mv.xyz;
-  gl_Position = projectionMatrix * mv;
+  vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+  vViewPos = mvPosition.xyz;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <clipping_planes_vertex>
 }`,
-      fragmentShader: `uniform sampler2D map;
+      fragmentShader: `#include <clipping_planes_pars_fragment>
+uniform sampler2D map;
 uniform sampler2D normalMap;
 uniform sampler2D heightMap;
 uniform float strength;
@@ -96,6 +100,7 @@ float shade( vec3 n ) {      // key light + a soft light from the viewer, never 
   return 0.35 + 0.45 * max( dot( n, lightDir ), 0.0 ) + 0.3 * max( n.z, 0.0 );
 }
 void main() {
+  #include <clipping_planes_fragment>
   vec4 d = texture2D( map, vUv );
   float cov = smoothstep( alphaCut - 0.08, alphaCut + 0.08, d.a );
   if ( cov <= 0.0 ) discard;
@@ -175,7 +180,7 @@ void main() {
   }
 
   async build(sh, old, kind, opts, geometry) {
-    if (kind === "decal" && sh.pom && old.map) return this.pomDecal(sh, old, opts);
+    if (kind === "decal" && sh.pom && (sh.color_map || old.map)) return this.pomDecal(sh, old, opts);
     const us = sh.uv_scale || 1;
     const t = (sh.tiling || 1) / us;   // repeat of the tiled textures on the GLB's UVs
     const [specMap, colorMap, detailN, objN, decalMap, glossMap, objGloss, hal] = await Promise.all([

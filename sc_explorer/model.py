@@ -197,8 +197,9 @@ def _mtl(archive, name):
     return p if archive.exists(p) else None
 
 
-def load_model(archive, path, adb_path=None):
-    """adb_path: the entity's Mannequin database (entities.adb_for), for readable animation names."""
+def load_model(archive, path, adb_path=None, animated=True):
+    """adb_path: the entity's Mannequin database (entities.adb_for), for readable animation names.
+    animated=False skips the animation lookup (static props placed in ship interiors)."""
     model = Model(path)
     ext = path.lower().rsplit(".", 1)[-1]
     if ext == "cdf":
@@ -209,7 +210,7 @@ def load_model(archive, path, adb_path=None):
             model.warnings.append(("warn_chr_skeleton",))
     if not model.parts and not model.warnings:
         model.warnings.append(("warn_no_geometry",))
-    if model.parts:
+    if model.parts and animated:
         try:
             rig.attach(archive, model, adb_path)
         except Exception as e:          # the model still shows, just without animations

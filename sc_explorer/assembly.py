@@ -187,3 +187,89 @@ def _port_title(port):
             p = p[len(pre):]
             break
     return animations._title(p) or port
+
+
+# ------------------------------------------------------------------ interiors
+INTERIOR_PREFIX = "interior"
+# interiors use their own palettes (rsi_interior_default...), not the hull paint: a neutral light/mid/dark grey
+INTERIOR_PALETTE = {"A": [150, 152, 155], "B": [92, 94, 98], "C": [58, 60, 63]}
+
+
+def _lod0_mtl(archive, path):
+    """.mtl file named by a geometry (its MtlName chunk), resolved like the model loader does; "" if none."""
+    from . import ivo, materials
+    try:
+        name = ivo.material_name(ivo.IvoFile(archive.read(path)))
+    except Exception:
+        return ""
+    return materials.resolve_path(archive, path, name) or ""
+
+
+def load_interior(archive, base, vehicle, classes, max_parts=60000):
+    """Copy of `base` (a hull, or a full ship) with the rooms of its object containers placed inside: walls, floors,
+    pipes, lights (brushes) and props (doors, lockers, screens: entity classes with geometry). Static: their own
+    animations are not loaded. Each container hangs from its hull bone, so it follows the hull."""
+    from . import containers
+    out = replace(base, parts=list(base.parts), skeleton=list(base.skeleton), animations=list(base.animations),
+                  anim_sets=list(base.anim_sets), warnings=list(base.warnings), cache={})
+    ocs = (vehicle or {}).get("containers") or []
+    if not ocs or not out.parts:
+        return out
+    bones = {b.name.lower(): b for b in out.skeleton}
+    if not bones:
+        bones = {b.name.lower(): b for b in (rig.skeleton(archive, base.path) or [])}
+    geo_cache = {}
+    failed = 0
+    added = 0
+
+    def geometry(path, mtl):
+        key = (path.lower(), (mtl or "").lower())
+        if key not in geo_cache:
+            try:
+                # LOD1 when the game has one: about half the triangles (7.1 -> 3.1 M on the Perseus), same look
+                stem, ext = path.rsplit(".", 1)
+                lod1 = f"{stem}_lod1.{ext}"
+                m = model.load_model(archive, lod1 if archive.exists(lod1) else path, animated=False)
+                if m.parts and m.path == lod1:
+                    # LOD files have no material name: they use the LOD0's .mtl, by the same sub-material indices
+                    mtl0 = _lod0_mtl(archive, path)
+                    if not mtl0:
+                        m = model.load_model(archive, path, animated=False)
+                    else:
+                        m = replace(m, parts=[replace(p, mtl_path=mtl0) if not p.mtl_path else p for p in m.parts])
+                if not m.parts and archive.exists(lod1):
+                    m = model.load_model(archive, path, animated=False)
+                if m.parts:
+                    m = model.with_variant(m, archive, mtl or None, INTERIOR_PALETTE)
+                geo_cache[key] = m.parts
+            except Exception:
+                geo_cache[key] = None
+        return geo_cache[key]
+
+    for oc in ocs:
+        bone = bones.get((oc.get("bone") or "").lower())
+        mount = containers.mount_matrix(oc, bone.world if bone is not None else None)
+        node = bone.name if bone is not None and out.skeleton else ""
+        stem = oc["file"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        try:
+            placed = containers.read(archive, oc["file"], classes)
+        except Exception as e:
+            out.warnings.append(("warn_part_error", {"path": oc["file"], "error": str(e)}))
+            continue
+        for pl in placed:
+            parts = geometry(pl.geometry, pl.material)
+            if not parts:
+                failed += parts is None
+                continue
+            w = mount @ pl.matrix
+            for p in parts:
+                out.parts.append(replace(p, vertices=p.vertices @ w[:3, :3].T + w[:3, 3], node=node,
+                                         name=f"{INTERIOR_PREFIX} / {stem} / {p.name}", vbones=None,
+                                         bone_names=None))
+                added += 1
+            if added > max_parts:
+                out.warnings.append(("warn_interior_truncated", {"n": added}))
+                return out
+    if failed:
+        out.warnings.append(("warn_interior_missing", {"n": failed}))
+    return out

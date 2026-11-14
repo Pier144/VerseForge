@@ -37,7 +37,7 @@ const CAT_LABELS = {};
 const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy", screen: "" };
 const SUBCATS = {};
 const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null, full: false,
-  look: true, swapXY: false, light: "hangar" };
+  look: true, swapXY: false, light: "hangar", interior: false, cut: 0.65 };
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
 try { state.light = localStorage.getItem("vf.light") === "studio" ? "studio" : "hangar"; } catch { /* storage unavailable */ }
 
@@ -324,7 +324,8 @@ async function loadModel(item, keepView = false) {
   if (state.current?.path !== item.path) state.variant = null;
   state.current = item;
   if (!keepView) state.matOff.clear();
-  const v = (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "") + `&full=${state.full}`;
+  const v = (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "") + `&full=${state.full}` +
+    `&interior=${state.interior}`;
   document.querySelectorAll(".results li").forEach((li) => li.classList.toggle("active", li.dataset.path === item.path));
   $("#empty").classList.add("hidden");
   $("#loading").classList.remove("hidden");
@@ -334,7 +335,8 @@ async function loadModel(item, keepView = false) {
   try {
     const [infoRes, glbRes] = await Promise.all([
       api(`/api/model/info?path=${encodeURIComponent(item.path)}${v}`),
-      api(`/api/model/glb?path=${encodeURIComponent(item.path)}&tex=${state.tex}${v}`),
+      // lite: the game look loads its own textures, and normals are computed here (a third of the file)
+      api(`/api/model/glb?path=${encodeURIComponent(item.path)}&tex=${state.tex}&lite=${state.tex && state.look}${v}`),
     ]);
     if (state.current !== item) return;  // user clicked something else meanwhile
     const info = await infoRes.json();
@@ -350,6 +352,7 @@ async function loadModel(item, keepView = false) {
     progress(70, T("loadScene"));
     const gltf = await new GLTFLoader().parseAsync(buf, "");
     if (state.current !== item) return;
+    gltf.scene.traverse((o) => { if (o.isMesh && !o.geometry.attributes.normal) o.geometry.computeVertexNormals(); });
     progress(75, T("loadScene"));
     stopAnimations();
     ammoScreen?.dispose();
@@ -394,6 +397,10 @@ async function loadModel(item, keepView = false) {
     settleLanded();
     renderer.shadowMap.needsUpdate = true;
     $("#fullPill").classList.toggle("hidden", !info.can_full);
+    $("#intPill").classList.toggle("hidden", !info.can_interior);
+    $("#cutBox").classList.toggle("hidden", !info.interior);
+    sectionBox = info.interior ? new THREE.Box3().setFromObject(modelRoot) : null;
+    applySection();
     $("#fullLabel").textContent = info.ground_vehicle ? "Full vehicle" : "Full ship";
     loadRelated(item);
   } catch (e) {
@@ -648,6 +655,26 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
     link.click();
   }
 }
+// "Interiors": the ship's rooms, seen through a horizontal section (clipping plane) set with the slider
+let sectionBox = null;
+const sectionPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+function applySection() {
+  const on = !!sectionBox && state.cut < 0.999;
+  if (on) sectionPlane.constant = THREE.MathUtils.lerp(sectionBox.min.y, sectionBox.max.y, state.cut);
+  renderer.clippingPlanes = on ? [sectionPlane] : [];
+  $("#cut").value = Math.round(state.cut * 1000);
+  $("#cutVal").textContent = `${Math.round(state.cut * 100)}%`;
+  renderer.shadowMap.needsUpdate = true;
+}
+try { state.interior = sessionStorage.getItem("vf.int") === "1"; } catch { /* storage unavailable */ }
+$("#intOn").checked = state.interior;
+$("#intOn").addEventListener("change", (e) => {
+  state.interior = e.target.checked;
+  try { sessionStorage.setItem("vf.int", state.interior ? "1" : "0"); } catch { /* storage unavailable */ }
+  if (state.current) loadModel(state.current, true);
+});
+$("#cut").addEventListener("input", (e) => { state.cut = e.target.value / 1000; applySection(); });
+
 // "Full ship": remembered for the session, shown only for ships and vehicles that have a factory loadout
 try { state.full = sessionStorage.getItem("vf.full") === "1"; } catch { /* storage unavailable */ }
 $("#fullOn").checked = state.full;
@@ -678,7 +705,7 @@ document.querySelectorAll("[data-exp]").forEach((b) => b.addEventListener("click
   const fmt = b.dataset.exp;
   b.disabled = true;
   try {
-    const url = `/api/export?path=${encodeURIComponent(state.current.path)}&fmt=${fmt}&decals=${$("#expDecals").checked}&tex=${$("#expTex").checked}&anim=${$("#expAnim").checked}&full=${state.full}` +
+    const url = `/api/export?path=${encodeURIComponent(state.current.path)}&fmt=${fmt}&decals=${$("#expDecals").checked}&tex=${$("#expTex").checked}&anim=${$("#expAnim").checked}&full=${state.full}&interior=${state.interior}` +
       (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "");
     const r = await api(url);
     const blob = await r.blob();
