@@ -149,21 +149,21 @@ def _clips(archive, cp):
 
 
 def _adb_fragments(archive, adb_path):
-    """[(group, action, clip name, speed)] from a Mannequin database, first fragment of each group/action."""
+    """[(group, action, clip name, speed)] of every fragment of a Mannequin database, in file order. A group/action
+    often has several fragments for different scopes (Polaris: the legs' landing_gear_deploy first, then the hull's
+    Landing_Deploy): the caller keeps the first one whose clip the model has."""
     if not adb_path or not archive.exists(adb_path):
         return []
     root = cryxml.parse(archive.read(adb_path))
     fl = root.find("FragmentList")
-    out, seen = [], set()
+    out = []
     for group in (fl if fl is not None else []):
         for frag in group.findall("Fragment"):
             action = frag.get("FragTags") or "Default"
             anim = next((a for layer in frag.findall("AnimLayer") for a in layer.findall("Animation") if a.get("name")),
                         None)
-            key = (group.tag.lower(), action.lower())
-            if anim is None or key in seen:
+            if anim is None:
                 continue
-            seen.add(key)
             try:
                 speed = float(anim.get("speed") or 1.0) or 1.0
             except ValueError:
@@ -220,9 +220,12 @@ def find(archive, model_path, adb_path=None, names=None):
         refs.append(AnimRef(rid, _title(action), _title(group), name, source, db, speed, round(info.duration, 4),
                             info.pose, frozenset(hashes) - {caf.ROOT_HASH}))
 
+    played = set()          # (group, clip, speed): an action that only repeats another one is not offered twice
     for group, action, clip, speed in _adb_fragments(archive, adb_path):
         c = clips.get(clip.lower())
-        if c:
+        same = (_key(group), clip.lower(), speed)
+        if c and same not in played and f"{_key(group)}/{_key(action)}" not in ids:
+            played.add(same)
             push(group, action, c, speed)
     stem = _data_path(model_path).rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
     stem_tokens = set(stem.split("_"))

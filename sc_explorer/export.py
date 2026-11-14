@@ -157,9 +157,21 @@ def _to_glb_animated(model, parts, textures, tex_size, sources):
     for i in sorted(keep):
         add_bone(i)
     kept = {bones[i].name: bones[i] for i in keep}
+    # each part hangs from its nearest kept ancestor: meshes often sit on child nodes of the animated one
+    # (RSI landing gear: anim_leg -> geo_piston...), and must move with it
+    home = {}
+
+    def nearest(name):
+        if name not in home:
+            i = by_name.get(name, -1)
+            while i >= 0 and bones[i].name not in kept:
+                i = bones[i].parent
+            home[name] = bones[i].name if i >= 0 else ROOT_NODE
+        return home[name]
+
     buckets = {}
     for p in parts:
-        buckets.setdefault(p.node if p.node in kept else ROOT_NODE, []).append(p)
+        buckets.setdefault(nearest(p.node) if p.node else ROOT_NODE, []).append(p)
     n = 0
     for frame, ps in buckets.items():
         if frame != ROOT_NODE:

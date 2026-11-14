@@ -204,7 +204,10 @@ def test_vehicle_loadout(entity_index):
 
 # ------------------------------------------------------------------ full ship
 SHIPS = [GLADIUS, "Objects/Spaceships/Ships/DRAK/Cutlass/DRAK_Cutlass_Black.cga",
-         "Objects/Spaceships/Ships/AEGS/Avenger/AEGS_Avenger.cga", "Objects/Spaceships/Ships/RSI/Aurora/Exterior/RSI_Aurora.cga"]
+         "Objects/Spaceships/Ships/AEGS/Avenger/AEGS_Avenger.cga", "Objects/Spaceships/Ships/RSI/Aurora/Exterior/RSI_Aurora.cga",
+         "Objects/Spaceships/Ships/RSI/perseus/exterior/rsi_perseus.cga",
+         "Objects/Spaceships/Ships/RSI/Polaris/Exterior/rsi_polaris.cga",
+         "Objects/Spaceships/Ships/AEGS/Reclaimer/Exterior/AEGS_Reclaimer.cga"]   # per-leg clips with side suffixes
 
 
 @pytest.mark.parametrize("path", SHIPS)
@@ -242,3 +245,52 @@ def test_server_full_flag():
     assert info["can_full"] and info["full"]
     assert info["stats"]["triangles"] > server.model_info(GLADIUS)["stats"]["triangles"]
     assert not server.model_info(P6LR, full=True)["can_full"]
+
+
+PERSEUS = "Objects/Spaceships/Ships/RSI/perseus/exterior/rsi_perseus.cga"
+POLARIS = "Objects/Spaceships/Ships/RSI/Polaris/Exterior/rsi_polaris.cga"
+
+
+@pytest.mark.parametrize("path", [PERSEUS, POLARIS])
+def test_full_ship_gear_meshes_follow_animated_nodes(archive, entity_index, path):
+    """Meshes sitting on child nodes of an animated node (RSI legs: anim_leg -> geo_*) must hang under it in the GLB,
+    or the leg stays out while its joints move."""
+    from sc_explorer import animations, assembly, entities, export
+    full = assembly.load_full(archive, path, entities.vehicle_for(entity_index, path), entities.adb_for(entity_index, path))
+    src, _ = animations.sources(archive, full)
+    js = _glb_json(export.to_glb(full, sources=src))
+    nodes = js["nodes"]
+    parent = {c: i for i, n in enumerate(nodes) for c in n.get("children", [])}
+    deploy = next(r for r in full.animations if "land" in r.group.lower() and r.label.lower() == "deploy")
+    anim = next(a for a in js["animations"] if a["name"] == deploy.clip)
+    animated = {c["target"]["node"] for c in anim["channels"]}
+    gear_ports = {g["port"] for g in entities.vehicle_for(entity_index, path)["gears"]}
+
+    def tris(i):
+        mesh = js["meshes"][nodes[i]["mesh"]]
+        return sum(js["accessors"][pr["indices"]]["count"] // 3 for pr in mesh["primitives"])
+
+    for port in gear_ports:
+        total = sum(len(p.faces) for p in full.parts if p.name.startswith(port + " /") and p.material.kind != "hidden")
+        moving = 0
+        for i, n in enumerate(nodes):
+            if "mesh" not in n:
+                continue
+            j, chain = i, []
+            while j in parent:
+                j = parent[j]
+                chain.append(j)
+            if any(nodes[k]["name"].startswith(port + "/") for k in chain) and any(k in animated for k in chain):
+                moving += tris(i)
+        assert moving > total * 0.5, (port, moving, total)    # most of the leg moves with the animation
+
+
+def test_adb_fragment_fallback(archive, entity_index):
+    """Polaris: the first Landing_Gear fragments name the legs' clip; the hull's (Landing_Deploy, -1 for Retract)
+    come after and must be used. Gladius: the untagged Compress only repeats Deploy and is not offered."""
+    from sc_explorer import animations, entities
+    refs = {r.id: r for r in animations.find(archive, POLARIS, entities.adb_for(entity_index, POLARIS))}
+    assert refs["landing_gear/deploy"].clip == "Landing_Deploy" and refs["landing_gear/deploy"].speed > 0
+    assert refs["landing_gear/retract"].clip == "Landing_Deploy" and refs["landing_gear/retract"].speed < 0
+    gl = {r.id: r for r in animations.find(archive, GLADIUS, entities.adb_for(entity_index, GLADIUS))}
+    assert "landing_gear/compress" not in gl

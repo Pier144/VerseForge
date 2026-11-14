@@ -4,6 +4,7 @@ Every component hangs from the hull node (or the parent component's node) named 
 animations carry it along (a thruster on a moving wing). Animated components keep their own skeleton under a
 "port/" name prefix; their clips are mixed with the hull's by clip name, so the hull's "Landing Gear: Deploy"
 (clip landing_gear_extend) also unfolds the legs, whose clips have the same name."""
+import re
 from dataclasses import replace
 
 import numpy as np
@@ -46,6 +47,9 @@ def load_full(archive, path, vehicle, adb_path=None):
         return loaded[key]
 
     gear_links = _gear_links(out.animations)
+    if gear_links:
+        out.anim_sets = [replace(st, refs=_merge_siblings(st.refs, gear_links)) if st.prefix == "" else st
+                         for st in out.anim_sets]
 
     def mount(node, prefix, depth, parent_i=None, gear=False):
         port_i = lookup.get((prefix + node["port"]).lower())
@@ -106,23 +110,63 @@ def load_full(archive, path, vehicle, adb_path=None):
     return out
 
 
+def _verb(clip):
+    """deploy / retract / compress, read from any word of a clip name (lg_foot_deploy_main_left, LandingGear_Deploy,
+    landing_gear_extend_a...), or None."""
+    words = set(re.split(r"[^a-z]+", clip.lower()))
+    if words & {"deploy", "extend"}:
+        return "deploy"
+    if "retract" in words:
+        return "retract"
+    if "compress" in words:
+        return "compress"
+    return None
+
+
 def _gear_links(hull_actions):
-    """(deploy clip, retract clip) of the hull's landing-gear actions, or None. Their clip names differ per ship
-    (landing_gear_extend, LandingGear_Deploy, landing_dummy_deploy...), the legs always have *_extend."""
+    """{verb: hull action} of the hull's landing-gear group. Their clip names differ per ship (landing_gear_extend,
+    LandingGear_Deploy, landing_dummy_deploy, lg_arm_deploy_main_left...); the legs' clips are matched by verb."""
     land = [r for r in hull_actions if "land" in r.group.lower()]
-    dep = next((r for r in land if r.label.lower() in ("deploy", "extend", "open")), None)
-    ret = next((r for r in land if r.label.lower() in ("retract", "close")), None)
-    return (dep, ret) if dep else None
+    links = {}
+    for r in land:
+        label = r.label.lower()
+        verb = ("deploy" if label in ("deploy", "extend", "open") else "retract" if label in ("retract", "close")
+                else "compress" if label == "compress" else None)
+        if verb and verb not in links:
+            links[verb] = r
+    return links if "deploy" in links else None
+
+
+def _merge_siblings(refs, links):
+    """Hull clips that only differ by a side suffix after the verb (Reclaimer: lg_arm_deploy_main_left / _aux_right...)
+    play together with the action's clip: the game runs one per leg scope, the viewer one for the whole gear."""
+    out = []
+    for r in refs:
+        for verb, act in links.items():
+            words = act.clip.lower().split("_")
+            if verb not in (_verb(act.clip),) or r.clip == act.clip:
+                continue
+            cut = next((i for i, w in enumerate(words) if _verb(w) == verb), None)
+            if cut is None or cut == len(words) - 1:
+                continue                      # no suffix after the verb: nothing to gather
+            stem = "_".join(words[:cut + 1]) + "_"
+            if r.clip.lower().startswith(stem):
+                r = replace(r, clip=act.clip)
+                break
+        out.append(r)
+    return out
 
 
 def _link_gear(refs, links):
     """Leg clips renamed after the hull's gear clips, so one action moves doors and legs together."""
     if not links:
         return refs
-    dep, ret = links
-    ext = next((r for r in refs if r.clip.lower().endswith(("extend", "deploy"))), None)
-    own_ret = next((r for r in refs if r.clip.lower().endswith("retract")), None)
-    out = [r for r in refs if r is not ext and r is not own_ret]
+    dep, ret, comp = links["deploy"], links.get("retract"), links.get("compress")
+    by_verb = {}
+    for r in sorted(refs, key=lambda r: (len(r.clip), r.clip)):       # landing_gear_extend before _extend_a
+        by_verb.setdefault(_verb(r.clip), r)
+    ext, own_ret, own_comp = by_verb.get("deploy"), by_verb.get("retract"), by_verb.get("compress")
+    out = [r for r in refs if r is not ext and r is not own_ret and r is not own_comp]
     if ext:
         out.append(replace(ext, clip=dep.clip, reverse_keys=dep.speed < 0))
     if ret and ret.clip != dep.clip:
@@ -130,6 +174,8 @@ def _link_gear(refs, links):
             out.append(replace(own_ret, clip=ret.clip, reverse_keys=ret.speed < 0))
         elif ext:
             out.append(replace(ext, clip=ret.clip, reverse_keys=ret.speed > 0))
+    if own_comp:
+        out.append(replace(own_comp, clip=comp.clip) if comp and comp.clip != dep.clip else own_comp)
     return out
 
 
