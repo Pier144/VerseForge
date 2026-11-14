@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import APP_NAME, __version__, animations, catalog, entities, export, i18n, model, printing, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, catalog, entities, export, i18n, model, printing, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -144,33 +144,42 @@ class State:
     def variant_list(self, path):
         return self.variants.get(path.lower().replace("\\", "/"), [])
 
-    def get_model(self, path, variant=None):
-        """Model with a paint variant applied (None = the item's default paint, when DataCore has one)."""
+    def can_full(self, path):
+        return entities.vehicle_for(self.entities, path) is not None
+
+    def get_model(self, path, variant=None, full=False):
+        """Model with a paint variant applied (None = the item's default paint, when DataCore has one).
+        full: ships and vehicles with their factory loadout and landing gear mounted (assembly.load_full)."""
+        full = bool(full) and self.can_full(path)
         vs = self.variant_list(path)
         v = next((x for x in vs if x["tag"] == variant), vs[0] if vs else None)
         if v is None:
-            return self._base_model(path)
-        key = (path.lower(), v["tag"])
+            return self._base_model(path, full)
+        key = (path.lower(), v["tag"], full)
         with self.lock:
             if key in self.models:
                 self.models.move_to_end(key)
                 return self.models[key]
-        m = model.with_variant(self._base_model(path), self.archive, v["material"], v["palette"])
+        m = model.with_variant(self._base_model(path, full), self.archive, v["material"], v["palette"])
         with self.lock:
             self.models[key] = m
             while len(self.models) > 8:
                 self.models.popitem(last=False)
         return m
 
-    def _base_model(self, path):
-        key = path.lower()
+    def _base_model(self, path, full=False):
+        key = (path.lower(), full)
         with self.lock:
             if key in self.models:
                 self.models.move_to_end(key)
                 return self.models[key]
         if not self.archive or not self.archive.exists(path):
             raise HTTPException(404, tr("file_missing", path=path))
-        m = model.load_model(self.archive, path, entities.adb_for(self.entities, path))
+        adb = entities.adb_for(self.entities, path)
+        if full:
+            m = assembly.load_full(self.archive, path, entities.vehicle_for(self.entities, path), adb)
+        else:
+            m = model.load_model(self.archive, path, adb)
         with self.lock:
             self.models[key] = m
             while len(self.models) > 8:
@@ -257,9 +266,9 @@ def related(path: str):
 
 
 @app.get("/api/model/info")
-def model_info(path: str, variant: str = None):
+def model_info(path: str, variant: str = None, full: bool = False):
     _require_ready()
-    m = state.get_model(path, variant)
+    m = state.get_model(path, variant, full)
     s = m.stats()
     it = state.by_path.get(path.lower())
     vs = state.variant_list(path)
@@ -267,6 +276,8 @@ def model_info(path: str, variant: str = None):
             "materials": [{"name": n, "kind": k} for n, k in s["materials"]],
             "variants": [{"tag": v["tag"], "label": v["label"]} for v in vs],
             "variant": variant if any(v["tag"] == variant for v in vs) else (vs[0]["tag"] if vs else None),
+            "can_full": state.can_full(path), "full": bool(full) and state.can_full(path),
+            "ground_vehicle": "/vehicles/" in path.lower().replace("\\", "/"),
             "animations": [{"id": a.id, "label": a.label, "group": a.group, "clip": a.clip, "duration": a.duration,
                             "speed": a.speed, "pose": a.pose} for a in m.animations]}
 
@@ -281,9 +292,9 @@ def _sources(m):
 
 
 @app.get("/api/model/glb")
-def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = True):
+def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = True, full: bool = False):
     _require_ready()
-    m = state.get_model(path, variant)
+    m = state.get_model(path, variant, full)
     if not m.parts:
         raise HTTPException(422, "; ".join(_msg(w) for w in m.warnings) or tr("no_geometry"))
     key = ("glb", tex, anim)
@@ -303,12 +314,12 @@ def _save_export(data, filename):
 
 @app.get("/api/export")
 def export_model(path: str, fmt: str = Query("glb", pattern="^(glb|obj|stl)$"), decals: bool = False, tex: bool = True,
-                 variant: str = None, anim: bool = True):
+                 variant: str = None, anim: bool = True, full: bool = False):
     _require_ready()
-    m = state.get_model(path, variant)
+    m = state.get_model(path, variant, full)
     if not m.parts:
         raise HTTPException(422, tr("nothing_to_export"))
-    stem = _stem(path)
+    stem = _stem(path) + ("_full" if full and state.can_full(path) else "")
     tex_cache = state.textures if tex else None
     if fmt == "glb":
         data, name = export.to_glb(m, include_hidden=False, textures=tex_cache, tex_size=2048,
@@ -323,13 +334,13 @@ def export_model(path: str, fmt: str = Query("glb", pattern="^(glb|obj|stl)$"), 
 
 
 # ------------------------------------------------------------------ print jobs
-def _run_print_job(job_id, path, voxel, fill):
+def _run_print_job(job_id, path, voxel, fill, full=False):
     job = state.jobs[job_id]
     try:
         blender = printing.find_blender(state.cfg.get("blender"))
         if not blender:
             raise i18n.LocalizedError("blender_missing")
-        m = state.get_model(path)
+        m = state.get_model(path, full=full)
         stl = export.to_stl(m, include_decals=False)
         data, info = printing.make_printable(stl, blender, voxel, fill,
                                              lambda msg, frac: job.update(message=msg, progress=frac))
@@ -341,12 +352,12 @@ def _run_print_job(job_id, path, voxel, fill):
 
 
 @app.post("/api/print")
-def start_print(path: str, voxel: float = 0.0, fill: bool = True):
+def start_print(path: str, voxel: float = 0.0, fill: bool = True, full: bool = False):
     _require_ready()
     job_id = uuid.uuid4().hex[:10]
     state.jobs[job_id] = {"id": job_id, "path": path, "state": "running", "message": ("queued",), "progress": 0.0,
                           "started": time.time()}
-    threading.Thread(target=_run_print_job, args=(job_id, path, voxel or None, fill), daemon=True).start()
+    threading.Thread(target=_run_print_job, args=(job_id, path, voxel or None, fill, full), daemon=True).start()
     return print_status(job_id)
 
 

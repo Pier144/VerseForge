@@ -23,6 +23,7 @@ class AnimRef:
     duration: float
     pose: bool
     targets: frozenset = frozenset()   # CRC32 of the bone/node names the clip moves
+    reverse_keys: bool = False         # decode the clip backwards (used to make a "retract" out of an "extend")
 
 
 @dataclass
@@ -259,6 +260,8 @@ def load_clips(archive, refs):
                 clips[r.clip] = dba.read(dbs[r.dba], r.source)
             else:
                 clips[r.clip] = caf.read(archive.read(r.source))
+            if r.reverse_keys:
+                clips[r.clip] = caf.reversed_clip(clips[r.clip])
         except Exception as e:      # one broken clip never hides the others
             warnings.append(("warn_anim_error", {"clip": r.clip, "error": str(e)}))
     return clips, warnings

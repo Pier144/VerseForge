@@ -151,6 +151,18 @@ def header(data):
     return info_from(data, ch[ANIM_INFO])
 
 
+def reversed_clip(clip):
+    """The same clip played backwards (keys mirrored in time)."""
+    total = clip.info.start + clip.info.end
+    tracks = {}
+    for h, tr in clip.tracks.items():
+        tracks[h] = Track(None if tr.rot_t is None else (total - tr.rot_t)[::-1].copy(),
+                          None if tr.rot is None else tr.rot[::-1].copy(),
+                          None if tr.pos_t is None else (total - tr.pos_t)[::-1].copy(),
+                          None if tr.pos is None else tr.pos[::-1].copy())
+    return Clip(clip.info, tracks)
+
+
 def block_hashes(data, c):
     """Name hashes of the bones/nodes a #caf/#dba block animates, without decoding the keys."""
     nb = struct.unpack_from("<H", data, c + 4)[0]

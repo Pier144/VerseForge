@@ -200,3 +200,45 @@ def test_vehicle_loadout(entity_index):
     assert ports["hardpoint_thruster_main_left"]["geometry"].lower().endswith(".cga")
     assert ports["hardpoint_gun_nose"]["children"]          # gimbal mount -> gun
     assert entities.vehicle_for(entity_index, P6LR) is None
+
+
+# ------------------------------------------------------------------ full ship
+SHIPS = [GLADIUS, "Objects/Spaceships/Ships/DRAK/Cutlass/DRAK_Cutlass_Black.cga",
+         "Objects/Spaceships/Ships/AEGS/Avenger/AEGS_Avenger.cga", "Objects/Spaceships/Ships/RSI/Aurora/Exterior/RSI_Aurora.cga"]
+
+
+@pytest.mark.parametrize("path", SHIPS)
+def test_full_ship_gear_follows_hull(archive, entity_index, path):
+    from sc_explorer import animations, assembly, entities, model
+    hull = model.load_model(archive, path, entities.adb_for(entity_index, path))
+    full = assembly.load_full(archive, path, entities.vehicle_for(entity_index, path), entities.adb_for(entity_index, path))
+    assert full.stats()["triangles"] > hull.stats()["triangles"]
+    assert hull.stats()["triangles"] == model.load_model(archive, path).stats()["triangles"]   # hull untouched
+    gear_ports = {g["port"] for g in entities.vehicle_for(entity_index, path)["gears"]}
+    deploy = next(r for r in full.animations if "land" in r.group.lower() and r.label.lower() in ("deploy", "extend"))
+    src, warns = animations.sources(archive, full)
+    moved = {t[h] for n, c, t in src if n == deploy.clip for h in c.tracks if h in t}
+    owners = {name.split("/")[0] if "/" in name else "" for name in moved}
+    assert "" in owners and gear_ports <= owners          # the hull doors and every leg move together
+    assert len({r.id for r in full.animations}) == len(full.animations)
+
+
+def test_full_ship_glb(archive, entity_index):
+    from sc_explorer import animations, assembly, entities, export
+    full = assembly.load_full(archive, GLADIUS, entities.vehicle_for(entity_index, GLADIUS),
+                              entities.adb_for(entity_index, GLADIUS))
+    src, _ = animations.sources(archive, full)
+    js = _glb_json(export.to_glb(full, sources=src))
+    ext = next(a for a in js["animations"] if a["name"] == "landing_gear_extend")
+    names = {js["nodes"][c["target"]["node"]]["name"].split("/")[0] for c in ext["channels"]}
+    assert {"helper_landing_gear_front", "helper_landing_gear_rear_left", "helper_landing_gear_rear_right"} <= names
+
+
+def test_server_full_flag():
+    from sc_explorer import server
+    if not server.state.status["ready"]:
+        server.state.load()
+    info = server.model_info(GLADIUS, full=True)
+    assert info["can_full"] and info["full"]
+    assert info["stats"]["triangles"] > server.model_info(GLADIUS)["stats"]["triangles"]
+    assert not server.model_info(P6LR, full=True)["can_full"]

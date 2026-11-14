@@ -31,7 +31,7 @@ const num = (n) => n.toLocaleString("en-US");
 const CAT_LABELS = {};
 const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy" };
 const SUBCATS = {};
-const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null };
+const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null, full: false };
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
 
 // ---------------------------------------------------------------- dropdown
@@ -163,7 +163,7 @@ window.addEventListener("resize", resize);
 resize();
 
 // animation state (see "animations" below); declared here because the render loop starts right away
-const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), current: null, dragging: false };
+const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), current: null, dragging: false, landed: null };
 const clock = new THREE.Clock();
 window.__verseforge = { get root() { return modelRoot; }, anim };   // for automated checks (tools/, tests)
 renderer.setAnimationLoop(() => {
@@ -239,7 +239,7 @@ async function loadModel(item, keepView = false) {
   if (state.current?.path !== item.path) state.variant = null;
   state.current = item;
   if (!keepView) state.matOff.clear();
-  const v = state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "";
+  const v = (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "") + `&full=${state.full}`;
   document.querySelectorAll(".results li").forEach((li) => li.classList.toggle("active", li.dataset.path === item.path));
   $("#empty").classList.add("hidden");
   $("#loading").classList.remove("hidden");
@@ -278,6 +278,10 @@ async function loadModel(item, keepView = false) {
     showInfo(item, info);
     showMaterials();
     showAnimations(info.animations || []);
+    anim.landed = info.full ? anim.list.find((a) => /land/i.test(a.group) && /^(deploy|extend|open)$/i.test(a.label)) : null;
+    settleLanded();
+    $("#fullPill").classList.toggle("hidden", !info.can_full);
+    $("#fullLabel").textContent = info.ground_vehicle ? "Full vehicle" : "Full ship";
     loadRelated(item);
   } catch (e) {
     $("#info").innerHTML = infoHead(item) + `<p class="warn">${esc(e.message)}</p>`;
@@ -359,6 +363,15 @@ function stopAnimations() {
   anim.mixer = null;
   anim.actions.clear();
   anim.current = null;
+}
+
+// a full ship starts "landed": the legs are modelled extended, so the gear doors open to match them
+function settleLanded() {
+  if (!anim.landed || !anim.mixer) return;
+  playAnimation(anim.landed);
+  const c = anim.current;
+  c.act.time = c.act.timeScale < 0 ? 0 : c.clip.duration;
+  anim.mixer.update(0);
 }
 
 const trackNodes = (clip) => new Set(clip.tracks.map((t) => t.name.split(".")[0]));
@@ -473,6 +486,7 @@ $("#animReset").addEventListener("click", () => {
   anim.current = null;
   document.querySelectorAll(".anim-act").forEach((b) => b.classList.remove("on"));
   resetTimeline();
+  settleLanded();
 });
 
 async function loadRelated(item) {
@@ -508,6 +522,14 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
     link.click();
   }
 }
+// "Full ship": remembered for the session, shown only for ships and vehicles that have a factory loadout
+try { state.full = sessionStorage.getItem("vf.full") === "1"; } catch { /* storage unavailable */ }
+$("#fullOn").checked = state.full;
+$("#fullOn").addEventListener("change", (e) => {
+  state.full = e.target.checked;
+  try { sessionStorage.setItem("vf.full", state.full ? "1" : "0"); } catch { /* storage unavailable */ }
+  if (state.current) loadModel(state.current, true);
+});
 $("#texOn").checked = state.tex;
 $("#texOn").addEventListener("change", (e) => {
   state.tex = e.target.checked;
@@ -530,7 +552,7 @@ document.querySelectorAll("[data-exp]").forEach((b) => b.addEventListener("click
   const fmt = b.dataset.exp;
   b.disabled = true;
   try {
-    const url = `/api/export?path=${encodeURIComponent(state.current.path)}&fmt=${fmt}&decals=${$("#expDecals").checked}&tex=${$("#expTex").checked}&anim=${$("#expAnim").checked}` +
+    const url = `/api/export?path=${encodeURIComponent(state.current.path)}&fmt=${fmt}&decals=${$("#expDecals").checked}&tex=${$("#expTex").checked}&anim=${$("#expAnim").checked}&full=${state.full}` +
       (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "");
     const r = await api(url);
     const blob = await r.blob();
@@ -554,7 +576,7 @@ $("#btnPrint").addEventListener("click", async () => {
   btn.disabled = true;
   const voxel = parseFloat($("#voxel").value) || 0;
   try {
-    const job = await (await api(`/api/print?path=${encodeURIComponent(state.current.path)}&voxel=${voxel}&fill=${$("#fill").checked}`, { method: "POST" })).json();
+    const job = await (await api(`/api/print?path=${encodeURIComponent(state.current.path)}&voxel=${voxel}&fill=${$("#fill").checked}&full=${state.full}`, { method: "POST" })).json();
     pollPrint(job.id, state.current.name);
   } catch (e) {
     toast(e.message, true);
