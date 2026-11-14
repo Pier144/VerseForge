@@ -13,9 +13,10 @@
 import * as THREE from "three";
 
 const TEX_SIZE = 1024;
+const DECAL_SIZE = 2048;   // decal sheets pack dozens of small labels and grilles: they need the full resolution
 
-function texUrl(path, kind) {
-  return `/api/texture?path=${encodeURIComponent(path)}&kind=${kind}&size=${TEX_SIZE}`;
+function texUrl(path, kind, size = TEX_SIZE) {
+  return `/api/texture?path=${encodeURIComponent(path)}&kind=${kind}&size=${size}`;
 }
 
 export class GameLook {
@@ -25,9 +26,9 @@ export class GameLook {
     this.maxAniso = renderer.capabilities.getMaxAnisotropy();
   }
 
-  texture(path, kind, repeat = 1) {
+  texture(path, kind, repeat = 1, size = TEX_SIZE) {
     if (!path) return Promise.resolve(null);
-    const url = texUrl(path, kind);
+    const url = texUrl(path, kind, size);
     if (!this.textures.has(url)) {
       this.textures.set(url, this.loader.loadAsync(url).then((t) => {
         t.colorSpace = kind === "color" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
@@ -44,6 +45,98 @@ export class GameLook {
       c.needsUpdate = true;
       return c;
     });
+  }
+
+  // POM mesh decals (panel seams, rivets, vents, grilles) have no colour of their own in the game: their texture
+  // multiplies the paint under them and their normal/height maps add relief. Drawn as a cheap unlit multiply
+  // overlay: framebuffer x mix(1, texture x relief x cavity, coverage).
+  async pomDecal(sh, old, opts) {
+    const [height, map, normal] = await Promise.all([
+      this.texture(sh.height_map, "mask", 1, DECAL_SIZE),
+      this.texture(sh.color_map, "color", 1, DECAL_SIZE),
+      this.texture(sh.normal_map, "normal", 1, DECAL_SIZE),
+    ]);
+    const m = new THREE.ShaderMaterial({
+      name: old.name,
+      uniforms: {
+        map: { value: map || old.map },
+        normalMap: { value: normal || old.normalMap },
+        heightMap: { value: height },
+        strength: { value: sh.opacity ?? 1 },
+        alphaCut: { value: Math.max(0.02, Math.min(0.9, sh.alpha_test || 0.5)) },
+        lightDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() },
+      },
+      defines: { ...(normal || old.normalMap ? { HAS_NORMAL: "" } : {}), ...(height ? { HAS_HEIGHT: "" } : {}) },
+      vertexShader: `varying vec2 vUv;
+varying vec3 vNormalV;
+varying vec3 vViewPos;
+void main() {
+  vUv = uv;
+  vNormalV = normalize( normalMatrix * normal );
+  vec4 mv = modelViewMatrix * vec4( position, 1.0 );
+  vViewPos = mv.xyz;
+  gl_Position = projectionMatrix * mv;
+}`,
+      fragmentShader: `uniform sampler2D map;
+uniform sampler2D normalMap;
+uniform sampler2D heightMap;
+uniform float strength;
+uniform float alphaCut;
+uniform vec3 lightDir;
+varying vec2 vUv;
+varying vec3 vNormalV;
+varying vec3 vViewPos;
+float shade( vec3 n ) {      // key light + a soft light from the viewer, never fully black
+  return 0.35 + 0.45 * max( dot( n, lightDir ), 0.0 ) + 0.3 * max( n.z, 0.0 );
+}
+void main() {
+  vec4 d = texture2D( map, vUv );
+  float cov = smoothstep( alphaCut - 0.08, alphaCut + 0.08, d.a );
+  if ( cov <= 0.0 ) discard;
+  vec3 N = normalize( vNormalV ) * ( gl_FrontFacing ? 1.0 : -1.0 );
+  float relief = 1.0;
+#ifdef HAS_NORMAL
+  vec3 q0 = dFdx( vViewPos ), q1 = dFdy( vViewPos );
+  vec2 st0 = dFdx( vUv ), st1 = dFdy( vUv );
+  vec3 q1p = cross( q1, N ), q0p = cross( N, q0 );
+  vec3 T = q1p * st0.x + q0p * st1.x;
+  vec3 B = q1p * st0.y + q0p * st1.y;
+  float det = max( dot( T, T ), dot( B, B ) );
+  float sc = det == 0.0 ? 0.0 : inversesqrt( det );
+  vec3 tn = texture2D( normalMap, vUv ).xyz * 2.0 - 1.0;
+  vec3 Np = normalize( T * ( tn.x * sc ) + B * ( tn.y * sc ) + N * tn.z );
+  relief = clamp( shade( Np ) / max( shade( N ), 1e-3 ), 0.0, 1.0 );
+#endif
+  float cav = 1.0;
+#ifdef HAS_HEIGHT
+  cav = mix( 0.62, 1.0, smoothstep( 0.0, 0.85, texture2D( heightMap, vUv ).r ) );
+#endif
+  vec3 f = clamp( d.rgb * relief * cav, 0.0, 1.0 );
+  f = pow( f, vec3( 1.0 / 2.2 ) );            // the framebuffer holds sRGB values
+  gl_FragColor = vec4( mix( vec3( 1.0 ), f, cov * strength ), 1.0 );
+}`,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.ZeroFactor,
+      blendDst: THREE.SrcColorFactor,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      toneMapped: false,
+      forceSinglePass: true,   // three.js draws transparent double-sided meshes twice otherwise
+    });
+    m.userData.pom = true;
+    const sun = opts.sun;
+    if (sun) {
+      const w = new THREE.Vector3();
+      m.userData.beforeRender = (cam) => {
+        w.subVectors(sun.position, sun.target.position).normalize();
+        m.uniforms.lightDir.value.copy(w).transformDirection(cam.matrixWorldInverse);
+      };
+    }
+    return m;
   }
 
   dispose() {
@@ -64,20 +157,26 @@ export class GameLook {
       const kind = (o.material.name || "").split("|")[0];
       if (kind !== "solid" && kind !== "decal") return;
       if (!made.has(id)) made.set(id, this.build(sh, o.material, kind, opts, o.geometry));
-      jobs.push(made.get(id).then((m) => { if (m) { o.material = m; } }));
+      jobs.push(made.get(id).then((m) => {
+        if (!m) return;
+        o.material = m;
+        if (m.userData.beforeRender) o.onBeforeRender = (r, sc, cam) => m.userData.beforeRender(cam);
+      }));
     });
     await Promise.all(jobs);
     return made.size;
   }
 
   async build(sh, old, kind, opts, geometry) {
+    if (kind === "decal" && sh.pom && old.map) return this.pomDecal(sh, old, opts);
     const us = sh.uv_scale || 1;
     const t = (sh.tiling || 1) / us;   // repeat of the tiled textures on the GLB's UVs
-    const [specMap, colorMap, detailN, objN, glossMap, objGloss, hal] = await Promise.all([
+    const [specMap, colorMap, detailN, objN, decalMap, glossMap, objGloss, hal] = await Promise.all([
       this.texture(sh.spec_map, "color", sh.spec_tiled ? t : 1 / us),
       kind === "solid" ? this.texture(sh.color_map, "color", t) : Promise.resolve(null),
       this.texture(sh.detail_normal, "normal", t),
-      this.texture(sh.normal_map, "normal", 1),
+      this.texture(sh.normal_map, "normal", 1, kind === "decal" ? DECAL_SIZE : TEX_SIZE),
+      kind === "decal" ? this.texture(sh.color_map, "color", 1, DECAL_SIZE) : Promise.resolve(null),
       this.texture(sh.gloss_map, "gloss", t),
       this.texture(sh.obj_gloss, "gloss", 1),
       this.texture(sh.hal, "hal", 1),
@@ -99,14 +198,17 @@ export class GameLook {
     m.specularColor.setRGB(...sh.spec.map((c) => c / 0.04));
     if (kind === "decal") {
       // decals keep their own colour/alpha texture and only take the game's reflectance and gloss
-      m.map = old.map;
+      m.map = decalMap || old.map;
       m.color.copy(old.color);
       m.transparent = old.transparent;
       m.alphaTest = old.alphaTest;
       m.depthWrite = old.depthWrite;
       m.polygonOffset = true;
       m.polygonOffsetFactor = -2;
+      m.forceSinglePass = true;   // transparent + double-sided would cost two draws per decal
       m.opacity = old.opacity;
+      const glows = old.emissive && (old.emissive.r || old.emissive.g || old.emissive.b);
+      if (!glows && sh.opacity < 1) { m.opacity = sh.opacity; m.transparent = true; m.depthWrite = false; }
     } else if (colorMap) {
       m.map = colorMap;
     } else if (old.map && !sh.color_map) {

@@ -144,7 +144,13 @@ function setLighting(kind) {
   if (lightRig.hemi) { lightRig.hemi.intensity = h ? 0.25 : 0.6; lightRig.sun.intensity = h ? 2.2 : 1.4; }
   renderer.shadowMap.enabled = h;
   if (lightRig.sun) lightRig.sun.castShadow = h;
-  modelRoot?.traverse((o) => { if (o.isMesh) { o.castShadow = o.receiveShadow = h; o.material.needsUpdate = true; } });
+  modelRoot?.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = h && meshKind(o) !== "decal" && !o.material.transparent;
+    o.receiveShadow = h && !o.material.userData?.pom;
+    o.material.needsUpdate = true;
+  });
+  renderer.shadowMap.needsUpdate = true;
 }
 const camera = new THREE.PerspectiveCamera(40, 1, 0.001, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -160,6 +166,9 @@ sun.shadow.normalBias = 0.02;
 scene.add(sun, sun.target);
 lightRig.sun = sun;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// the shadow map is redrawn only when something moves (model loaded, animation playing, light changed), not on
+// every frame: orbiting the camera does not change it
+renderer.shadowMap.autoUpdate = false;
 
 let gameLook = new GameLook(renderer);   // game-look materials (gamelook.js)
 let grid = null;
@@ -198,7 +207,13 @@ window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { r
   camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting };   // for automated checks (tools/, tests)
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
-  if (anim.mixer) { anim.mixer.update(dt); syncTimeline(); }
+  if (anim.mixer) {
+    anim.mixer.update(dt);
+    syncTimeline();
+    if (renderer.shadowMap.enabled && (anim.dragging || anim.mixer._actions.some((a) => a.isRunning()))) {
+      renderer.shadowMap.needsUpdate = true;
+    }
+  }
   controls.update();
   renderer.render(scene, camera);
 });
@@ -229,6 +244,7 @@ function frame() {
   sc.near = radius * 0.5; sc.far = radius * 8;
   sc.updateProjectionMatrix();
   sun.shadow.normalBias = radius * 0.0015;
+  renderer.shadowMap.needsUpdate = true;
 }
 
 function cssColor(name, fallback) {
@@ -301,11 +317,13 @@ async function loadModel(item, keepView = false) {
     modelRoot = gltf.scene;
     gameLook.dispose();
     gameLook = new GameLook(renderer);
-    if (state.tex && state.look) await gameLook.apply(modelRoot, info.shading, { swapNormalXY: state.swapXY });
+    if (state.tex && state.look) await gameLook.apply(modelRoot, info.shading, { swapNormalXY: state.swapXY, sun });
     if (state.current !== item) return;
     modelRoot.traverse((o) => {
       if (o.isMesh) {
-        o.castShadow = o.receiveShadow = renderer.shadowMap.enabled;
+        // decals lie on the hull: they neither cast shadows nor need the shadow pass
+        o.castShadow = renderer.shadowMap.enabled && meshKind(o) !== "decal" && !o.material.transparent;
+        o.receiveShadow = renderer.shadowMap.enabled && !o.material.userData?.pom;
         o.material.side = THREE.DoubleSide;
         if (!o.material.isMeshPhysicalMaterial) o.material.envMapIntensity = 0.6;   // plain GLB look
         if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
@@ -320,12 +338,14 @@ async function loadModel(item, keepView = false) {
     applyWireframe();
     applyVisibility();
     buildGrid(new THREE.Box3().setFromObject(modelRoot));
+    renderer.shadowMap.needsUpdate = true;
     if (!keepView) frame();
     showInfo(item, info);
     showMaterials();
     showAnimations(info.animations || []);
     anim.landed = info.full ? anim.list.find((a) => /land/i.test(a.group) && /^(deploy|extend|open)$/i.test(a.label)) : null;
     settleLanded();
+    renderer.shadowMap.needsUpdate = true;
     $("#fullPill").classList.toggle("hidden", !info.can_full);
     $("#fullLabel").textContent = info.ground_vehicle ? "Full vehicle" : "Full ship";
     loadRelated(item);
@@ -418,6 +438,7 @@ function settleLanded() {
   const c = anim.current;
   c.act.time = c.act.timeScale < 0 ? 0 : c.clip.duration;
   anim.mixer.update(0);
+  renderer.shadowMap.needsUpdate = true;
 }
 
 const trackNodes = (clip) => new Set(clip.tracks.map((t) => t.name.split(".")[0]));
@@ -536,6 +557,7 @@ $("#animReset").addEventListener("click", () => {
   resetTimeline();
   ammoScreen?.reset();
   settleLanded();
+  renderer.shadowMap.needsUpdate = true;
 });
 
 async function loadRelated(item) {

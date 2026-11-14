@@ -27,6 +27,9 @@ class Material:
     shader_name: str = ""
     spec_map: str | None = None           # _spec texture: reflectance colour per pixel (x spec)
     spec_tiled: bool = False              # spec_map belongs to the tiled layer
+    opacity: float = 1.0                  # decal strength (Opacity x DecalDiffuseOpacity): dirt 0.08, text 0.3
+    pom: bool = False                     # POM mesh decal: shades the paint under it (multiplier + relief), no colour
+    height_map: str | None = None         # POM decal height (_displ): cavities darken
     stencil_map: str | None = None        # camo/livery mask on hull paints (HardSurface %STENCIL_MAP): R/G/B layers
     stencil: dict | None = None           # {tiling, uv2, opacity, colors: 3 linear RGB} for stencil_map
     detail_normal: str | None = None      # normal map of the tiled layer (repeats `tiling` times)
@@ -169,7 +172,14 @@ def _material(el, archive=None, palette=None):
             mat.kind = "decal"
         else:
             mat.kind = "hidden"
-    if "%STENCIL_MAP" in (el.get("StringGenMask") or "") and mat.kind == "solid":
+    gen = el.get("StringGenMask") or ""
+    if mat.kind == "decal":
+        pp = el.find("PublicParams")
+        mat.opacity = max(0.0, min(1.0, _pp_float(el, "Opacity", 1.0) * _pp_float(pp, "DecalDiffuseOpacity", 1.0)))
+        if "%PARALLAX_OCCLUSION_MAPPING" in gen and not mat.stencil_colors and shader.lower() == "meshdecal":
+            mat.pom = True
+            mat.height_map = _slot(el, "TexSlot4")
+    if "%STENCIL_MAP" in gen and mat.kind == "solid":
         _hull_stencil(mat, el, palette)
     if mat.kind == "screen":
         accent = (palette or {}).get("decal_colors") or [None]
@@ -306,6 +316,10 @@ def shading(mat):
             "spec_tiled": mat.spec_tiled,
             "obj_gloss": mat.obj_gloss if mat.obj_gloss != mat.gloss_map else None,
             "hal": mat.hal,
+            "opacity": round(mat.opacity, 4),
+            "pom": mat.pom,
+            "height_map": mat.height_map,
+            "alpha_test": mat.alpha_test,
             "stencil_map": mat.stencil_map,
             "stencil": mat.stencil,
             "shader": mat.shader_name}

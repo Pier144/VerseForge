@@ -86,3 +86,13 @@ def test_second_uv_set(archive):
     md = ivo.mesh(ivo.IvoFile(archive.read("Objects/Spaceships/Ships/RSI/perseus/exterior/rsi_perseus.cgam")), True)
     assert md.uvs2 is not None and md.uvs2.shape == (len(md.positions), 2)
     assert md.uvs2.min() > -0.1 and md.uvs2.max() < 1.1      # an atlas, unlike the tiling first set
+
+
+def test_decal_opacity_and_pom(archive):
+    mats = {m.name: m for m in materials.load(archive, "Objects/Spaceships/Ships/RSI/perseus/rsi_perseus_a.mtl")}
+    pom = mats["Decal_POM_A"]
+    assert pom.kind == "decal" and pom.pom and pom.height_map.lower().endswith("_displ.tif")
+    assert mats["Decal_Dirt"].opacity == pytest.approx(0.08, abs=1e-3) and not mats["Decal_Dirt"].pom
+    assert mats["Decal_Text"].opacity == pytest.approx(0.3, abs=1e-3)
+    sh = materials.shading(pom)
+    assert sh["pom"] and sh["height_map"] and sh["alpha_test"] > 0.5
