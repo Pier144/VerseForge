@@ -3,7 +3,7 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from . import cryxml, ivo, materials
+from . import cryxml, ivo, materials, rig
 
 GEOMETRY_EXT = (".cgf", ".cga", ".skin", ".chr", ".cdf")
 
@@ -18,6 +18,9 @@ class Part:
     uvs: np.ndarray | None = None    # per vertex, as stored in the game (V down, like glTF)
     mtl_path: str = ""               # .mtl file and sub-material index, to re-resolve paint variants
     mat_id: int = -1
+    node: str = ""                   # bone/node the part follows when animated ("" = object root)
+    vbones: np.ndarray | None = None     # skinned meshes: dominant bone index per vertex (into bone_names)
+    bone_names: tuple | None = None
 
 
 @dataclass
@@ -26,6 +29,8 @@ class Model:
     parts: list = field(default_factory=list)
     warnings: list = field(default_factory=list)   # (i18n key, {args}) tuples
     cache: dict = field(default_factory=dict)      # encoded GLBs for the viewer
+    skeleton: list = field(default_factory=list)   # rig.Bone list, only for animated models
+    animations: list = field(default_factory=list) # animations.AnimRef list
 
     def bounds(self):
         if not self.parts:
@@ -76,9 +81,16 @@ def load_geometry(archive, path, transform=None, material_path=None, label=None)
     """Parts of one .cgf/.cga/.skin/.chr file, already placed by its node hierarchy."""
     main = ivo.IvoFile(archive.read(path))
     node_list = ivo.nodes(main)
-    md = ivo.mesh(_mesh_source(archive, path, main), node_space=bool(node_list))
+    src = _mesh_source(archive, path, main)
+    md = ivo.mesh(src, node_space=bool(node_list))
     if md is None:
         return []
+    vbones = bone_names = None
+    if path.lower().endswith((".skin", ".chr")):
+        vb = ivo.vertex_bones(src)
+        names = tuple(b["name"] for b in ivo.bones(main))
+        if vb is not None and len(vb) == len(md.positions) and names:
+            vbones, bone_names = vb, names
     mtl = material_path or materials.resolve_path(archive, path, ivo.material_name(main))
     mats = materials.load(archive, mtl)
     groups = {}
@@ -104,7 +116,8 @@ def load_geometry(archive, path, transform=None, material_path=None, label=None)
         node_name = node_list[node].name if node_list and node < len(node_list) else ""
         name = " / ".join(x for x in (label or stem, node_name, mat.name) if x)
         uvs = md.uvs[used] if md.uvs is not None else None
-        parts.append(Part(name, mat, verts, inverse.reshape(-1, 3).astype(np.int64), path, uvs, mtl or "", mat_id))
+        parts.append(Part(name, mat, verts, inverse.reshape(-1, 3).astype(np.int64), path, uvs, mtl or "", mat_id,
+                          node_name, vbones[used] if vbones is not None else None, bone_names))
     return parts
 
 
@@ -164,7 +177,11 @@ def load_cdf(archive, path, model):
                 continue
             transform = _bone_matrix(bone, _floats(att.get("RelRotation"), 4), _floats(att.get("RelPosition"), 3))
         try:
-            model.parts += load_geometry(archive, geo, transform, _mtl(archive, att.get("Material")), att.get("AName"))
+            new = load_geometry(archive, geo, transform, _mtl(archive, att.get("Material")), att.get("AName"))
+            if att.get("Type") == "CA_BONE":
+                for p in new:
+                    p.node = att.get("BoneName") or ""
+            model.parts += new
         except Exception as e:  # keep the rest of the assembly
             model.warnings.append(("warn_part_error", {"path": geo, "error": str(e)}))
 
@@ -177,7 +194,8 @@ def _mtl(archive, name):
     return p if archive.exists(p) else None
 
 
-def load_model(archive, path):
+def load_model(archive, path, adb_path=None):
+    """adb_path: the entity's Mannequin database (entities.adb_for), for readable animation names."""
     model = Model(path)
     ext = path.lower().rsplit(".", 1)[-1]
     if ext == "cdf":
@@ -188,6 +206,11 @@ def load_model(archive, path):
             model.warnings.append(("warn_chr_skeleton",))
     if not model.parts and not model.warnings:
         model.warnings.append(("warn_no_geometry",))
+    if model.parts:
+        try:
+            rig.attach(archive, model, adb_path)
+        except Exception as e:          # the model still shows, just without animations
+            model.warnings.append(("warn_anim_error", {"clip": "*", "error": str(e)}))
     return model
 
 
@@ -213,4 +236,4 @@ def with_variant(model, archive, material=None, palette=None):
                 cache[path] = []
         mats = cache[path]
         parts.append(replace(p, material=mats[p.mat_id]) if p.mat_id < len(mats) else p)
-    return Model(model.path, parts, list(model.warnings))
+    return replace(model, parts=parts, warnings=list(model.warnings), cache={})

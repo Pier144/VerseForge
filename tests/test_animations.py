@@ -108,3 +108,31 @@ def test_find_weapon(archive, entity_index):
 def test_find_none(archive):
     from sc_explorer import animations
     assert animations.find(archive, "Objects/fps_weapons/attachments/magazines/behr/mgzn_s03_behr_p6lr.cgf") == []
+
+
+# ------------------------------------------------------------------ rig
+def test_rig_static_models_unchanged(archive):
+    from sc_explorer import model
+    for path in ("Objects/fps_weapons/attachments/magazines/behr/mgzn_s03_behr_p6lr.cgf",
+                 "Objects/Spaceships/Ships/AEGS/Gladius/AEGS_Gladius_Int.cga"):
+        m = model.load_model(archive, path)
+        assert not m.skeleton and not m.animations
+        assert all(p.vbones is None or p.bone_names for p in m.parts)
+
+
+def test_rig_weapon(archive, entity_index):
+    from sc_explorer import entities, model
+    m = model.load_model(archive, P6LR, entities.adb_for(entity_index, P6LR))
+    names = {b.name for b in m.skeleton}
+    assert "bolt" in names and m.animations
+    assert any(p.node == "bolt" for p in m.parts)
+    assert {p.node for p in m.parts} <= names | {""}
+    v = model.with_variant(m, archive)
+    assert v.animations == m.animations and v.skeleton is m.skeleton and v.cache is not m.cache
+
+
+def test_rig_ship(archive, entity_index):
+    from sc_explorer import entities, model
+    m = model.load_model(archive, GLADIUS, entities.adb_for(entity_index, GLADIUS))
+    assert any(p.node == "Canopy" for p in m.parts)
+    assert {r.id for r in m.animations} >= {"canopy/open", "landing_gear/deploy"}
