@@ -1,6 +1,8 @@
 """Model -> GLB / OBJ (+MTL and textures, zipped) / STL."""
 import io
 import zipfile
+import zlib
+from dataclasses import replace
 
 import numpy as np
 import trimesh
@@ -84,31 +86,93 @@ def material_textures(mat, cache, size):
     return out
 
 
-def to_glb(model, include_hidden=True, textures=None, tex_size=1024):
+def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True):
+    name, kind = mat.name, mat.kind
+    base, normal, uv_scale = material_textures(mat, textures, tex_size) if uv is not None else (None, None, 1.0)
+    rgb = _srgb(mat.color)
+    alpha = 0.35 if kind == "glass" else 1.0
+    if base is not None and base.mode == "RGBA":
+        alpha_mode = "BLEND" if kind == "decal" else "MASK"
+    else:
+        alpha_mode = "BLEND" if kind == "glass" else "OPAQUE"
+    pbr = trimesh.visual.material.PBRMaterial(
+        name=f"{kind}|{name}", baseColorFactor=[*rgb, alpha], baseColorTexture=base, normalTexture=normal,
+        metallicFactor=0.85 if mat.metal else 0.3, roughnessFactor=0.45 if mat.metal else 0.6,
+        alphaMode=alpha_mode, alphaCutoff=(mat.alpha_test or 0.5) if alpha_mode == "MASK" else None,
+        doubleSided=True)
+    mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T if axis else v, f, process=False)
+    if base is not None or normal is not None:
+        # trimesh expects OpenGL UVs (V up) and flips them back when writing glTF
+        t = uv.astype(np.float64) * uv_scale
+        mesh.visual = trimesh.visual.TextureVisuals(uv=np.column_stack([t[:, 0], 1.0 - t[:, 1]]), material=pbr)
+    else:
+        mesh.visual = trimesh.visual.TextureVisuals(material=pbr)
+    return mesh
+
+
+def to_glb(model, include_hidden=True, textures=None, tex_size=1024, clips=None):
+    """clips: {clip name: caf.Clip} (animations.load_clips) -> animated GLB for models with a skeleton."""
+    parts = select(model, include_hidden=include_hidden)
+    if clips and model.skeleton:
+        return _to_glb_animated(model, parts, textures, tex_size, clips)
     scene = trimesh.Scene()
-    for i, (mat, v, f, uv) in enumerate(merged_by_material(select(model, include_hidden=include_hidden))):
-        name, kind = mat.name, mat.kind
-        base, normal, uv_scale = material_textures(mat, textures, tex_size) if uv is not None else (None, None, 1.0)
-        rgb = _srgb(mat.color)
-        alpha = 0.35 if kind == "glass" else 1.0
-        if base is not None and base.mode == "RGBA":
-            alpha_mode = "BLEND" if kind == "decal" else "MASK"
-        else:
-            alpha_mode = "BLEND" if kind == "glass" else "OPAQUE"
-        pbr = trimesh.visual.material.PBRMaterial(
-            name=f"{kind}|{name}", baseColorFactor=[*rgb, alpha], baseColorTexture=base, normalTexture=normal,
-            metallicFactor=0.85 if mat.metal else 0.3, roughnessFactor=0.45 if mat.metal else 0.6,
-            alphaMode=alpha_mode, alphaCutoff=(mat.alpha_test or 0.5) if alpha_mode == "MASK" else None,
-            doubleSided=True)
-        mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T, f, process=False)
-        if base is not None or normal is not None:
-            # trimesh expects OpenGL UVs (V up) and flips them back when writing glTF
-            t = uv.astype(np.float64) * uv_scale
-            mesh.visual = trimesh.visual.TextureVisuals(uv=np.column_stack([t[:, 0], 1.0 - t[:, 1]]), material=pbr)
-        else:
-            mesh.visual = trimesh.visual.TextureVisuals(material=pbr)
-        scene.add_geometry(mesh, node_name=f"{kind}|{name}|{i}", geom_name=f"{kind}|{name}|{i}")
+    for i, (mat, v, f, uv) in enumerate(merged_by_material(parts)):
+        node = f"{mat.kind}|{mat.name}|{i}"
+        scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size), node_name=node, geom_name=node)
     return scene.export(file_type="glb", include_normals=True)
+
+
+ROOT_NODE = "__root__"
+
+
+def _to_glb_animated(model, parts, textures, tex_size, clips):
+    """Node hierarchy for the bones/nodes the clips move (and their ancestors); everything else stays merged by
+    material under the root, so a ship does not explode into hundreds of draw calls."""
+    from . import anim_glb
+    from .caf import ROOT_HASH
+    bones = model.skeleton
+    by_hash = {zlib.crc32(b.name.encode()): i for i, b in enumerate(bones)}
+    moved = {by_hash[h] for c in clips.values() for h in c.tracks if h != ROOT_HASH and h in by_hash}
+    keep = set()
+    for i in moved:
+        while i >= 0 and i not in keep:
+            keep.add(i)
+            i = bones[i].parent
+    scene = trimesh.Scene()
+    axis = np.eye(4)
+    axis[:3, :3] = Z_UP_TO_Y_UP
+    scene.graph.update(frame_from=scene.graph.base_frame, frame_to=ROOT_NODE, matrix=axis)
+    done = set()
+
+    def add_bone(i):
+        if i in done:
+            return
+        b = bones[i]
+        if b.parent >= 0:
+            add_bone(b.parent)
+        parent = bones[b.parent].name if b.parent >= 0 else ROOT_NODE
+        scene.graph.update(frame_from=parent, frame_to=b.name, matrix=b.local)
+        done.add(i)
+
+    for i in sorted(keep):
+        add_bone(i)
+    kept = {bones[i].name: bones[i] for i in keep}
+    buckets = {}
+    for p in parts:
+        buckets.setdefault(p.node if p.node in kept else ROOT_NODE, []).append(p)
+    n = 0
+    for frame, ps in buckets.items():
+        if frame != ROOT_NODE:
+            inv = np.linalg.inv(kept[frame].world)
+            ps = [replace(p, vertices=p.vertices @ inv[:3, :3].T + inv[:3, 3]) for p in ps]
+        for mat, v, f, uv in merged_by_material(ps):
+            node = f"{mat.kind}|{mat.name}|{n}"
+            n += 1
+            scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False), node_name=node,
+                               geom_name=node, parent_node_name=frame)
+    glb = scene.export(file_type="glb", include_normals=True)
+    targets = {zlib.crc32(name.encode()): name for name in kept}
+    return anim_glb.add_animations(glb, clips, targets)
 
 
 def _safe(name):

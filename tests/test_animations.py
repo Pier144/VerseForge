@@ -136,3 +136,34 @@ def test_rig_ship(archive, entity_index):
     m = model.load_model(archive, GLADIUS, entities.adb_for(entity_index, GLADIUS))
     assert any(p.node == "Canopy" for p in m.parts)
     assert {r.id for r in m.animations} >= {"canopy/open", "landing_gear/deploy"}
+
+
+# ------------------------------------------------------------------ animated GLB
+KINDS = {"solid", "glass", "decal", "hidden", "proxy"}
+
+
+def _glb_json(glb):
+    import json
+    import struct
+    length = struct.unpack_from("<I", glb, 12)[0]
+    return json.loads(glb[20:20 + length])
+
+
+@pytest.mark.parametrize("path", [P6LR, GLADIUS])
+def test_animated_glb(archive, entity_index, path):
+    from sc_explorer import animations, entities, export, model
+    m = model.load_model(archive, path, entities.adb_for(entity_index, path))
+    clips, warns = animations.load_clips(archive, m.animations)
+    assert not warns
+    js = _glb_json(export.to_glb(m, clips=clips))
+    assert js.get("animations")
+    n_nodes = len(js["nodes"])
+    for a in js["animations"]:
+        for c in a["channels"]:
+            assert 0 <= c["target"]["node"] < n_nodes
+            assert "matrix" not in js["nodes"][c["target"]["node"]]
+    mesh_nodes = [n["name"] for n in js["nodes"] if "mesh" in n]
+    assert mesh_nodes and all(n.split("|")[0] in KINDS for n in mesh_nodes)
+    if path == GLADIUS:
+        names = {a["name"] for a in js["animations"]}
+        assert {"canopy_close", "landing_gear_extend"} <= names
