@@ -31,7 +31,7 @@ class ClipInfo:
 
     @property
     def pose(self):
-        return self.end <= self.start
+        return self.end - self.start <= 1          # a single key (some poses store two identical frames)
 
 
 @dataclass
@@ -149,6 +149,17 @@ def header(data):
     if ANIM_INFO not in ch:
         raise ValueError("animation info chunk missing")
     return info_from(data, ch[ANIM_INFO])
+
+
+def block_hashes(data, c):
+    """Name hashes of the bones/nodes a #caf/#dba block animates, without decoding the keys."""
+    nb = struct.unpack_from("<H", data, c + 4)[0]
+    return struct.unpack_from("<%dI" % nb, data, c + 12)
+
+
+def hashes(data):
+    ch = _chunks(data)
+    return block_hashes(data, ch[CAF_DATA]) if CAF_DATA in ch else ()
 
 
 def read(data):

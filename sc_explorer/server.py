@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import APP_NAME, __version__, catalog, export, i18n, model, printing, textures, updates, variants
+from . import APP_NAME, __version__, animations, catalog, entities, export, i18n, model, printing, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,6 +53,7 @@ class State:
         self.items = []
         self.by_path = {}
         self.variants = {}               # geometry path (lowercase) -> paint variants from DataCore
+        self.entities = {}               # geometry path -> Mannequin animation database (see entities.py)
         # messages are (i18n key, {args}) tuples, turned into text when the interface asks for them
         self.status = {"ready": False, "message": ("starting",), "progress": 0.0, "error": None}
         self.models = OrderedDict()       # path -> Model (small LRU)
@@ -77,6 +78,11 @@ class State:
             except Exception:                # colours fall back to neutral grey, the rest keeps working
                 traceback.print_exc()
                 self.variants = {}
+            try:
+                self.entities = self._entities(arch)
+            except Exception:                # objects still load, animations just keep their file names
+                traceback.print_exc()
+                self.entities = {}
             self.status.update(message=("building_catalog",), progress=0.85)
             items = catalog.build(arch, names)
             self.archive, self.items = arch, items
@@ -112,6 +118,22 @@ class State:
         out = variants.build(arch.read(dcb), catalog.localization(arch, self.cfg["language"]))
         for old in os.listdir(CACHE_DIR):
             if old.startswith("variants_"):
+                try:
+                    os.remove(os.path.join(CACHE_DIR, old))
+                except OSError:
+                    pass
+        json.dump(out, open(cache, "w", encoding="utf-8"))
+        return out
+
+    def _entities(self, arch):
+        st = os.stat(arch.path)
+        cache = os.path.join(CACHE_DIR, f"entities_v1_{st.st_size}_{int(st.st_mtime)}.json")
+        if os.path.exists(cache):
+            return json.load(open(cache, encoding="utf-8"))
+        dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
+        out = entities.build(arch.read(dcb))
+        for old in os.listdir(CACHE_DIR):
+            if old.startswith("entities_"):
                 try:
                     os.remove(os.path.join(CACHE_DIR, old))
                 except OSError:
