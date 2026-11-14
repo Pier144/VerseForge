@@ -95,6 +95,13 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   seats, dashboard and components, each on its item port. A full ship starts landed (gear down); the hull's landing
   gear actions also move the legs, and component animations (gun recoil, missile clamps…) are listed under their
   port. Exports and the 3D print use the full ship while the switch is on (files get a `_full` suffix).
+- **Interiors**: for ships with object containers an *Interiors* switch mounts rooms, corridors and props inside the
+  hull (placed as the game does, from the vehicle record and the `.socpak` containers). The *Section* slider cuts the
+  model horizontally to look inside. Exports include the interior while the switch is on (`_interior` suffix).
+- **Game look**: materials follow the game's spec/gloss model (coloured reflectance, gloss maps, ambient occlusion,
+  detail normals), paints with camo patterns are drawn with their stencil masks, and parallax decals shade the paint
+  under them instead of printing over it. The *Hangar* button in the toolbar switches to a dark hangar light with
+  shadows, close to how ships look in game; the studio light stays available.
 - Item names are the in-game (English) names.
 
 ## Export
@@ -112,13 +119,15 @@ For a large print, splitting into pegged pieces has to be done separately (e.g. 
 
 ## Known limitations
 
-- **Approximate textures**: the colour texture (`_diff`) and the normal map (`_ddna`) of every material are loaded;
-  for layered materials (`LayerBlend`, `HardSurface` on ships and weapons) the first layer is used, repeated according
-  to its `UVTiling`, with the palette colours of the selected variant. Wear, dirt, blend masks between layers,
-  emissive lights and palette-coloured decals are not reconstructed: the result is close to the game but not
+- **Approximate textures**: colour, normal, gloss, specular and ambient-occlusion maps are loaded; for layered
+  materials (`LayerBlend`, `HardSurface` on ships and weapons) the first layer is used, repeated according to its
+  `UVTiling`, with the palette colours of the selected variant. Wear, dirt, the 4-layer blend masks, emissive maps
+  and post effects (ambient occlusion, bloom) are not reconstructed: the result is close to the game but not
   identical. Use the **Textures** toggle at the top right of the viewer to compare.
 - **Ships**: the hull is assembled with all its nodes (wings, landing gear, doors…). Weapons, engines and components
-  mounted on hardpoints appear with *Full ship*; interiors (`.socpak` files) are separate objects.
+  mounted on hardpoints appear with *Full ship*, interiors with *Interiors*. Interior props use their LOD1 meshes and
+  neutral grey palettes (the ships' own interior palettes are not read yet); very large ships (Polaris, Idris) are
+  heavy with the interior on.
 - **Animations**: moving parts are rigid (skinned meshes follow their main bone, fine for mechanical parts);
   additive clips (offsets such as `*_add`) are left out. Without *Full ship* only the hull moves; the legs and other
   hardpoint items are separate objects with their own animations. Loadout items whose port is not in the model are
@@ -142,6 +151,8 @@ sc_explorer/datacore.py  game database reader (Game2.dcb, format v8)
 sc_explorer/variants.py  paints: for every model, the skins/liveries with their material and colour palette
 sc_explorer/textures.py  .dds textures split into mips (.dds.1 … .dds.N), BC1–BC7 decoding (signed BC5 by hand)
 sc_explorer/model.py     assembly: ship nodes, .cdf attachments on bones
+sc_explorer/assembly.py  full ship (loadout on item ports) and interiors
+sc_explorer/containers.py object containers (.socpak): placed brushes and entities of ship interiors
 sc_explorer/catalog.py   catalogue, categories, in-game names, search
 sc_explorer/i18n.py      texts produced by the server (status, categories, warnings)
 sc_explorer/export.py    GLB / OBJ / STL
@@ -149,6 +160,7 @@ sc_explorer/printing.py  closed STL for 3D printing (Blender + interior fill)
 sc_explorer/server.py    web API
 sc_explorer/updates.py   new versions: GitHub releases check, installer download and hand-over
 web/                     interface (HTML/CSS/JS); three.js 0.160 bundled in web/vendor (MIT license)
+web/gamelook.js          game-look materials (spec/gloss, camo stencils, POM decals); web/hangar.js hangar light
 verseforge_app.py        windowed app (Qt WebEngine), entry point of VerseForge.exe
 VerseForge.spec          PyInstaller configuration; installer/VerseForge.iss for Inno Setup
 tests/test_formats.py    tests against the installed game (python -m pytest tests; skipped if Data.p4k is missing)
