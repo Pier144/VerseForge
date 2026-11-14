@@ -35,6 +35,18 @@ Esempi: lo scafo del Gladius elenca circa 30 clip (`canopy_open`, `ladder_deploy
 prese d'aria). Ogni gamba del carrello (`AEGS_Gladius_LandingGear_Front.cdf` → `_CHR.chr` + `.chrparams`) ha
 `landing_gear_extend`, `landing_gear_retract` e `landing_gear_compress`. La P6-LR elenca la sua cartella con `*.caf`.
 
+## Aggiornamento dopo i passi di ricerca (14/11)
+
+I passi di ricerca 1 (`.dba`, snodi `.cga`) e 2 (`.adb`) sono riusciti. Il dettaglio sta nel piano
+`docs/superpowers/plans/2026-11-14-animazioni-fase-a.md`. Quattro cose cambiano rispetto a quanto scritto sotto:
+
+- `reverse` diventa `speed`, un numero: se è negativo la clip va al contrario. L'`.adb` usa anche valori come `1.6`.
+- La posa locale si ricava sempre come `inv(world_padre) @ world`, anche per le ossa, quindi `ivo.bones` non cambia.
+- La regola sul nome toglie i token iniziali che compaiono nel nome del file del modello, poi il numero finale. Non
+  serve il prefisso comune.
+- Il campo dell'`.adb` è `SAnimationControllerParams.AnimationDatabase`, un percorso relativo a
+  `Animations/Mannequin/ADB/`.
+
 ## Fase A — Animazioni
 
 ### A1. Lettura delle clip: `sc_explorer/caf.py` e `sc_explorer/dba.py`
