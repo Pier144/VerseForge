@@ -162,7 +162,13 @@ new ResizeObserver(resize).observe(wrap);
 window.addEventListener("resize", resize);
 resize();
 
+// animation state (see "animations" below); declared here because the render loop starts right away
+const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), current: null, dragging: false };
+const clock = new THREE.Clock();
+window.__verseforge = { get root() { return modelRoot; }, anim };   // for automated checks (tools/, tests)
 renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta();
+  if (anim.mixer) { anim.mixer.update(dt); syncTimeline(); }
   controls.update();
   renderer.render(scene, camera);
 });
@@ -249,6 +255,7 @@ async function loadModel(item, keepView = false) {
     state.variant = info.variant;
     const buf = await glbRes.arrayBuffer();
     const gltf = await new GLTFLoader().parseAsync(buf, "");
+    stopAnimations();
     if (modelRoot) {
       scene.remove(modelRoot);
       modelRoot.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
@@ -262,12 +269,15 @@ async function loadModel(item, keepView = false) {
       }
     });
     scene.add(modelRoot);
+    anim.clips = new Map(gltf.animations.map((c) => [c.name, c]));
+    anim.mixer = gltf.animations.length ? new THREE.AnimationMixer(modelRoot) : null;
     applyWireframe();
     applyVisibility();
     buildGrid(new THREE.Box3().setFromObject(modelRoot));
     if (!keepView) frame();
     showInfo(item, info);
     showMaterials();
+    showAnimations(info.animations || []);
     loadRelated(item);
   } catch (e) {
     $("#info").innerHTML = infoHead(item) + `<p class="warn">${esc(e.message)}</p>`;
@@ -341,6 +351,130 @@ function showMaterials() {
   $("#matBox").classList.toggle("hidden", mats.size === 0);
 }
 
+// ---------------------------------------------------------------- animations
+// Several actions can stay applied at once (canopy open + gear down); a new action only replaces the ones that
+// move the same nodes. Each action ends clamped on its last frame, so "Open" leaves the part open.
+function stopAnimations() {
+  if (anim.mixer) { anim.mixer.stopAllAction(); if (modelRoot) anim.mixer.uncacheRoot(modelRoot); }
+  anim.mixer = null;
+  anim.actions.clear();
+  anim.current = null;
+}
+
+const trackNodes = (clip) => new Set(clip.tracks.map((t) => t.name.split(".")[0]));
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function showAnimations(list) {
+  anim.list = list.filter((a) => anim.clips.has(a.clip));
+  $("#animBox").classList.toggle("hidden", !anim.list.length);
+  $("#expAnimRow").classList.toggle("hidden", !anim.list.length);
+  $("#animCount").textContent = anim.list.length || "";
+  const groups = new Map();
+  anim.list.forEach((a) => { if (!groups.has(a.group)) groups.set(a.group, []); groups.get(a.group).push(a); });
+  const root = $("#animGroups");
+  root.replaceChildren();
+  groups.forEach((acts, g) => {
+    const row = el("div", "anim-group");
+    const label = el("span", "g", g);
+    label.title = g;
+    const buttons = el("span", "acts");
+    acts.forEach((a) => {
+      const b = el("button", "anim-act", a.label);
+      b.title = `${a.group} · ${a.label} — ${a.duration.toFixed(1)} s` + (a.speed < 0 ? " (reversed)" : "");
+      b.dataset.id = a.id;
+      b.onclick = () => playAnimation(a);
+      buttons.appendChild(b);
+    });
+    row.append(label, buttons);
+    root.appendChild(row);
+  });
+  resetTimeline();
+}
+
+function resetTimeline() {
+  $("#animPlay").disabled = $("#animTime").disabled = true;
+  $("#animTime").value = 0;
+  $("#animClock").textContent = "0.0 s";
+  setPlayIcon(false);
+}
+
+function setPlayIcon(playing) {
+  $("#animPlay use").setAttribute("href", playing ? "#i-pause" : "#i-play");
+}
+
+function playAnimation(a) {
+  const clip = anim.clips.get(a.clip);
+  if (!clip || !anim.mixer) return;
+  const nodes = trackNodes(clip);
+  for (const [id, act] of anim.actions) {
+    const other = act.getClip();
+    if (other === clip || [...trackNodes(other)].some((n) => nodes.has(n))) { act.stop(); anim.actions.delete(id); }
+  }
+  const act = anim.mixer.clipAction(clip);
+  act.reset();
+  act.setLoop($("#animLoop").checked ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+  act.clampWhenFinished = true;
+  act.timeScale = a.speed || 1;
+  // backwards: start a hair before the end, or a LoopOnce action counts as already finished on its first update
+  if (act.timeScale < 0) act.time = Math.max(clip.duration - 1e-3, 0);
+  act.play();
+  anim.actions.set(a.id, act);
+  anim.current = { a, act, clip };
+  document.querySelectorAll(".anim-act").forEach((b) => b.classList.toggle("on", b.dataset.id === a.id));
+  $("#animPlay").disabled = $("#animTime").disabled = false;
+}
+
+const animRunning = (c) => c && !c.act.paused && c.act.isRunning();
+
+function syncTimeline() {
+  const c = anim.current;
+  setPlayIcon(animRunning(c));
+  if (!c) return;
+  const d = c.clip.duration || 1;
+  const t = Math.min(Math.max(c.act.time, 0), d);
+  if (!anim.dragging) $("#animTime").value = Math.round((t / d) * 1000);
+  $("#animClock").textContent = `${t.toFixed(1)} / ${d.toFixed(1)} s`;
+}
+
+$("#animPlay").addEventListener("click", () => {
+  const c = anim.current;
+  if (!c) return;
+  if (animRunning(c)) { c.act.paused = true; return; }
+  const d = c.clip.duration;
+  const atEnd = c.act.timeScale > 0 ? c.act.time >= d - 1e-3 : c.act.time <= 1e-3;
+  if (atEnd) { playAnimation(c.a); return; }
+  c.act.paused = false;
+  c.act.enabled = true;
+  c.act.play();
+});
+$("#animTime").addEventListener("input", (e) => {
+  const c = anim.current;
+  if (!c) return;
+  anim.dragging = true;
+  c.act.paused = true;
+  c.act.enabled = true;
+  c.act.time = (e.target.value / 1000) * c.clip.duration;
+  anim.mixer.update(0);
+});
+$("#animTime").addEventListener("change", () => { anim.dragging = false; });
+$("#animLoop").addEventListener("change", (e) => {
+  anim.actions.forEach((act) => act.setLoop(e.target.checked ? THREE.LoopRepeat : THREE.LoopOnce, Infinity));
+});
+$("#animReset").addEventListener("click", () => {
+  if (!anim.mixer) return;
+  anim.mixer.stopAllAction();
+  anim.actions.clear();
+  anim.current = null;
+  document.querySelectorAll(".anim-act").forEach((b) => b.classList.remove("on"));
+  resetTimeline();
+});
+
 async function loadRelated(item) {
   try {
     const list = await (await api(`/api/related?path=${encodeURIComponent(item.path)}`)).json();
@@ -396,7 +530,7 @@ document.querySelectorAll("[data-exp]").forEach((b) => b.addEventListener("click
   const fmt = b.dataset.exp;
   b.disabled = true;
   try {
-    const url = `/api/export?path=${encodeURIComponent(state.current.path)}&fmt=${fmt}&decals=${$("#expDecals").checked}&tex=${$("#expTex").checked}` +
+    const url = `/api/export?path=${encodeURIComponent(state.current.path)}&fmt=${fmt}&decals=${$("#expDecals").checked}&tex=${$("#expTex").checked}&anim=${$("#expAnim").checked}` +
       (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "");
     const r = await api(url);
     const blob = await r.blob();

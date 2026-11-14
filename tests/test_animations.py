@@ -182,3 +182,10 @@ def test_server_animations():
     assert b'"animations"' in glb and b"canopy_close" in glb
     assert b'"animations"' not in server.model_glb(GLADIUS, tex=False, anim=False).body
     assert server.model_info("Objects/fps_weapons/attachments/magazines/behr/mgzn_s03_behr_p6lr.cgf")["animations"] == []
+
+
+def test_find_tool_skips_additive_by_name(archive, entity_index):
+    from sc_explorer import animations, entities
+    path = "Objects/fps_weapons/gadgets/grin/multitool/gdgt_fps_grin_multitool.cdf"
+    refs = animations.find(archive, path, entities.adb_for(entity_index, path))
+    assert refs and not any(r.clip.endswith("_add") for r in refs)

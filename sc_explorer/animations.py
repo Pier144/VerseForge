@@ -193,7 +193,9 @@ def find(archive, model_path, adb_path=None, names=None):
     cp = chrparams_for(archive, model_path)
     if not cp:
         return []
-    clips = {k: v for k, v in _clips(archive, cp).items() if not v[3].additive}
+    # additive clips are offsets to add on top of a pose, not poses: the flag is not always set inside .dba files,
+    # so the game's "_add" naming convention counts too
+    clips = {k: v for k, v in _clips(archive, cp).items() if not v[3].additive and not k.endswith("_add")}
     if names is not None:
         wanted = {zlib.crc32(n.encode()) for n in names}
         clips = {k: v for k, v in clips.items() if wanted & set(v[4])}

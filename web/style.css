@@ -407,3 +407,21 @@ dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(6px); }
   :root { --ov-r: 0px; }
   .tool span { display: none; }
 }
+
+/* ---------------------------------------------------------------- animations */
+.anim-groups { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.anim-group { display: grid; grid-template-columns: minmax(0, 40%) 1fr; align-items: center; gap: 8px; }
+.anim-group .g { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.anim-group .acts { display: flex; flex-wrap: wrap; gap: 4px; }
+.anim-act { font: inherit; font-size: 11.5px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  color: var(--text-2); background: var(--hover); border: 1px solid var(--divider); }
+.anim-act:hover { color: var(--text); border-color: var(--muted); }
+.anim-act.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.anim-ctrl { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.anim-play { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 50%; cursor: pointer;
+  color: var(--text); background: var(--hover); border: 1px solid var(--divider); }
+.anim-play:disabled, #animTime:disabled { opacity: .4; cursor: default; }
+.anim-play .i { width: 14px; height: 14px; }
+#animTime { flex: 1; min-width: 0; accent-color: var(--accent); }
+.anim-clock { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+.anim-opts { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }

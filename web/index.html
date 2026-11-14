@@ -39,6 +39,8 @@
       <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.2 8.2 0 1 0 10.6 10.6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4.5 16.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 2.8 20.2 7.4v9.2L12 21.2l-8.2-4.6V7.4z M3.8 7.4 12 12l8.2-4.6 M12 12v9.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7.5 5.5h3v13h-3zM13.5 5.5h3v13h-3z" fill="currentColor"/></symbol>
       <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     </defs>
   </svg>
@@ -102,6 +104,20 @@
           <div class="info-empty">No model selected</div>
         </div>
 
+        <section id="animBox" class="box anim hidden">
+          <h3>Animations <span id="animCount" class="n"></span></h3>
+          <div id="animGroups" class="anim-groups"></div>
+          <div class="anim-ctrl">
+            <button id="animPlay" class="anim-play" title="Play / pause" disabled><svg class="i"><use href="#i-play"/></svg></button>
+            <input id="animTime" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Animation time">
+            <span id="animClock" class="anim-clock">0.0 s</span>
+          </div>
+          <div class="anim-opts">
+            <label class="switch"><input id="animLoop" type="checkbox"><span class="track"></span><span>Loop</span></label>
+            <button id="animReset" class="link-btn" title="Back to the rest pose">Rest pose</button>
+          </div>
+        </section>
+
         <section id="exportBox" class="box hidden">
           <h3>Export</h3>
           <div class="formats">
@@ -111,6 +127,7 @@
           </div>
           <label class="switch"><input id="expTex" type="checkbox" checked><span class="track"></span><span>Textures in GLB / OBJ</span></label>
           <label class="switch"><input id="expDecals" type="checkbox"><span class="track"></span><span>Decals in OBJ / STL</span></label>
+          <label id="expAnimRow" class="switch hidden"><input id="expAnim" type="checkbox" checked><span class="track"></span><span>Animations in GLB</span></label>
         </section>
 
         <section id="printBox" class="box print hidden">
