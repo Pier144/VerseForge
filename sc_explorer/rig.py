@@ -71,6 +71,7 @@ def _split_skinned(p, known):
         used, inverse = np.unique(faces, return_inverse=True)
         out.append(replace(p, vertices=p.vertices[used], faces=inverse.reshape(-1, 3).astype(np.int64),
                            uvs=p.uvs[used] if p.uvs is not None else None, node=known.get(name.lower(), ""),
+                           uvs2=p.uvs2[used] if p.uvs2 is not None else None,
                            vbones=None, bone_names=None))
     return out
 

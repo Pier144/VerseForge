@@ -1,4 +1,5 @@
 """Local web server: search API, GLB streaming for the 3D viewer, exports and print jobs."""
+import io
 import json
 import os
 import re
@@ -14,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import APP_NAME, __version__, animations, assembly, catalog, entities, export, i18n, model, printing, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, catalog, entities, export, i18n, materials, model, printing, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -111,7 +112,7 @@ class State:
 
     def _variants(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"variants_v2_{self.cfg['language']}_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"variants_v3_{self.cfg['language']}_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
@@ -280,8 +281,42 @@ def model_info(path: str, variant: str = None, full: bool = False):
             "ground_vehicle": "/vehicles/" in path.lower().replace("\\", "/"),
             "ammo": entities.ammo_for(state.entities, path),
             "screen": _screen_info(m, it),
+            "shading": _shading(m),
             "animations": [{"id": a.id, "label": a.label, "group": a.group, "clip": a.clip, "duration": a.duration,
                             "speed": a.speed, "pose": a.pose} for a in m.animations]}
+
+
+def _shading(m):
+    """Game-look shading of every textured material, keyed by the id the GLB carries in its material names."""
+    out = {}
+    for p in m.parts:
+        sh = materials.shading(p.material)
+        if sh:
+            out[materials.shading_id(sh)] = sh
+    return out
+
+
+@app.get("/api/texture")
+def texture(path: str, kind: str = Query("color", pattern="^(color|normal|gloss|hal|mask)$"), size: int = 1024):
+    """One game texture for the viewer's game-look materials: colour, normal (RGB), gloss (grey), HAL or a stencil
+    mask (RGB data, sent lossless)."""
+    _require_ready()
+    size = max(64, min(int(size), 2048))
+    tc = state.textures
+    if kind == "gloss":
+        img = tc.gloss(path, size)
+    else:
+        img = tc.get(path, size, normal=kind == "normal")
+    if img is None:
+        raise HTTPException(404, "texture not found")
+    buf = io.BytesIO()
+    if kind in ("gloss", "hal", "mask") or img.mode == "RGBA":
+        img.save(buf, "PNG", compress_level=1)
+        media = "image/png"
+    else:
+        img.convert("RGB").save(buf, "JPEG", quality=92)
+        media = "image/jpeg"
+    return Response(buf.getvalue(), media_type=media, headers={"Cache-Control": "max-age=86400"})
 
 
 def _screen_info(m, it):

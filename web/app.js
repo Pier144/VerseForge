@@ -3,6 +3,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { AmmoScreen, isFire, isReload } from "./screen.js";
+import { GameLook } from "./gamelook.js";
+import { hangarTexture } from "./hangar.js";
 
 const $ = (s) => document.querySelector(s);
 const api = async (url, opts) => {
@@ -32,8 +34,10 @@ const num = (n) => n.toLocaleString("en-US");
 const CAT_LABELS = {};
 const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy", screen: "" };
 const SUBCATS = {};
-const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null, full: false };
+const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null, full: false,
+  look: true, swapXY: false, light: "hangar" };
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
+try { state.light = localStorage.getItem("vf.light") === "studio" ? "studio" : "hangar"; } catch { /* storage unavailable */ }
 
 // ---------------------------------------------------------------- dropdown
 // Drawn by the page instead of the native <select> popup: Chromium (and Qt WebEngine) left the rows the mouse
@@ -127,19 +131,42 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 wrap.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+// lighting: "hangar" (dark hall with strip lights, like the game) or the original white "studio"
+const envs = { studio: null, hangar: null };
+const lightRig = { hemi: null, sun: null };
+function setLighting(kind) {
+  if (!envs[kind]) envs[kind] = kind === "hangar" ? hangarTexture(renderer)
+    : new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = envs[kind];
+  const h = kind === "hangar";
+  renderer.toneMapping = h ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = h ? 1.1 : 1.0;
+  if (lightRig.hemi) { lightRig.hemi.intensity = h ? 0.25 : 0.6; lightRig.sun.intensity = h ? 2.2 : 1.4; }
+  renderer.shadowMap.enabled = h;
+  if (lightRig.sun) lightRig.sun.castShadow = h;
+  modelRoot?.traverse((o) => { if (o.isMesh) { o.castShadow = o.receiveShadow = h; o.material.needsUpdate = true; } });
+}
 const camera = new THREE.PerspectiveCamera(40, 1, 0.001, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-scene.add(new THREE.HemisphereLight(0xdde8ff, 0x202830, 0.6));
+lightRig.hemi = new THREE.HemisphereLight(0xdde8ff, 0x202830, 0.6);
+scene.add(lightRig.hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.4);
 sun.position.set(3, 5, 4);
-scene.add(sun);
+sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.bias = -0.0002;
+sun.shadow.normalBias = 0.02;
+scene.add(sun, sun.target);
+lightRig.sun = sun;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+let gameLook = new GameLook(renderer);   // game-look materials (gamelook.js)
 let grid = null;
 let modelRoot = null;
 let wireframe = false;
+setLighting(state.light);
+document.querySelector('[data-act="light"]')?.classList.toggle("on", state.light === "hangar");
 
 // Part of the canvas hidden behind the floating panels (the viewer fills the whole window):
 // the camera is shifted so the model is centred in the area that stays visible.
@@ -167,7 +194,8 @@ resize();
 const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), current: null, dragging: false, landed: null };
 const clock = new THREE.Clock();
 let ammoScreen = null;   // weapon display drawn on its DisplayScreen (screen.js)
-window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; } };   // for automated checks (tools/, tests)
+window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; },
+  camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting };   // for automated checks (tools/, tests)
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   if (anim.mixer) { anim.mixer.update(dt); syncTimeline(); }
@@ -195,6 +223,12 @@ function frame() {
   controls.target.copy(center);
   controls.update();
   sun.position.copy(center).add(new THREE.Vector3(radius * 2, radius * 3, radius * 2.5));
+  sun.target.position.copy(center);
+  const sc = sun.shadow.camera;
+  sc.left = sc.bottom = -radius * 1.1; sc.right = sc.top = radius * 1.1;
+  sc.near = radius * 0.5; sc.far = radius * 8;
+  sc.updateProjectionMatrix();
+  sun.shadow.normalBias = radius * 0.0015;
 }
 
 function cssColor(name, fallback) {
@@ -265,10 +299,15 @@ async function loadModel(item, keepView = false) {
       modelRoot.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
     }
     modelRoot = gltf.scene;
+    gameLook.dispose();
+    gameLook = new GameLook(renderer);
+    if (state.tex && state.look) await gameLook.apply(modelRoot, info.shading, { swapNormalXY: state.swapXY });
+    if (state.current !== item) return;
     modelRoot.traverse((o) => {
       if (o.isMesh) {
+        o.castShadow = o.receiveShadow = renderer.shadowMap.enabled;
         o.material.side = THREE.DoubleSide;
-        o.material.envMapIntensity = 0.6;   // the studio environment washes dark paints out to grey
+        if (!o.material.isMeshPhysicalMaterial) o.material.envMapIntensity = 0.6;   // plain GLB look
         if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
       }
     });
@@ -524,6 +563,12 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
   if (a === "wire") { wireframe = !wireframe; b.classList.toggle("on", wireframe); applyWireframe(); }
   if (a === "rotate") { controls.autoRotate = !controls.autoRotate; b.classList.toggle("on", controls.autoRotate); }
   if (a === "grid") { b.classList.toggle("on"); if (grid) grid.visible = b.classList.contains("on"); }
+  if (a === "light") {
+    state.light = state.light === "hangar" ? "studio" : "hangar";
+    b.classList.toggle("on", state.light === "hangar");
+    try { localStorage.setItem("vf.light", state.light); } catch { /* storage unavailable */ }
+    setLighting(state.light);
+  }
   if (a === "bg") { wrap.classList.toggle("alt"); b.classList.toggle("on", wrap.classList.contains("alt")); }
   if (a === "shot") {
     const link = document.createElement("a");

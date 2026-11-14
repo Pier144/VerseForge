@@ -21,6 +21,7 @@ class Part:
     node: str = ""                   # bone/node the part follows when animated ("" = object root)
     vbones: np.ndarray | None = None     # skinned meshes: dominant bone index per vertex (into bone_names)
     bone_names: tuple | None = None
+    uvs2: np.ndarray | None = None       # second UV set (stencils), same layout as uvs
 
 
 @dataclass
@@ -118,7 +119,8 @@ def load_geometry(archive, path, transform=None, material_path=None, label=None)
         name = " / ".join(x for x in (label or stem, node_name, mat.name) if x)
         uvs = md.uvs[used] if md.uvs is not None else None
         parts.append(Part(name, mat, verts, inverse.reshape(-1, 3).astype(np.int64), path, uvs, mtl or "", mat_id,
-                          node_name, vbones[used] if vbones is not None else None, bone_names))
+                          node_name, vbones[used] if vbones is not None else None, bone_names,
+                          md.uvs2[used] if md.uvs2 is not None and len(md.uvs2) == len(md.positions) else None))
     return parts
 
 

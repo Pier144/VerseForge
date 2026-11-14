@@ -8,6 +8,8 @@ import numpy as np
 import trimesh
 from PIL import Image
 
+from . import materials
+
 # CryEngine is Z-up/Y-forward; glTF and OBJ are Y-up.
 Z_UP_TO_Y_UP = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], np.float64)
 
@@ -27,8 +29,9 @@ def select(model, include_hidden=False, include_decals=True, include_glass=True)
     return out
 
 
-def merged_by_material(parts):
-    """Merge parts sharing a material so the viewer gets few draw calls -> [(material, verts, faces, uvs|None)]."""
+def merged_by_material(parts, uv2=False):
+    """Merge parts sharing a material so the viewer gets few draw calls -> [(material, verts, faces, uvs|None)].
+    uv2=True adds a fifth item: the second UV set (stencils) when every part of the group has one, else None."""
     groups = {}
     for p in parts:
         groups.setdefault(id(p.material), []).append(p)
@@ -41,7 +44,10 @@ def merged_by_material(parts):
             uvs.append(p.uvs if p.uvs is not None else np.zeros((len(p.vertices), 2), np.float32))
             off += len(p.vertices)
         has_uv = any(p.uvs is not None for p in ps)
-        out.append((ps[0].material, np.vstack(verts), np.vstack(faces), np.vstack(uvs) if has_uv else None))
+        item = (ps[0].material, np.vstack(verts), np.vstack(faces), np.vstack(uvs) if has_uv else None)
+        if uv2:
+            item += (np.vstack([p.uvs2 for p in ps]) if all(p.uvs2 is not None for p in ps) else None,)
+        out.append(item)
     return out
 
 
@@ -118,7 +124,12 @@ def screen_image():
     return _SCREEN_IMG
 
 
-def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True):
+def _sid(mat):
+    sh = materials.shading(mat)
+    return materials.shading_id(sh) if sh else ""
+
+
+def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True, uv2=None):
     name, kind = mat.name, mat.kind
     if kind == "screen":
         return _screen_mesh(mat, v, f, uv, axis)
@@ -130,7 +141,7 @@ def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True):
     else:
         alpha_mode = "BLEND" if kind == "glass" else "OPAQUE"
     pbr = trimesh.visual.material.PBRMaterial(
-        name=f"{kind}|{name}", baseColorFactor=[*rgb, alpha], baseColorTexture=base, normalTexture=normal,
+        name=f"{kind}|{name}|{_sid(mat)}", baseColorFactor=[*rgb, alpha], baseColorTexture=base, normalTexture=normal,
         metallicFactor=0.85 if mat.metal else 0.3, roughnessFactor=0.45 if mat.metal else 0.6,
         alphaMode=alpha_mode, alphaCutoff=(mat.alpha_test or 0.5) if alpha_mode == "MASK" else None,
         emissiveFactor=list(_srgb(mat.emissive)) if mat.emissive else None, doubleSided=True)
@@ -141,6 +152,9 @@ def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True):
         mesh.visual = trimesh.visual.TextureVisuals(uv=np.column_stack([t[:, 0], 1.0 - t[:, 1]]), material=pbr)
     else:
         mesh.visual = trimesh.visual.TextureVisuals(material=pbr)
+    if uv2 is not None and mat.stencil_map:
+        # custom glTF attribute (three.js reads it as "_uv2"): the camo/livery stencil is laid out on it
+        mesh.vertex_attributes["_UV2"] = uv2.astype(np.float32)
     return mesh
 
 
@@ -163,9 +177,9 @@ def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=Non
     if sources and model.skeleton:
         return _to_glb_animated(model, parts, textures, tex_size, sources)
     scene = trimesh.Scene()
-    for i, (mat, v, f, uv) in enumerate(merged_by_material(parts)):
+    for i, (mat, v, f, uv, uv2) in enumerate(merged_by_material(parts, uv2=True)):
         node = f"{mat.kind}|{mat.name}|{i}"
-        scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size), node_name=node, geom_name=node)
+        scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, uv2=uv2), node_name=node, geom_name=node)
     return scene.export(file_type="glb", include_normals=True)
 
 
@@ -224,10 +238,10 @@ def _to_glb_animated(model, parts, textures, tex_size, sources):
         if frame != ROOT_NODE:
             inv = np.linalg.inv(kept[frame].world)
             ps = [replace(p, vertices=p.vertices @ inv[:3, :3].T + inv[:3, 3]) for p in ps]
-        for mat, v, f, uv in merged_by_material(ps):
+        for mat, v, f, uv, uv2 in merged_by_material(ps, uv2=True):
             node = f"{mat.kind}|{mat.name}|{n}"
             n += 1
-            scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False), node_name=node,
+            scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False, uv2=uv2), node_name=node,
                                geom_name=node, parent_node_name=frame)
     glb = scene.export(file_type="glb", include_normals=True)
     return anim_glb.add_animations(glb, [(n, c, {h: v for h, v in t.items() if v in kept}) for n, c, t in sources])

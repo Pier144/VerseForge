@@ -18,9 +18,27 @@ class Material:
     metal: bool = False
     stencil_colors: tuple | None = None   # stencil decal: diffuse is the palette's R/G/B mask, coloured with these
     emissive: tuple | None = None         # linear RGB of self-lit parts (Illum with Glow)
+    # game shading (CryEngine spec/gloss model), used by the viewer's game-look materials
+    spec: tuple = (0.04, 0.04, 0.04)      # reflectance at normal incidence (F0), linear RGB
+    gloss: float = 0.5                    # smoothness 0..1 (Shininess / 255 x layer GlossMult or paint glossiness)
+    gloss_map: str | None = None          # _ddna whose alpha is the gloss of the tiled layer (repeats `tiling` times)
+    obj_gloss: str | None = None          # _ddna whose alpha is the gloss of the object itself (plain UVs)
+    hal: str | None = None                # LayerBlend _hal map: G = ambient occlusion, B = brightness
+    shader_name: str = ""
+    spec_map: str | None = None           # _spec texture: reflectance colour per pixel (x spec)
+    spec_tiled: bool = False              # spec_map belongs to the tiled layer
+    stencil_map: str | None = None        # camo/livery mask on hull paints (HardSurface %STENCIL_MAP): R/G/B layers
+    stencil: dict | None = None           # {tiling, uv2, opacity, colors: 3 linear RGB} for stencil_map
+    detail_normal: str | None = None      # normal map of the tiled layer (repeats `tiling` times)
+    albedo: tuple | None = None           # diffuse colour of the game shading (None = `color`); black for metals
 
 
 SCREEN_RGB = (110, 205, 235)       # default screen light (sRGB): the cold cyan of the game's holo UI
+
+
+def palette_linear(rgb8):
+    """Palette colours (tint and spec) are linearised by the game with gamma 2, not the sRGB curve."""
+    return tuple((x / 255.0) ** 2 for x in rgb8)
 
 
 def srgb_to_linear(rgb8):
@@ -69,8 +87,33 @@ def _texture_slots(el, normal_slots=("TexSlot2", "TexSlot3")):
     return diffuse, normal
 
 
+def _slot(el, name):
+    for t in el.findall("Textures/Texture"):
+        f = t.get("File") or ""
+        if t.get("Map") == name and f and not f.startswith("$"):
+            return f
+    return None
+
+
+def _spec_map(el):
+    """The _spec texture of a material, whatever slot the shader keeps it in (Illum 4, MeshDecal 2, Layer 6)."""
+    for t in el.findall("Textures/Texture"):
+        f = t.get("File") or ""
+        stem = f.lower().rsplit(".", 1)[0]
+        if not f.startswith("$") and (stem.endswith("_spec") or "_spec_" in stem):
+            return f
+    return None
+
+
+def _shininess(el, default=255.0):
+    try:
+        return max(0.0, min(1.0, float(el.get("Shininess", default)) / 255.0))
+    except ValueError:
+        return default / 255.0
+
+
 def _layer(archive, path):
-    """Colour, diffuse and normal texture of a tileable layer material (materials/layers/…)."""
+    """A tileable layer material (materials/layers/…): {color, diffuse, normal, metal, spec, gloss, tint_mode}."""
     if not archive or not path:
         return None
     p = path.replace("\\", "/")
@@ -82,11 +125,19 @@ def _layer(archive, path):
     except Exception:
         return None
     diffuse, normal = _texture_slots(root)
-    color = _floats(root.get("Diffuse"), (1.0, 1.0, 1.0))
-    metal = max(color) < 0.02
+    diff = _floats(root.get("Diffuse"), (1.0, 1.0, 1.0))
+    spec = _floats(root.get("Specular"), (0.04, 0.04, 0.04))
+    color = diff
+    metal = max(diff) < 0.02
     if metal:  # PBR metals: no diffuse, the specular colour is the metal's colour
         color = _floats(root.get("Specular"), (0.6, 0.6, 0.6))
-    return color, diffuse, normal, metal
+    pp = root.find("PublicParams")
+    try:
+        tint_mode = int(pp.get("TintMode", "0")) if pp is not None else 0
+    except ValueError:
+        tint_mode = 0
+    return {"color": color, "diffuse": diffuse, "normal": normal, "metal": metal, "diff": diff, "spec": spec,
+            "gloss": _shininess(root), "tint_mode": tint_mode, "spec_map": _spec_map(root)}
 
 
 def _material(el, archive=None, palette=None):
@@ -95,11 +146,21 @@ def _material(el, archive=None, palette=None):
     color = _floats(el.get("Diffuse"), (0.6, 0.6, 0.6))
     diffuse, normal = _texture_slots(el)
     mat = Material(name, shader, classify(name, shader), color, diffuse, normal)
+    mat.shader_name = shader
+    mat.spec = _floats(el.get("Specular"), (0.04, 0.04, 0.04))
+    mat.gloss = _shininess(el)
+    mat.spec_map = _spec_map(el)
+    if normal and "_ddna" in normal.lower():
+        mat.obj_gloss = normal
+    if shader.lower().startswith("layerblend"):
+        mat.hal = _slot(el, "TexSlot13")
     try:
         mat.alpha_test = float(el.get("AlphaTest", "0"))
     except ValueError:
         pass
-    if "%STENCIL_MAP" in (el.get("StringGenMask") or ""):
+    # MeshDecal + STENCIL_MAP: a palette stencil sticker. HardSurface + STENCIL_MAP is a camo paint on the hull (the
+    # stencil only patterns the paint) and must stay a solid surface, or whole hull panels vanish
+    if "%STENCIL_MAP" in (el.get("StringGenMask") or "") and shader.lower() in ("meshdecal", "decal"):
         # texture "$TintPaletteDecal": the paint's stencil atlas. Without a paint there is nothing to draw (the
         # decal's own colour is black and used to show as a black slab)
         if palette and palette.get("decal"):
@@ -108,6 +169,8 @@ def _material(el, archive=None, palette=None):
             mat.kind = "decal"
         else:
             mat.kind = "hidden"
+    if "%STENCIL_MAP" in (el.get("StringGenMask") or "") and mat.kind == "solid":
+        _hull_stencil(mat, el, palette)
     if mat.kind == "screen":
         accent = (palette or {}).get("decal_colors") or [None]
         # the paint's first stencil colour when it is a real colour (VOLT green); greys and whites -> holo cyan
@@ -126,18 +189,41 @@ def _material(el, archive=None, palette=None):
         tint = _floats(layer.get("TintColor"), color)
         if color == (1.0, 1.0, 1.0) or shader.lower().startswith(("layerblend", "hardsurface")):
             info = _layer(archive, layer.get("Path"))
-            base = info[0] if info else (1.0, 1.0, 1.0)
+            base = info["color"] if info else (1.0, 1.0, 1.0)
             color = tuple(t * b for t, b in zip(tint, base))
+            if info:
+                mat.spec = info["spec"]
+                if info["tint_mode"] == 2:      # metal layers: the tint colours the reflection
+                    mat.spec = tuple(t * c for t, c in zip(tint, mat.spec))
+                try:
+                    mat.gloss = info["gloss"] * float(layer.get("GlossMult", "1"))
+                except ValueError:
+                    mat.gloss = info["gloss"]
             # PaletteTint 1/2/3: colour from entry A/B/C of the item's tint palette (DataCore); unknown -> dark grey
             slot = layer.get("PaletteTint", "0")
-            if slot in ("1", "2", "3") and palette and palette.get("ABC"[int(slot) - 1]):
-                color = tuple(p * b for p, b in zip(srgb_to_linear(palette["ABC"[int(slot) - 1]]), base))
+            key = "ABC"[int(slot) - 1] if slot in ("1", "2", "3") else None
+            paint = None
+            if key and palette and palette.get(key):
+                paint = palette_linear(palette[key])
+                color = tuple(p * b for p, b in zip(paint, base))
+                # the paint entry also sets reflectance and glossiness
+                if (palette.get("spec") or {}).get(key):
+                    mat.spec = palette_linear(palette["spec"][key])
+                if (palette.get("gloss") or {}).get(key) is not None:
+                    mat.gloss = palette["gloss"][key] / 255.0
             elif slot not in ("0", ""):
                 color = tuple(c * 0.22 for c in tint)
             mat.color = color
             if info:
-                _, l_diff, l_norm, mat.metal = info
+                mat.albedo = tuple(t * d for t, d in zip(paint or tint, info["diff"]))
+            if info:
+                l_diff, l_norm, mat.metal = info["diffuse"], info["normal"], info["metal"]
                 mat.diffuse = l_diff
+                mat.detail_normal = l_norm
+                if info["spec_map"] and not (key and (palette or {}).get("spec", {}).get(key)):
+                    mat.spec_map, mat.spec_tiled = info["spec_map"], True
+                if l_norm and "_ddna" in l_norm.lower():
+                    mat.gloss_map = l_norm
                 try:
                     mat.tiling = float(layer.get("UVTiling", "1")) or 1.0
                 except ValueError:
@@ -145,6 +231,31 @@ def _material(el, archive=None, palette=None):
                 if not mat.normal and l_norm:
                     mat.normal, mat.layer_normal = l_norm, True
     return mat
+
+
+def _pp_float(pp, name, default):
+    try:
+        return float(pp.get(name, default)) if pp is not None else default
+    except ValueError:
+        return default
+
+
+def _hull_stencil(mat, el, palette):
+    """Camo / livery stencil of a hull paint: a mask whose R, G and B layers are painted over the base paint.
+    With StencilTintOverride the layers take the paint's entries A, B, C; otherwise StencilDiffuseColor 1-3."""
+    path = _slot(el, "TexSlot7")
+    if not path:
+        return
+    pp = el.find("PublicParams")
+    if _pp_float(pp, "StencilTintOverride", 0) >= 0.5 and palette and all(palette.get(k) for k in "ABC"):
+        colors = [palette_linear(palette[k]) for k in "ABC"]
+    else:
+        colors = [_floats(pp.get(n) if pp is not None else None, (1.0, 1.0, 1.0))
+                  for n in ("StencilDiffuseColor", "StencilDiffuseColor2", "StencilDiffuseColor3")]
+    mat.stencil_map = path
+    mat.stencil = {"tiling": _pp_float(pp, "StencilTiling", 1.0), "uv2": _pp_float(pp, "UseUV2ForStencil", 0) >= 0.5,
+                   "opacity": _pp_float(pp, "StencilOpacity", 1.0),
+                   "colors": [[round(c, 5) for c in col] for col in colors]}
 
 
 def load(archive, path, palette=None):
@@ -172,3 +283,36 @@ def resolve_path(archive, geometry_path, mtl_name):
         if archive.exists(c):
             return c
     return None
+
+
+def shading(mat):
+    """Parameters of the game's spec/gloss shading for the viewer (None for kinds it leaves alone).
+    Colours are linear; texture paths go through /api/texture. `tiling` repeats the layer textures (colour, normal,
+    gloss_map); obj_gloss and hal use the plain UVs."""
+    if mat.kind not in ("solid", "decal"):
+        return None
+    return {"albedo": [round(c, 5) for c in (mat.albedo or mat.color)],
+            "spec": [round(c, 5) for c in mat.spec],
+            "gloss": round(max(0.0, min(1.0, mat.gloss)), 4),
+            "tiling": mat.tiling,
+            # the GLB's UVs are already multiplied by the tiling when everything on the material tiles (export.py)
+            "uv_scale": mat.tiling if (mat.diffuse and abs(mat.tiling - 1.0) > 1e-3
+                                       and not (mat.normal and not mat.layer_normal)) else 1.0,
+            "color_map": mat.diffuse if not mat.stencil_colors else None,
+            "normal_map": None if mat.layer_normal else mat.normal,
+            "detail_normal": mat.detail_normal,
+            "gloss_map": mat.gloss_map,
+            "spec_map": mat.spec_map,
+            "spec_tiled": mat.spec_tiled,
+            "obj_gloss": mat.obj_gloss if mat.obj_gloss != mat.gloss_map else None,
+            "hal": mat.hal,
+            "stencil_map": mat.stencil_map,
+            "stencil": mat.stencil,
+            "shader": mat.shader_name}
+
+
+def shading_id(sh):
+    """Short stable key of a shading dict (stored in the GLB material name as kind|name|id)."""
+    import json
+    import zlib
+    return "%08x" % zlib.crc32(json.dumps(sh, sort_keys=True).encode())

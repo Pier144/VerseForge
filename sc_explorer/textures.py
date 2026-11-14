@@ -88,16 +88,22 @@ def _single_mip_dds(head, hsize, w, h, payload):
     return bytes(out) + payload
 
 
-def _decode(archive, path, max_size):
+def _decode(archive, path, max_size, alpha=False):
+    """alpha=True: the separate alpha image of a _ddna map (gloss), stored as <name>.dds.a + <name>.dds.<n>a with a
+    DDS header that lacks the 'DDS ' magic."""
     base = dds_path(path)
-    if not archive.exists(base):
+    sfx = "a" if alpha else ""
+    hname = base + ".a" if alpha else base
+    if not archive.exists(hname):
         return None, False
-    head = archive.read(base)
+    head = archive.read(hname)
+    if alpha and head[:4] != b"DDS ":
+        head = b"DDS " + head
     w, h, mips, fourcc, dxgi, block, hsize = _header(head)
     if not block:
         return _decode_plain(archive, base, head, w, h, mips, dxgi, hsize, max_size)
     split = 0
-    while archive.exists(f"{base}.{split + 1}"):
+    while archive.exists(f"{base}.{split + 1}{sfx}"):
         split += 1
     # smallest level whose size still reaches max_size (or the largest one available)
     level = 0
@@ -105,7 +111,7 @@ def _decode(archive, path, max_size):
         level += 1
     mw, mh, size = _mip_size(w, h, level, block)
     if level < split:
-        payload = archive.read(f"{base}.{split - level}")[:size]
+        payload = archive.read(f"{base}.{split - level}{sfx}")[:size]
     else:
         # remaining (smaller) mips are stored in the header file after the header, largest first
         off = hsize + sum(_mip_size(w, h, lv, block)[2] for lv in range(split, level))
@@ -124,8 +130,20 @@ _PLAIN_DXGI = {49: 2, 28: 4, 29: 4, 87: 4, 61: 1}   # R8G8, R8G8B8A8 (+sRGB), B8
 
 
 def _decode_plain(archive, base, head, w, h, mips, dxgi, hsize, max_size):
-    """Uncompressed DDS (palette stencil atlases are R8G8): same mip layout as the block formats."""
-    bpp = _PLAIN_DXGI.get(dxgi)
+    """Uncompressed DDS (palette stencil atlases are R8G8; camo stencil masks are legacy 24/32-bit RGB without a
+    FourCC): same mip layout as the block formats."""
+    legacy = None
+    if dxgi is None:
+        # legacy pixel format: bit count + channel masks (camo masks: 24-bit, R=0xff0000 -> bytes stored B, G, R)
+        pf_flags, = struct.unpack_from("<I", head, 80)
+        bits, rm, gm, bm, am = struct.unpack_from("<5I", head, 88)
+        if not pf_flags & 0x40 or bits not in (24, 32):
+            return None, False
+        shifts = [(m.bit_length() - 8) // 8 if m else None for m in (rm, gm, bm, am)]
+        legacy = shifts
+        bpp = bits // 8
+    else:
+        bpp = _PLAIN_DXGI.get(dxgi)
     if not bpp:
         return None, False
     split = 0
@@ -146,6 +164,12 @@ def _decode_plain(archive, base, head, w, h, mips, dxgi, hsize, max_size):
     if len(payload) < size(level):
         return None, False
     a = np.frombuffer(payload, np.uint8, size(level)).reshape(mh, mw, bpp)
+    if legacy is not None:
+        r, g, b, al = legacy
+        rgb = np.stack([a[..., r], a[..., g], a[..., b]], -1)
+        if al is not None:
+            return Image.fromarray(np.ascontiguousarray(np.dstack([rgb, a[..., al]])), "RGBA"), False
+        return Image.fromarray(np.ascontiguousarray(rgb), "RGB"), False
     if bpp == 4:
         rgba = a[..., [2, 1, 0, 3]] if dxgi == 87 else a
         return Image.fromarray(np.ascontiguousarray(rgba), "RGBA"), False
@@ -190,6 +214,31 @@ class TextureCache:
             elif img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGBA" if "A" in img.mode else "RGB")
         return self.memo(key, img, store=True)
+
+    def gloss(self, path, max_size=1024):
+        """Gloss (smoothness 0..1 as an 'L' image) of a _ddna normal map: its separate alpha image, or the alpha
+        channel of older single-file maps. None when the map carries no gloss."""
+        if not path:
+            return None
+        key = ("gloss", dds_path(path).lower(), max_size)
+        hit = self.memo(key)
+        if hit is not None:
+            return hit or None
+        img = None
+        try:
+            img, _ = _decode(self.archive, path, max_size, alpha=True)
+            if img is None:
+                full, _ = _decode(self.archive, path, max_size)
+                if full is not None and full.mode == "RGBA":
+                    img = full.getchannel("A")
+        except Exception:
+            img = None
+        if img is not None:
+            img = img.getchannel(0) if img.mode != "L" else img
+            if max(img.size) > max_size:
+                img = img.resize((max_size, max_size), Image.LANCZOS)
+        self.memo(key, img if img is not None else False, store=True)
+        return img
 
     def memo(self, key, value=None, store=False):
         """Generic LRU slot (also used for per-material images): get when value is None, else store."""

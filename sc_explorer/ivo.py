@@ -13,6 +13,7 @@ BONES = 0xC2011111
 S_INDICES = 0xEECDC168
 S_VERTS_FLOAT = 0x91329AE9      # float3 position, color, half2 uv (20 bytes)
 S_VERTS_SNORM = 0xB3A70D5E      # snorm16x4 position, color, half2 uv (16 bytes)
+S_UV2 = 0x38A581FE              # half2 second UV set (0..1 atlas used by UseUV2ForStencil)
 KNOWN_STREAMS = {S_INDICES, S_VERTS_FLOAT, S_VERTS_SNORM, 0xB95E9A1B, 0x6ECA3708, 0x9CF3F615, 0x38A581FE,
                  0x677C7B23, 0xD9EED421, 0xEE057252, 0x9D51C5EE}
 
@@ -63,6 +64,7 @@ class MeshData:
     uvs: np.ndarray | None
     indices: np.ndarray
     subsets: list = field(default_factory=list)
+    uvs2: np.ndarray | None = None      # second UV set (ship atlases: camo and livery stencils)
 
 
 def material_name(ivo: IvoFile):
@@ -116,7 +118,7 @@ def mesh(ivo: IvoFile, node_space=False) -> MeshData | None:
         mat_node, fi, nidx, fv, vbase, nvs = struct.unpack_from("<6I", d, p)
         subsets.append(Subset(mat_node & 0xFFFF, mat_node >> 16, fi, nidx, fv, vbase, nvs))
         p += 48
-    indices = positions = uvs = None
+    indices = positions = uvs = uvs2 = None
     while p + 8 <= end:
         typ, bpe = struct.unpack_from("<II", d, p)
         if typ not in KNOWN_STREAMS:
@@ -146,11 +148,13 @@ def mesh(ivo: IvoFile, node_space=False) -> MeshData | None:
             positions = raw * scale + (bmin + bmax) / 2.0
             if bpe >= 16:
                 uvs = a[:, 12:16].copy().view(np.float16).astype(np.float32)
+        elif typ == S_UV2 and bpe == 4 and uvs2 is None:
+            uvs2 = np.frombuffer(d, np.uint8, count * 4, p + 8).copy().view(np.float16).astype(np.float32).reshape(-1, 2)
         p += 8 + count * bpe
         p += (-p) % 8
     if indices is None or positions is None:
         raise IvoError("mesh streams not found (unsupported vertex format)")
-    return MeshData(positions, uvs, indices, subsets)
+    return MeshData(positions, uvs, indices, subsets, uvs2)
 
 
 S_BONEMAP = 0x677C7B23           # 4 x u16 bone index + 4 x u8 weight (12 bytes)

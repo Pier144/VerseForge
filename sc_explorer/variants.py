@@ -31,6 +31,11 @@ def _palette(dc, ref, child_path=""):
     return {"name": node["name"] or dc.record_name(ri).split(".", 1)[-1],
             "A": _rgb(node["entryA"]["tintColor"]), "B": _rgb(node["entryB"]["tintColor"]),
             "C": _rgb(node["entryC"]["tintColor"]), "glass": _rgb(node["glassColor"]),
+            # each entry also sets the paint's reflectance (specColor, sRGB) and glossiness (0-255)
+            "spec": {k: _rgb(node[f"entry{k}"]["specColor"]) if node[f"entry{k}"].has("specColor") else None
+                     for k in "ABC"},
+            "gloss": {k: int(node[f"entry{k}"]["glossiness"]) if node[f"entry{k}"].has("glossiness") else None
+                      for k in "ABC"},
             "decal": decal or None,
             "decal_colors": [_rgb(src[f"decalColor{ch}"]) if src.has(f"decalColor{ch}") else None for ch in "RGB"]}
 
