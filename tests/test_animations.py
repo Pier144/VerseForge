@@ -282,7 +282,7 @@ def test_full_ship_gear_meshes_follow_animated_nodes(archive, entity_index, path
                 chain.append(j)
             if any(nodes[k]["name"].startswith(port + "/") for k in chain) and any(k in animated for k in chain):
                 moving += tris(i)
-        assert moving > total * 0.5, (port, moving, total)    # most of the leg moves with the animation
+        assert moving > total * 0.9, (port, moving, total)    # all but the mounting bracket (node 0 used to stay behind)
 
 
 def test_adb_fragment_fallback(archive, entity_index):

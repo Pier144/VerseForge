@@ -88,7 +88,9 @@ def nodes(ivo: IvoFile):
         world = np.array(struct.unpack_from("<12f", d, r), np.float64).reshape(3, 4)
         _, _, _, parent, kind = struct.unpack_from("<I4H", d, r + 108)
         name = names[i].decode("utf-8", "replace") if i < len(names) else f"node{i}"
-        out.append(Node(name, world, -1 if parent in (0xFFFF, n_nodes) or i == 0 else parent, kind))
+        # 0xFFFF marks the real roots; node 0 is usually an ordinary part with a parent (Perseus legs: a panel under
+        # the animated leg chain), so it must not be forced to the root
+        out.append(Node(name, world, -1 if parent >= n_nodes or parent == i else parent, kind))
     return out
 
 

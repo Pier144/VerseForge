@@ -45,9 +45,17 @@ def skeleton(archive, path):
             w = np.eye(4)
             w[:3, :4] = n.world
             raw.append((n.name, n.parent, w))
+    parents = [p if 0 <= p < len(raw) else -1 for _, p, _ in raw]
+    for i in range(len(parents)):          # a malformed file must not loop forever: cut any cycle at its start
+        seen, j = {i}, parents[i]
+        while j >= 0:
+            if j in seen:
+                parents[i] = -1
+                break
+            seen.add(j)
+            j = parents[j]
     out = []
-    for name, parent, w in raw:
-        parent = parent if 0 <= parent < len(raw) else -1
+    for (name, _, w), parent in zip(raw, parents):
         local = np.linalg.inv(raw[parent][2]) @ w if parent >= 0 else w.copy()
         out.append(Bone(name, parent, local, w))
     return out
