@@ -294,3 +294,17 @@ def test_adb_fragment_fallback(archive, entity_index):
     assert refs["landing_gear/retract"].clip == "Landing_Deploy" and refs["landing_gear/retract"].speed < 0
     gl = {r.id: r for r in animations.find(archive, GLADIUS, entities.adb_for(entity_index, GLADIUS))}
     assert "landing_gear/compress" not in gl
+
+
+def test_planar_positions_no_jump(archive):
+    """0xC2 positions are stored axis by axis: read key by key, the Perseus leg sat still for half the clip, jumped
+    4 m up and came down again. The deploy must start where the retract ends and move smoothly."""
+    from sc_explorer import animations
+    leg = next(n for n in archive.names if n.replace("\\", "/").lower().endswith(
+        "landinggear/perseus/rsi_perseus_landing_gear_back_left.cga")).replace("\\", "/")[5:]
+    refs = [r for r in animations.find(archive, leg) if r.clip in ("landing_gear_deploy", "landing_gear_retract")]
+    clips, _ = animations.load_clips(archive, refs)
+    h = zlib.crc32(b"anim_leg")
+    dep, ret = clips["landing_gear_deploy"].tracks[h], clips["landing_gear_retract"].tracks[h]
+    assert np.abs(np.diff(dep.pos, axis=0)).max() < 0.5
+    assert np.allclose(dep.pos[0], ret.pos[-1], atol=0.05) and np.allclose(dep.pos[-1], ret.pos[0], atol=0.05)

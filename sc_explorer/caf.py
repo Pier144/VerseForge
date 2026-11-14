@@ -102,13 +102,15 @@ def _poss(b, o, n, fmt):
         hdr = struct.unpack_from("<6f", b, o)
         scale, off = hdr[:3], hdr[3:]
         active = [k for k in range(3) if scale[k] < 1e30]     # FLT_MAX scale = axis does not move
-        p = o + 24
-        out = [list(off) for _ in range(n)]
-        for i in range(n):
-            for k in active:
-                out[i][k] = off[k] + struct.unpack_from("<H", b, p)[0] * scale[k]
-                p += 2
-        return out
+        # u16 per moving axis: 0xC1 stores them key by key (x0 z0 x1 z1...), 0xC2 axis by axis (x0 x1... z0 z1...).
+        # With a single moving axis both read the same; read the wrong way, a two-axis track jumps half-way
+        # (Perseus legs: flat for half the keys, then a 4 m jump)
+        raw = np.frombuffer(b, np.uint16, n * len(active), o + 24).astype(np.float64)
+        raw = raw.reshape(n, len(active)) if fmt == 0xC1 else raw.reshape(len(active), n).T
+        out = np.tile(np.asarray(off, np.float64), (n, 1))
+        for j, k in enumerate(active):
+            out[:, k] = off[k] + raw[:, j] * scale[k]
+        return out.tolist()
     raise ValueError(f"unknown position format 0x{fmt:x}")
 
 
@@ -119,7 +121,7 @@ def read_block(data, c, info):
     nb = struct.unpack_from("<H", data, c + 4)[0]
     hashes = struct.unpack_from("<%dI" % nb, data, c + 12)
     blk = c + 12 + 4 * nb
-    tracks = {}
+    tracks, skipped = {}, []
     for i in range(nb):
         base = blk + 24 * i
         tr = Track()
@@ -127,11 +129,16 @@ def read_block(data, c, info):
             n, f, to, do = struct.unpack_from("<HHII", data, base + eo)
             if n == 0:
                 continue
-            t = np.array(_times(data, base + to, n, f & 0xFF), np.float32)
-            if kind == "rot":
-                tr.rot_t, tr.rot = t, np.array(_rots(data, base + do, n, f >> 8), np.float32)
-            else:
-                tr.pos_t, tr.pos = t, np.array(_poss(data, base + do, n, f >> 8), np.float32)
+            try:
+                t = np.array(_times(data, base + to, n, f & 0xFF), np.float32)
+                if kind == "rot":
+                    tr.rot_t, tr.rot = t, np.array(_rots(data, base + do, n, f >> 8), np.float32)
+                else:
+                    tr.pos_t, tr.pos = t, np.array(_poss(data, base + do, n, f >> 8), np.float32)
+            except ValueError:
+                # a key format not decoded yet (e.g. rotation 0x83, seen only in character clips): that track
+                # keeps its rest pose, the rest of the clip still plays
+                skipped.append(hashes[i])
         tracks[hashes[i]] = tr
     return Clip(info, tracks)
 
