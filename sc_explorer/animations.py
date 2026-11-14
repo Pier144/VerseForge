@@ -25,6 +25,14 @@ class AnimRef:
     targets: frozenset = frozenset()   # CRC32 of the bone/node names the clip moves
 
 
+@dataclass
+class AnimSet:
+    """Animations of one object instance inside a model: the object itself ("" prefix) or an assembled component."""
+    prefix: str
+    refs: list
+    targets: dict        # CRC32 of the bone/node name in the object's own files -> node name in the model
+
+
 _DIRS = {}          # id(archive) -> {folder (lowercase): [.caf paths]}
 
 
@@ -226,6 +234,16 @@ def find(archive, model_path, adb_path=None, names=None):
     for _, group, action, c in sorted(rest, key=lambda r: r[:3]):
         push(group, action, c, 1.0)
     return refs
+
+
+def sources(archive, model):
+    """[(clip name, caf.Clip, {name hash: model node name})] for every animated instance of a model, + warnings."""
+    out, warnings = [], []
+    for s in model.anim_sets:
+        clips, warns = load_clips(archive, s.refs)
+        warnings += warns
+        out += [(name, clip, s.targets) for name, clip in clips.items()]
+    return out, warnings
 
 
 def load_clips(archive, refs):

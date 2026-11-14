@@ -127,7 +127,7 @@ class State:
 
     def _entities(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"entities_v1_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"entities_v2_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
@@ -271,13 +271,13 @@ def model_info(path: str, variant: str = None):
                             "speed": a.speed, "pose": a.pose} for a in m.animations]}
 
 
-def _clips(m):
+def _sources(m):
     """Decoded clips of a model's animations, once per model (warnings go to the model the first time)."""
-    if "clips" not in m.cache:
-        clips, warns = animations.load_clips(state.archive, m.animations) if m.animations else ({}, [])
+    if "sources" not in m.cache:
+        src, warns = animations.sources(state.archive, m) if m.anim_sets else ([], [])
         m.warnings += warns
-        m.cache["clips"] = clips
-    return m.cache["clips"]
+        m.cache["sources"] = src
+    return m.cache["sources"]
 
 
 @app.get("/api/model/glb")
@@ -289,7 +289,7 @@ def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = Tru
     key = ("glb", tex, anim)
     if key not in m.cache:
         m.cache[key] = export.to_glb(m, textures=state.textures if tex else None, tex_size=1024,
-                                     clips=_clips(m) if anim else None)
+                                     sources=_sources(m) if anim else None)
     return Response(m.cache[key], media_type="model/gltf-binary")
 
 
@@ -312,7 +312,7 @@ def export_model(path: str, fmt: str = Query("glb", pattern="^(glb|obj|stl)$"), 
     tex_cache = state.textures if tex else None
     if fmt == "glb":
         data, name = export.to_glb(m, include_hidden=False, textures=tex_cache, tex_size=2048,
-                                   clips=_clips(m) if anim else None), f"{stem}.glb"
+                                   sources=_sources(m) if anim else None), f"{stem}.glb"
     elif fmt == "obj":
         data, name = export.to_obj_zip(m, stem, include_decals=decals, textures=tex_cache, tex_size=2048), f"{stem}_obj.zip"
     else:

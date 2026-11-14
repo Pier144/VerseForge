@@ -110,11 +110,11 @@ def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True):
     return mesh
 
 
-def to_glb(model, include_hidden=True, textures=None, tex_size=1024, clips=None):
-    """clips: {clip name: caf.Clip} (animations.load_clips) -> animated GLB for models with a skeleton."""
+def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=None):
+    """sources: animations.sources() -> animated GLB for models with a skeleton."""
     parts = select(model, include_hidden=include_hidden)
-    if clips and model.skeleton:
-        return _to_glb_animated(model, parts, textures, tex_size, clips)
+    if sources and model.skeleton:
+        return _to_glb_animated(model, parts, textures, tex_size, sources)
     scene = trimesh.Scene()
     for i, (mat, v, f, uv) in enumerate(merged_by_material(parts)):
         node = f"{mat.kind}|{mat.name}|{i}"
@@ -125,14 +125,14 @@ def to_glb(model, include_hidden=True, textures=None, tex_size=1024, clips=None)
 ROOT_NODE = "__root__"
 
 
-def _to_glb_animated(model, parts, textures, tex_size, clips):
+def _to_glb_animated(model, parts, textures, tex_size, sources):
     """Node hierarchy for the bones/nodes the clips move (and their ancestors); everything else stays merged by
     material under the root, so a ship does not explode into hundreds of draw calls."""
     from . import anim_glb
     from .caf import ROOT_HASH
     bones = model.skeleton
-    by_hash = {zlib.crc32(b.name.encode()): i for i, b in enumerate(bones)}
-    moved = {by_hash[h] for c in clips.values() for h in c.tracks if h != ROOT_HASH and h in by_hash}
+    by_name = {b.name: i for i, b in enumerate(bones)}
+    moved = {by_name[t[h]] for _, c, t in sources for h in c.tracks if h != ROOT_HASH and t.get(h) in by_name}
     keep = set()
     for i in moved:
         while i >= 0 and i not in keep:
@@ -171,8 +171,7 @@ def _to_glb_animated(model, parts, textures, tex_size, clips):
             scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False), node_name=node,
                                geom_name=node, parent_node_name=frame)
     glb = scene.export(file_type="glb", include_normals=True)
-    targets = {zlib.crc32(name.encode()): name for name in kept}
-    return anim_glb.add_animations(glb, clips, targets)
+    return anim_glb.add_animations(glb, [(n, c, {h: v for h, v in t.items() if v in kept}) for n, c, t in sources])
 
 
 def _safe(name):

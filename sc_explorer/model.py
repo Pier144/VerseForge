@@ -30,7 +30,8 @@ class Model:
     warnings: list = field(default_factory=list)   # (i18n key, {args}) tuples
     cache: dict = field(default_factory=dict)      # encoded GLBs for the viewer
     skeleton: list = field(default_factory=list)   # rig.Bone list, only for animated models
-    animations: list = field(default_factory=list) # animations.AnimRef list
+    animations: list = field(default_factory=list) # animations.AnimRef list (the actions the viewer offers)
+    anim_sets: list = field(default_factory=list)  # animations.AnimSet per animated instance (clip sources)
 
     def bounds(self):
         if not self.parts:

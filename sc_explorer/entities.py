@@ -1,7 +1,12 @@
-"""Index of DataCore entities by geometry: which Mannequin animation database (.adb) gives an object's clips meaning."""
+"""Index of DataCore entities by geometry.
+
+- "adb": which Mannequin animation database (.adb) gives an object's clips their meaning;
+- "vehicles": for ships and ground vehicles, the factory loadout as a tree of {port, geometry, adb, children}
+  plus the landing-gear legs ({port: hull bone, geometry}), used by the "Full ship" assembly."""
 from .datacore import DataCore
 
 ADB_ROOT = "Animations/Mannequin/ADB/"
+MAX_DEPTH = 4
 
 
 def _norm(path):
@@ -9,30 +14,124 @@ def _norm(path):
     return p[5:] if p.startswith("data/") else p
 
 
-def build(data: bytes):
-    """{"adb": {geometry path (lowercase, "/"): .adb path (Data-relative)}}"""
-    dc = DataCore(data)
-    found = {}                      # geometry -> [(record name, adb)]
-    for ri in dc.records_of("EntityClassDefinition"):
-        geo = adb = None
-        for c in dc.record_view(ri)["Components"]:
-            if c is None:
+def _data_path(path):
+    p = (path or "").replace("\\", "/")
+    return p[5:] if p.lower().startswith("data/") else p
+
+
+def _adb_path(adb):
+    adb = (adb or "").replace("\\", "/")
+    if not adb:
+        return ""
+    return adb if adb.lower().startswith("animations/") else ADB_ROOT + adb
+
+
+class _Index:
+    def __init__(self, dc):
+        self.dc = dc
+        self.by_name = {}
+        self._info = {}
+        for ri in dc.records_of("EntityClassDefinition"):
+            self.by_name.setdefault(dc.record_name(ri).split(".", 1)[-1].lower(), ri)
+
+    def info(self, ri):
+        """(geometry path, adb path, components view list) of an entity record, cached."""
+        if ri not in self._info:
+            geo = adb = ""
+            comps = [c for c in self.dc.record_view(ri)["Components"] if c is not None]
+            for c in comps:
+                t = c.type
+                if t == "SGeometryResourceParams":
+                    geo = _data_path(c["Geometry"]["Geometry"]["Geometry"]["path"])
+                elif t == "SAnimationControllerParams":
+                    adb = _adb_path(c["AnimationDatabase"])
+            self._info[ri] = (geo, adb, comps)
+        return self._info[ri]
+
+    def entries(self, comps):
+        for c in comps:
+            if c.type == "SEntityComponentDefaultLoadoutParams":
+                lo = c["loadout"]
+                return lo["entries"] if lo is not None and lo.has("entries") else []
+        return []
+
+    def tree(self, entries, depth=0):
+        out = []
+        if depth >= MAX_DEPTH:
+            return out
+        for e in entries or []:
+            if e is None:
                 continue
-            t = c.type
-            if t == "SGeometryResourceParams":
-                geo = _norm(c["Geometry"]["Geometry"]["Geometry"]["path"])
-            elif t == "SAnimationControllerParams":
-                adb = (c["AnimationDatabase"] or "").replace("\\", "/")
-        if geo and adb:
-            found.setdefault(geo, []).append((dc.record_name(ri).split(".", 1)[-1], adb))
-    out = {}
+            port = e["itemPortName"] or ""
+            ri = None
+            name = (e["entityClassName"] or "").lower()
+            if name:
+                ri = self.by_name.get(name)
+            if ri is None:
+                ref = e["entityClassReference"]
+                ri = ref if isinstance(ref, int) else None
+            if not port or ri is None:
+                continue
+            geo, adb, comps = self.info(ri)
+            if not geo:
+                continue
+            nested = e["loadout"]
+            sub = nested["entries"] if nested is not None and nested.has("entries") else None
+            children = self.tree(sub if sub else self.entries(comps), depth + 1)
+            out.append({"port": port, "geometry": geo, "adb": adb, "children": children})
+        return out
+
+
+def _gears(dc, comps):
+    out = []
+    for c in comps:
+        if c.type != "VehicleComponentParams" or not c.has("landingSystem"):
+            continue
+        ri = c["landingSystem"]
+        if not isinstance(ri, int):
+            continue
+        ls = dc.record_view(ri)
+        for g in (ls["gears"] if ls.has("gears") else []):
+            if g is None:
+                continue
+            geo = _data_path(g["geometry"]["path"]) if g["geometry"] is not None else ""
+            if geo and g["bone"]:
+                out.append({"port": g["bone"], "geometry": geo})
+    return out
+
+
+def build(data: bytes):
+    dc = DataCore(data)
+    idx = _Index(dc)
+    found, vehicles = {}, {}
+    for ri in dc.records_of("EntityClassDefinition"):
+        geo, adb, comps = idx.info(ri)
+        if not geo:
+            continue
+        rec_name = dc.record_name(ri).split(".", 1)[-1]
+        if adb:
+            found.setdefault(_norm(geo), []).append((rec_name, adb))
+        if any(c.type == "VehicleComponentParams" for c in comps):
+            tree = idx.tree(idx.entries(comps))
+            gears = _gears(dc, comps)
+            if tree or gears:
+                vehicles.setdefault(_norm(geo), []).append((rec_name, {"tree": tree, "gears": gears}))
+    adbs = {}
     for geo, recs in found.items():
-        stem = geo.rsplit("/", 1)[-1].rsplit(".", 1)[0]
         recs.sort()
-        name, adb = next((r for r in recs if r[0].lower().endswith(stem)), recs[0])
-        out[geo] = adb if adb.lower().startswith("animations/") else ADB_ROOT + adb
-    return {"adb": out}
+        stem = geo.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        adbs[geo] = next((r for r in recs if r[0].lower().endswith(stem)), recs[0])[1]
+    veh = {}
+    for geo, recs in vehicles.items():
+        stem = geo.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        recs.sort(key=lambda r: (not r[0].lower().endswith(stem), -len(r[1]["tree"]), r[0]))
+        veh[geo] = recs[0][1]
+    return {"adb": adbs, "vehicles": veh}
 
 
 def adb_for(index, path):
     return (index or {}).get("adb", {}).get(_norm(path))
+
+
+def vehicle_for(index, path):
+    return (index or {}).get("vehicles", {}).get(_norm(path))

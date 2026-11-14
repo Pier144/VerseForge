@@ -2,6 +2,7 @@
 
 Only models the game links animations to get a skeleton; the others keep loading exactly as before. Skinned meshes
 stay rigid: each triangle follows the dominant bone of its first vertex (fine for mechanical objects)."""
+import zlib
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -82,3 +83,4 @@ def attach(archive, model, adb_path=None):
         else:
             parts.append(replace(p, node=known.get(p.node.lower(), "")))
     model.parts, model.skeleton, model.animations = parts, bones, refs
+    model.anim_sets = [animations.AnimSet("", refs, {zlib.crc32(b.name.encode()): b.name for b in bones})]

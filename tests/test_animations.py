@@ -153,9 +153,9 @@ def _glb_json(glb):
 def test_animated_glb(archive, entity_index, path):
     from sc_explorer import animations, entities, export, model
     m = model.load_model(archive, path, entities.adb_for(entity_index, path))
-    clips, warns = animations.load_clips(archive, m.animations)
+    src, warns = animations.sources(archive, m)
     assert not warns
-    js = _glb_json(export.to_glb(m, clips=clips))
+    js = _glb_json(export.to_glb(m, sources=src))
     assert js.get("animations")
     n_nodes = len(js["nodes"])
     for a in js["animations"]:
@@ -189,3 +189,14 @@ def test_find_tool_skips_additive_by_name(archive, entity_index):
     path = "Objects/fps_weapons/gadgets/grin/multitool/gdgt_fps_grin_multitool.cdf"
     refs = animations.find(archive, path, entities.adb_for(entity_index, path))
     assert refs and not any(r.clip.endswith("_add") for r in refs)
+
+
+def test_vehicle_loadout(entity_index):
+    from sc_explorer import entities
+    v = entities.vehicle_for(entity_index, GLADIUS)
+    assert {g["port"] for g in v["gears"]} == {"helper_landing_gear_front", "helper_landing_gear_rear_left",
+                                                "helper_landing_gear_rear_right"}
+    ports = {n["port"].lower(): n for n in v["tree"]}
+    assert ports["hardpoint_thruster_main_left"]["geometry"].lower().endswith(".cga")
+    assert ports["hardpoint_gun_nose"]["children"]          # gimbal mount -> gun
+    assert entities.vehicle_for(entity_index, P6LR) is None

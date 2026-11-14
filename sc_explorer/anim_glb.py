@@ -74,8 +74,9 @@ def _continuous(q):
     return q
 
 
-def add_animations(glb, clips, targets):
-    """clips: {name: caf.Clip}; targets: {name hash: glTF node name}. Returns the new GLB bytes."""
+def add_animations(glb, sources):
+    """sources: [(animation name, caf.Clip, {name hash: glTF node name})]. Sources sharing a name become one glTF
+    animation (the same clip played on several object instances, e.g. hull + landing-gear legs)."""
     js, bin_ = _split(glb)
     nodes = js.get("nodes", [])
     index = {}
@@ -96,24 +97,28 @@ def add_animations(glb, clips, targets):
         accessors.append(acc)
         return len(accessors) - 1
 
+    by_name = {}
+    for name, clip, targets in sources:
+        by_name.setdefault(name, []).append((clip, targets))
     anims = []
-    for name in sorted(clips):
-        clip = clips[name]
-        fps = clip.info.fps or 30
-        channels, samplers = [], []
-        for h, tr in clip.tracks.items():
-            node = index.get(targets.get(h)) if h != ROOT_HASH else None
-            if node is None or node not in trs_ok:
-                continue
-            for path, t, v in (("rotation", tr.rot_t, tr.rot), ("translation", tr.pos_t, tr.pos)):
-                if t is None or not len(t):
+    for name in sorted(by_name):
+        channels, samplers, used = [], [], set()
+        for clip, targets in by_name[name]:
+            fps = clip.info.fps or 30
+            for h, tr in clip.tracks.items():
+                node = index.get(targets.get(h)) if h != ROOT_HASH else None
+                if node is None or node not in trs_ok or node in used:
                     continue
-                times = np.maximum((np.asarray(t, np.float64) - clip.info.start) / fps, 0.0)
-                vals = _continuous(np.asarray(v, np.float64)) if path == "rotation" else np.asarray(v)
-                samplers.append({"input": push(times, "SCALAR", True),
-                                 "output": push(vals, "VEC4" if path == "rotation" else "VEC3"),
-                                 "interpolation": "LINEAR"})
-                channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": path}})
+                used.add(node)
+                for path, t, v in (("rotation", tr.rot_t, tr.rot), ("translation", tr.pos_t, tr.pos)):
+                    if t is None or not len(t):
+                        continue
+                    times = np.maximum((np.asarray(t, np.float64) - clip.info.start) / fps, 0.0)
+                    vals = _continuous(np.asarray(v, np.float64)) if path == "rotation" else np.asarray(v)
+                    samplers.append({"input": push(times, "SCALAR", True),
+                                     "output": push(vals, "VEC4" if path == "rotation" else "VEC3"),
+                                     "interpolation": "LINEAR"})
+                    channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": path}})
         if channels:
             anims.append({"name": name, "channels": channels, "samplers": samplers})
     if anims:
