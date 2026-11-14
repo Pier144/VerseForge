@@ -339,3 +339,22 @@ def test_stencil_decal_uses_paint_atlas():
     assert all(p.material.kind == "hidden" for p in plain.parts if p.material.name == "stencil_decal")
     glow = next(p.material for p in m.parts if p.material.name == "glow_mat")
     assert glow.emissive and max(glow.emissive) > 0.5
+
+
+def test_screens_and_ammo():
+    """DisplayScreen materials become lit screens (emissive picture in the GLB); weapons report their magazine
+    capacity so the viewer can draw the ammo count on them."""
+    from sc_explorer import export, server
+    if not server.state.status["ready"]:
+        server.state.load()
+    arch = server.state.archive
+    q = next(n for n in arch.names if n.replace("\\", "/").lower().endswith(
+        "smg/quartz/esmg_fps_volt_quartz.cdf")).replace("\\", "/")[5:]
+    info = server.model_info(q)
+    assert info["ammo"] == {"max": 45, "low": pytest.approx(0.1)}
+    assert info["screen"]["accent"].startswith("#") and info["screen"]["maker"]
+    js = _glb_json(server.model_glb(q, tex=False).body)
+    screens = [m for m in js["materials"] if m["name"].startswith("screen|")]
+    assert screens and all("emissiveTexture" in m and max(m["emissiveFactor"]) > 0.3 for m in screens)
+    assert any(n["name"].startswith("screen|") for n in js["nodes"] if "mesh" in n)
+    assert server.model_info(GLADIUS)["ammo"] is None

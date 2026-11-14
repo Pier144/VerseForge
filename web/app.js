@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { AmmoScreen, isFire, isReload } from "./screen.js";
 
 const $ = (s) => document.querySelector(s);
 const api = async (url, opts) => {
@@ -29,7 +30,7 @@ const T = (key, vars = {}) => (STRINGS[key] ?? key).replace(/\{(\w+)\}/g, (_, k)
 const num = (n) => n.toLocaleString("en-US");
 
 const CAT_LABELS = {};
-const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy" };
+const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy", screen: "" };
 const SUBCATS = {};
 const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null, full: false };
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
@@ -165,7 +166,8 @@ resize();
 // animation state (see "animations" below); declared here because the render loop starts right away
 const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), current: null, dragging: false, landed: null };
 const clock = new THREE.Clock();
-window.__verseforge = { get root() { return modelRoot; }, anim };   // for automated checks (tools/, tests)
+let ammoScreen = null;   // weapon display drawn on its DisplayScreen (screen.js)
+window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; } };   // for automated checks (tools/, tests)
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   if (anim.mixer) { anim.mixer.update(dt); syncTimeline(); }
@@ -226,7 +228,7 @@ function applyVisibility() {
   modelRoot.traverse((o) => {
     if (!o.isMesh) return;
     const kind = meshKind(o);
-    const kindOn = kind === "solid" ? true : state.kinds[kind];
+    const kindOn = kind === "solid" || kind === "screen" ? true : state.kinds[kind];
     o.visible = kindOn && !state.matOff.has(meshMat(o));
   });
 }
@@ -256,6 +258,8 @@ async function loadModel(item, keepView = false) {
     const buf = await glbRes.arrayBuffer();
     const gltf = await new GLTFLoader().parseAsync(buf, "");
     stopAnimations();
+    ammoScreen?.dispose();
+    ammoScreen = null;
     if (modelRoot) {
       scene.remove(modelRoot);
       modelRoot.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
@@ -271,6 +275,9 @@ async function loadModel(item, keepView = false) {
     scene.add(modelRoot);
     anim.clips = new Map(gltf.animations.map((c) => [c.name, c]));
     anim.mixer = gltf.animations.length ? new THREE.AnimationMixer(modelRoot) : null;
+    const screens = [];
+    modelRoot.traverse((o) => { if (o.isMesh && meshKind(o) === "screen" && o.geometry.attributes.uv) screens.push(o); });
+    if (screens.length && info.ammo) ammoScreen = new AmmoScreen(screens, info.ammo, info.screen);
     applyWireframe();
     applyVisibility();
     buildGrid(new THREE.Box3().setFromObject(modelRoot));
@@ -439,6 +446,8 @@ function playAnimation(a) {
   act.play();
   anim.actions.set(a.id, act);
   anim.current = { a, act, clip };
+  if (ammoScreen && isReload(a)) ammoScreen.reload(clip.duration / Math.abs(act.timeScale || 1) * 0.6);
+  else if (ammoScreen && isFire(a)) ammoScreen.fire();
   document.querySelectorAll(".anim-act").forEach((b) => b.classList.toggle("on", b.dataset.id === a.id));
   $("#animPlay").disabled = $("#animTime").disabled = false;
 }
@@ -486,6 +495,7 @@ $("#animReset").addEventListener("click", () => {
   anim.current = null;
   document.querySelectorAll(".anim-act").forEach((b) => b.classList.remove("on"));
   resetTimeline();
+  ammoScreen?.reset();
   settleLanded();
 });
 

@@ -127,7 +127,7 @@ class State:
 
     def _entities(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"entities_v2_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"entities_v3_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
@@ -278,8 +278,20 @@ def model_info(path: str, variant: str = None, full: bool = False):
             "variant": variant if any(v["tag"] == variant for v in vs) else (vs[0]["tag"] if vs else None),
             "can_full": state.can_full(path), "full": bool(full) and state.can_full(path),
             "ground_vehicle": "/vehicles/" in path.lower().replace("\\", "/"),
+            "ammo": entities.ammo_for(state.entities, path),
+            "screen": _screen_info(m, it),
             "animations": [{"id": a.id, "label": a.label, "group": a.group, "clip": a.clip, "duration": a.duration,
                             "speed": a.speed, "pose": a.pose} for a in m.animations]}
+
+
+def _screen_info(m, it):
+    """What the viewer needs to light the screens: their accent colour (from the paint) and the maker's name."""
+    screens = [p.material for p in m.parts if p.material.kind == "screen"]
+    if not screens:
+        return None
+    e = screens[0].emissive or (0.2, 0.6, 0.8)
+    return {"accent": "#%02x%02x%02x" % tuple(int(round(min(1, max(0, c)) ** (1 / 2.2) * 255)) for c in e),
+            "maker": (it.manu if it else "") or ""}
 
 
 def _sources(m):

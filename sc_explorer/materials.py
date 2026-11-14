@@ -8,7 +8,7 @@ from . import cryxml
 class Material:
     name: str
     shader: str
-    kind: str          # "solid", "decal", "glass", "hidden"
+    kind: str          # "solid", "decal", "glass", "hidden", "screen"
     color: tuple       # linear RGB 0..1
     diffuse: str | None = None     # colour texture (source path as written in the .mtl)
     normal: str | None = None      # tangent-space normal map (_ddn / _ddna)
@@ -18,6 +18,9 @@ class Material:
     metal: bool = False
     stencil_colors: tuple | None = None   # stencil decal: diffuse is the palette's R/G/B mask, coloured with these
     emissive: tuple | None = None         # linear RGB of self-lit parts (Illum with Glow)
+
+
+SCREEN_RGB = (110, 205, 235)       # default screen light (sRGB): the cold cyan of the game's holo UI
 
 
 def srgb_to_linear(rgb8):
@@ -37,6 +40,8 @@ def classify(name, shader):
     n, s = name.lower(), shader.lower()
     if s == "nodraw" or "proxy" in n or "nodraw" in n or "physics" in n:
         return "hidden"
+    if s == "displayscreen":       # in game its picture is drawn live by the UI ($RenderToTexture)
+        return "screen"
     if s in ("meshdecal", "decal") or any(k in n for k in ("decal", "pom", "stencil", "glow", "emissive")):
         return "decal"
     if s.startswith("glass") or "glass" in n or "canopy" in n or "visor" in n:
@@ -103,6 +108,12 @@ def _material(el, archive=None, palette=None):
             mat.kind = "decal"
         else:
             mat.kind = "hidden"
+    if mat.kind == "screen":
+        accent = (palette or {}).get("decal_colors") or [None]
+        # the paint's first stencil colour when it is a real colour (VOLT green); greys and whites -> holo cyan
+        rgb = accent[0] if accent[0] and max(accent[0]) >= 100 and max(accent[0]) - min(accent[0]) >= 60 else SCREEN_RGB
+        mat.emissive = srgb_to_linear(rgb)
+        mat.color = (0.01, 0.012, 0.015)
     try:
         glow = float(el.get("Glow", "0") or 0)
     except ValueError:

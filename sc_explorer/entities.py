@@ -100,10 +100,31 @@ def _gears(dc, comps):
     return out
 
 
+def _ammo(idx, comps):
+    """{"max", "low"} of a weapon: its own ammo container (energy weapons) or the factory magazine's."""
+    def container(cs):
+        for c in cs:
+            if c.type == "SAmmoContainerComponentParams":
+                return {"max": int(c["maxAmmoCount"] or 0), "low": float(c["lowAmmoWarningPercentage"] or 0.1)}
+        return None
+    if not any(c.type == "SCItemWeaponComponentParams" for c in comps):
+        return None
+    for e in idx.entries(comps):
+        if e is None or "magazine" not in (e["itemPortName"] or "").lower():
+            continue
+        ri = idx.by_name.get((e["entityClassName"] or "").lower())
+        if ri is not None:
+            got = container(idx.info(ri)[2])
+            if got and got["max"] > 0:
+                return got
+    got = container(comps)
+    return got if got and got["max"] > 0 else None
+
+
 def build(data: bytes):
     dc = DataCore(data)
     idx = _Index(dc)
-    found, vehicles = {}, {}
+    found, vehicles, ammo = {}, {}, {}
     for ri in dc.records_of("EntityClassDefinition"):
         geo, adb, comps = idx.info(ri)
         if not geo:
@@ -111,6 +132,9 @@ def build(data: bytes):
         rec_name = dc.record_name(ri).split(".", 1)[-1]
         if adb:
             found.setdefault(_norm(geo), []).append((rec_name, adb))
+        got = _ammo(idx, comps)
+        if got:
+            ammo.setdefault(_norm(geo), got)
         if any(c.type == "VehicleComponentParams" for c in comps):
             tree = idx.tree(idx.entries(comps))
             gears = _gears(dc, comps)
@@ -126,11 +150,15 @@ def build(data: bytes):
         stem = geo.rsplit("/", 1)[-1].rsplit(".", 1)[0]
         recs.sort(key=lambda r: (not r[0].lower().endswith(stem), -len(r[1]["tree"]), r[0]))
         veh[geo] = recs[0][1]
-    return {"adb": adbs, "vehicles": veh}
+    return {"adb": adbs, "vehicles": veh, "ammo": ammo}
 
 
 def adb_for(index, path):
     return (index or {}).get("adb", {}).get(_norm(path))
+
+
+def ammo_for(index, path):
+    return (index or {}).get("ammo", {}).get(_norm(path))
 
 
 def vehicle_for(index, path):

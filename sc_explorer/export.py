@@ -99,8 +99,29 @@ def material_textures(mat, cache, size):
     return out
 
 
+_SCREEN_IMG = None
+
+
+def screen_image():
+    """A switched-on screen without content: dark glass, fine scanlines, soft vignette (emissive map, 256 px)."""
+    global _SCREEN_IMG
+    if _SCREEN_IMG is None:
+        n = 256
+        y, x = np.mgrid[0:n, 0:n] / (n - 1.0)
+        lines = 0.78 + 0.22 * (np.arange(n)[:, None] % 4 < 2)
+        grid = 1.0 + 0.25 * ((np.arange(n)[:, None] % 32 == 0) | (np.arange(n)[None, :] % 32 == 0))
+        vign = 1.0 - 0.55 * (((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.5)
+        v = np.clip(0.42 * lines * grid * vign, 0, 1)
+        img = Image.fromarray((np.dstack([v, v, v]) * 255).astype(np.uint8), "RGB")
+        img.format = "PNG"
+        _SCREEN_IMG = img
+    return _SCREEN_IMG
+
+
 def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True):
     name, kind = mat.name, mat.kind
+    if kind == "screen":
+        return _screen_mesh(mat, v, f, uv, axis)
     base, normal, uv_scale = material_textures(mat, textures, tex_size) if uv is not None else (None, None, 1.0)
     rgb = _srgb(mat.color)
     alpha = 0.35 if kind == "glass" else 1.0
@@ -118,6 +139,19 @@ def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True):
         # trimesh expects OpenGL UVs (V up) and flips them back when writing glTF
         t = uv.astype(np.float64) * uv_scale
         mesh.visual = trimesh.visual.TextureVisuals(uv=np.column_stack([t[:, 0], 1.0 - t[:, 1]]), material=pbr)
+    else:
+        mesh.visual = trimesh.visual.TextureVisuals(material=pbr)
+    return mesh
+
+
+def _screen_mesh(mat, v, f, uv, axis):
+    pbr = trimesh.visual.material.PBRMaterial(
+        name=f"screen|{mat.name}", baseColorFactor=[*_srgb(mat.color), 1.0], metallicFactor=0.0, roughnessFactor=0.15,
+        emissiveFactor=list(_srgb(mat.emissive or (0.15, 0.6, 0.8))), emissiveTexture=screen_image(), doubleSided=True)
+    mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T if axis else v, f, process=False)
+    if uv is not None:
+        mesh.visual = trimesh.visual.TextureVisuals(uv=np.column_stack([uv[:, 0], 1.0 - uv[:, 1]]).astype(np.float64),
+                                                    material=pbr)
     else:
         mesh.visual = trimesh.visual.TextureVisuals(material=pbr)
     return mesh
