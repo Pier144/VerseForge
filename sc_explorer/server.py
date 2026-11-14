@@ -170,7 +170,7 @@ class State:
                 return self.models[key]
         if not self.archive or not self.archive.exists(path):
             raise HTTPException(404, tr("file_missing", path=path))
-        m = model.load_model(self.archive, path)
+        m = model.load_model(self.archive, path, entities.adb_for(self.entities, path))
         with self.lock:
             self.models[key] = m
             while len(self.models) > 8:
@@ -266,18 +266,30 @@ def model_info(path: str, variant: str = None):
     return {"path": path, "name": it.name if it else _stem(path), "stats": s, "warnings": [_msg(w) for w in m.warnings],
             "materials": [{"name": n, "kind": k} for n, k in s["materials"]],
             "variants": [{"tag": v["tag"], "label": v["label"]} for v in vs],
-            "variant": variant if any(v["tag"] == variant for v in vs) else (vs[0]["tag"] if vs else None)}
+            "variant": variant if any(v["tag"] == variant for v in vs) else (vs[0]["tag"] if vs else None),
+            "animations": [{"id": a.id, "label": a.label, "group": a.group, "clip": a.clip, "duration": a.duration,
+                            "speed": a.speed, "pose": a.pose} for a in m.animations]}
+
+
+def _clips(m):
+    """Decoded clips of a model's animations, once per model (warnings go to the model the first time)."""
+    if "clips" not in m.cache:
+        clips, warns = animations.load_clips(state.archive, m.animations) if m.animations else ({}, [])
+        m.warnings += warns
+        m.cache["clips"] = clips
+    return m.cache["clips"]
 
 
 @app.get("/api/model/glb")
-def model_glb(path: str, tex: bool = True, variant: str = None):
+def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = True):
     _require_ready()
     m = state.get_model(path, variant)
     if not m.parts:
         raise HTTPException(422, "; ".join(_msg(w) for w in m.warnings) or tr("no_geometry"))
-    key = ("glb", tex)
+    key = ("glb", tex, anim)
     if key not in m.cache:
-        m.cache[key] = export.to_glb(m, textures=state.textures if tex else None, tex_size=1024)
+        m.cache[key] = export.to_glb(m, textures=state.textures if tex else None, tex_size=1024,
+                                     clips=_clips(m) if anim else None)
     return Response(m.cache[key], media_type="model/gltf-binary")
 
 
@@ -291,7 +303,7 @@ def _save_export(data, filename):
 
 @app.get("/api/export")
 def export_model(path: str, fmt: str = Query("glb", pattern="^(glb|obj|stl)$"), decals: bool = False, tex: bool = True,
-                 variant: str = None):
+                 variant: str = None, anim: bool = True):
     _require_ready()
     m = state.get_model(path, variant)
     if not m.parts:
@@ -299,7 +311,8 @@ def export_model(path: str, fmt: str = Query("glb", pattern="^(glb|obj|stl)$"), 
     stem = _stem(path)
     tex_cache = state.textures if tex else None
     if fmt == "glb":
-        data, name = export.to_glb(m, include_hidden=False, textures=tex_cache, tex_size=2048), f"{stem}.glb"
+        data, name = export.to_glb(m, include_hidden=False, textures=tex_cache, tex_size=2048,
+                                   clips=_clips(m) if anim else None), f"{stem}.glb"
     elif fmt == "obj":
         data, name = export.to_obj_zip(m, stem, include_decals=decals, textures=tex_cache, tex_size=2048), f"{stem}_obj.zip"
     else:

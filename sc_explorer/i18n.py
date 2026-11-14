@@ -30,6 +30,7 @@ MESSAGES = {
     "warn_part_error": "{path}: {error}",
     "warn_chr_skeleton": "The .chr file only contains the skeleton: open the .cdf or the linked .skin files.",
     "warn_no_geometry": "No geometry found in this file.",
+    "warn_anim_error": "animation {clip} skipped: {error}",
     "update_source": "Updates are installed by the Windows app (VerseForge.exe); from source, use git pull.",
     "update_no_installer": "This release has no installer to download.",
     "update_checksum": "The downloaded installer is damaged (size or checksum mismatch): try again.",

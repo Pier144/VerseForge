@@ -167,3 +167,18 @@ def test_animated_glb(archive, entity_index, path):
     if path == GLADIUS:
         names = {a["name"] for a in js["animations"]}
         assert {"canopy_close", "landing_gear_extend"} <= names
+
+
+# ------------------------------------------------------------------ server
+def test_server_animations():
+    from sc_explorer import server
+    if not server.state.status["ready"]:
+        server.state.load()
+    assert server.state.status["ready"], server.state.status
+    info = server.model_info(GLADIUS)
+    by_id = {a["id"]: a for a in info["animations"]}
+    assert by_id["canopy/open"]["speed"] < 0 and by_id["canopy/open"]["clip"] == "canopy_close"
+    glb = server.model_glb(GLADIUS, tex=False).body
+    assert b'"animations"' in glb and b"canopy_close" in glb
+    assert b'"animations"' not in server.model_glb(GLADIUS, tex=False, anim=False).body
+    assert server.model_info("Objects/fps_weapons/attachments/magazines/behr/mgzn_s03_behr_p6lr.cgf")["animations"] == []
