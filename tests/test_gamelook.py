@@ -96,3 +96,10 @@ def test_decal_opacity_and_pom(archive):
     assert mats["Decal_Text"].opacity == pytest.approx(0.3, abs=1e-3)
     sh = materials.shading(pom)
     assert sh["pom"] and sh["height_map"] and sh["alpha_test"] > 0.5
+
+
+def test_armour_does_not_load_the_player_animation_set(archive):
+    # armour shares the human skeleton: it must not pull in thousands of body clips (loading took minutes)
+    from sc_explorer import model
+    m = model.load_model(archive, "Objects/Characters/Human/male_v7/armor/qrt/quirinus/m_qrt_utility_heavy_core_01.cdf")
+    assert m.parts and not m.anim_sets and not m.animations

@@ -78,7 +78,13 @@
             <p class="empty-title">Pick a model to inspect</p>
             <p class="empty-hint">Search on the left, then drag to orbit · scroll to zoom · right-drag to pan</p>
           </div>
-          <div id="loading" class="loading hidden"><div class="spinner"></div><span id="loadingText">Loading…</span></div>
+          <div id="loading" class="loading hidden" role="status" aria-live="polite">
+            <div class="load-card">
+              <div class="load-head"><div class="spinner"></div><span id="loadingText">Loading…</span></div>
+              <div class="load-bar indeterminate"><div id="loadBarFill"></div></div>
+              <div class="load-stage"><span id="loadStage"></span><span id="loadPct"></span></div>
+            </div>
+          </div>
 
           <div class="layers floating" aria-label="Visible layers">
             <label class="pill" title="Game textures (colour and normal map). Turn off to see only the material colours"><input id="texOn" type="checkbox" checked><span>Textures</span></label>

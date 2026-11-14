@@ -23,6 +23,8 @@ const STRINGS = {
   triangles: "Triangles", parts: "Parts", materials: "Materials", variant: "Variant / paint",
   loadFailed: "Could not load the model: {error}", exported: "Exported {name} (copy saved to {dir})",
   exportsDir: "exports", exportFailed: "Export failed: {error}", print3d: "3D print: {error}",
+  loadPrepare: "Preparing the model on the server…", loadDownload: "Downloading {done} / {total} MB",
+  loadDownloadNoSize: "Downloading {done} MB", loadTextures: "Game textures {done} / {total}", loadScene: "Building the scene…",
   printReady: "Ready: {size} mm, {volume} cm³, {closed}.", closedYes: "watertight ✓", closedNo: "not fully closed",
   downloadStl: "Download STL", printDone: "Printable STL of {name} ready", results: "{n} results",
   resultsOf: "{n} results · showing {shown}", all: "All", openSettings: "open Settings to fix the path",
@@ -287,6 +289,37 @@ function applyWireframe() {
   modelRoot?.traverse((o) => { if (o.isMesh) o.material.wireframe = wireframe; });
 }
 
+// loading overlay: pct null = indeterminate bar (waiting for the server), else 0-100
+function progress(pct, stage) {
+  const bar = $(".load-bar");
+  bar.classList.toggle("indeterminate", pct == null);
+  $("#loadBarFill").style.width = pct == null ? "" : `${Math.max(2, Math.min(100, pct)).toFixed(1)}%`;
+  $("#loadPct").textContent = pct == null ? "" : `${Math.round(pct)}%`;
+  $("#loadStage").textContent = stage || "";
+}
+
+// read a fetch Response to an ArrayBuffer, reporting (bytes so far, total | 0) as chunks arrive
+async function readWithProgress(res, onProgress) {
+  const total = +res.headers.get("Content-Length") || 0;
+  if (!res.body || !res.body.getReader) return res.arrayBuffer();
+  const reader = res.body.getReader();
+  const chunks = [];
+  let done = 0, last = 0;
+  for (;;) {
+    const { done: end, value } = await reader.read();
+    if (end) break;
+    chunks.push(value);
+    done += value.length;
+    const now = performance.now();
+    if (now - last > 50) { onProgress(done, total); last = now; }
+  }
+  onProgress(done, total);
+  const out = new Uint8Array(done);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out.buffer;
+}
+
 async function loadModel(item, keepView = false) {
   if (state.current?.path !== item.path) state.variant = null;
   state.current = item;
@@ -296,6 +329,7 @@ async function loadModel(item, keepView = false) {
   $("#empty").classList.add("hidden");
   $("#loading").classList.remove("hidden");
   $("#loadingText").textContent = T("loadingOf", { name: item.name });
+  progress(null, T("loadPrepare"));
   if (!keepView) $("#info").innerHTML = infoHead(item) + `<p class="hint">${T("loading")}</p>`;
   try {
     const [infoRes, glbRes] = await Promise.all([
@@ -305,8 +339,18 @@ async function loadModel(item, keepView = false) {
     if (state.current !== item) return;  // user clicked something else meanwhile
     const info = await infoRes.json();
     state.variant = info.variant;
-    const buf = await glbRes.arrayBuffer();
+    // download: 0-70 % of the bar, parsing 70-75 %, game textures 75-100 %
+    const buf = await readWithProgress(glbRes, (done, total) => {
+      if (state.current !== item) return;
+      const mb = (n) => (n / 1048576).toFixed(n < 10485760 ? 1 : 0);
+      if (total) progress(70 * done / total, T("loadDownload", { done: mb(done), total: mb(total) }));
+      else progress(null, T("loadDownloadNoSize", { done: mb(done) }));
+    });
+    if (state.current !== item) return;
+    progress(70, T("loadScene"));
     const gltf = await new GLTFLoader().parseAsync(buf, "");
+    if (state.current !== item) return;
+    progress(75, T("loadScene"));
     stopAnimations();
     ammoScreen?.dispose();
     ammoScreen = null;
@@ -317,6 +361,9 @@ async function loadModel(item, keepView = false) {
     modelRoot = gltf.scene;
     gameLook.dispose();
     gameLook = new GameLook(renderer);
+    gameLook.onProgress = (done, total) => {
+      if (state.current === item && total) progress(75 + 25 * done / total, T("loadTextures", { done, total }));
+    };
     if (state.tex && state.look) await gameLook.apply(modelRoot, info.shading, { swapNormalXY: state.swapXY, sun });
     if (state.current !== item) return;
     modelRoot.traverse((o) => {
@@ -401,7 +448,9 @@ function showMaterials() {
   modelRoot.traverse((o) => {
     if (!o.isMesh) return;
     const name = meshMat(o);
-    if (!mats.has(name)) mats.set(name, { kind: meshKind(o), color: o.material.color.getHexString() });
+    // shader materials (POM decal overlays) have no .color: they keep the GLB colour in userData.swatch
+    const c = o.material.color || o.material.userData?.swatch;
+    if (!mats.has(name)) mats.set(name, { kind: meshKind(o), color: c ? c.getHexString() : "888888" });
   });
   const ul = $("#mats");
   ul.innerHTML = "";

@@ -24,13 +24,19 @@ export class GameLook {
     this.loader = new THREE.TextureLoader();
     this.textures = new Map();          // url -> Promise<Texture | null>
     this.maxAniso = renderer.capabilities.getMaxAnisotropy();
+    this.requested = 0;                 // textures asked for / finished, for the loading bar
+    this.finished = 0;
+    this.onProgress = null;             // (finished, requested)
   }
 
   texture(path, kind, repeat = 1, size = TEX_SIZE) {
     if (!path) return Promise.resolve(null);
     const url = texUrl(path, kind, size);
     if (!this.textures.has(url)) {
-      this.textures.set(url, this.loader.loadAsync(url).then((t) => {
+      this.requested++;
+      this.onProgress?.(this.finished, this.requested);
+      const tick = () => { this.finished++; this.onProgress?.(this.finished, this.requested); };
+      this.textures.set(url, this.loader.loadAsync(url).finally(tick).then((t) => {
         t.colorSpace = kind === "color" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         t.wrapS = t.wrapT = THREE.RepeatWrapping;
         t.anisotropy = Math.min(8, this.maxAniso);
@@ -128,6 +134,7 @@ void main() {
       forceSinglePass: true,   // three.js draws transparent double-sided meshes twice otherwise
     });
     m.userData.pom = true;
+    m.userData.swatch = old.color ? old.color.clone() : new THREE.Color(0.8, 0.8, 0.8);   // material list swatch
     const sun = opts.sun;
     if (sun) {
       const w = new THREE.Vector3();

@@ -76,6 +76,9 @@ def _split_skinned(p, known):
     return out
 
 
+MAX_OBJECT_CLIPS = 200   # ships, vehicles and weapons have a handful (Perseus 6, Quartz 14)
+
+
 def attach(archive, model, adb_path=None):
     """Find the model's animations; when there are some, give it a skeleton and tag each part with its node."""
     bones = skeleton(archive, model.path)
@@ -83,6 +86,10 @@ def attach(archive, model, adb_path=None):
         return
     refs = animations.find(archive, model.path, adb_path, names=[b.name for b in bones])
     if not refs:
+        return
+    if len(refs) > MAX_OBJECT_CLIPS:
+        # armour and clothing share the human skeleton, so they find the whole player animation set (12,000+ clips:
+        # cockpits, emotes, ...). Those are body animations, not the item's, and decoding them took minutes
         return
     known = {b.name.lower(): b.name for b in bones}
     parts = []
