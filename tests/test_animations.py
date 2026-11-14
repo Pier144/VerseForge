@@ -308,3 +308,34 @@ def test_planar_positions_no_jump(archive):
     dep, ret = clips["landing_gear_deploy"].tracks[h], clips["landing_gear_retract"].tracks[h]
     assert np.abs(np.diff(dep.pos, axis=0)).max() < 0.5
     assert np.allclose(dep.pos[0], ret.pos[-1], atol=0.05) and np.allclose(dep.pos[-1], ret.pos[0], atol=0.05)
+
+
+# ------------------------------------------------------------------ stencil decals and glow
+def test_stencil_decal_uses_paint_atlas():
+    """Quartz: stencil_decal ($TintPaletteDecal) used to be exported without texture -> black slabs on the magazine
+    well. With the paint's stencil atlas the big quads are transparent (empty atlas area) and the small one shows
+    the VOLT logo; without a paint the stencil is not drawn at all."""
+    from sc_explorer import export, model, server
+    if not server.state.status["ready"]:
+        server.state.load()
+    arch = server.state.archive
+    q = next(n for n in arch.names if n.replace("\\", "/").lower().endswith(
+        "smg/quartz/esmg_fps_volt_quartz.cdf")).replace("\\", "/")[5:]
+    m = server.state.get_model(q)
+    sten = [p for p in m.parts if p.material.name == "stencil_decal"]
+    assert sten and all(p.material.stencil_colors and p.material.kind == "decal" for p in sten)
+    img, _, _ = export.material_textures(sten[0].material, server.state.textures, 1024)
+    assert img is not None and img.mode == "RGBA"
+    a = np.asarray(img)[..., 3]
+    h, w = a.shape
+    big = max(sten, key=lambda p: np.ptp(p.vertices, 0).max())
+    uv = big.uvs
+    # the 148 mm quads: their atlas area is empty (transparent), like in the game
+    tri = big.faces[np.argmax(np.ptp(big.vertices[big.faces].reshape(-1, 9), 1))]
+    x0, y0 = (uv[tri].min(0) * [w, h]).astype(int)
+    x1, y1 = (uv[tri].max(0) * [w, h]).astype(int)
+    assert (a[y0:y1, x0:x1] > 128).mean() < 0.05
+    plain = model.load_model(arch, q)                     # no paint -> nothing to draw
+    assert all(p.material.kind == "hidden" for p in plain.parts if p.material.name == "stencil_decal")
+    glow = next(p.material for p in m.parts if p.material.name == "glow_mat")
+    assert glow.emissive and max(glow.emissive) > 0.5

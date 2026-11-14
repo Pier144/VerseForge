@@ -24,9 +24,15 @@ def _palette(dc, ref, child_path=""):
         if nxt is None:
             break
         node = nxt
+    root = dc.record_view(ri)["root"]
+    # stencil decals ($TintPaletteDecal): an R/G/B mask atlas and the colour of each channel (livery text, numbers)
+    src = node if node.has("decalTexture") and node["decalTexture"] else root
+    decal = src["decalTexture"] if src.has("decalTexture") else None
     return {"name": node["name"] or dc.record_name(ri).split(".", 1)[-1],
             "A": _rgb(node["entryA"]["tintColor"]), "B": _rgb(node["entryB"]["tintColor"]),
-            "C": _rgb(node["entryC"]["tintColor"]), "glass": _rgb(node["glassColor"])}
+            "C": _rgb(node["entryC"]["tintColor"]), "glass": _rgb(node["glassColor"]),
+            "decal": decal or None,
+            "decal_colors": [_rgb(src[f"decalColor{ch}"]) if src.has(f"decalColor{ch}") else None for ch in "RGB"]}
 
 
 def _node(dc, node):

@@ -57,15 +57,28 @@ def _tiled(img, tiling, size):
     return out
 
 
+def _stencil(mask, colors):
+    """Palette stencil atlas (R/G/B masks) -> RGBA sticker: each channel takes its palette colour, alpha from the mask
+    (soft edge around the game's AlphaTest)."""
+    m = np.asarray(mask.convert("RGB"), np.float32) / 255.0
+    s = m.sum(2, keepdims=True) + 1e-6
+    col = (m / s) @ np.asarray(colors, np.float32)
+    alpha = np.clip((m.max(2) - 0.05) / 0.06, 0, 1) * 255
+    return Image.fromarray(np.dstack([col, alpha]).clip(0, 255).astype(np.uint8), "RGBA")
+
+
 def material_textures(mat, cache, size):
     """(base colour image | None, normal image | None, uv scale) for a material. Images carry .format for trimesh."""
     if cache is None or mat.kind in ("hidden", "glass"):
         return None, None, 1.0
-    key = ("mat", mat.diffuse, mat.normal, mat.tiling, mat.layer_normal, mat.kind, mat.alpha_test, size)
+    key = ("mat", mat.diffuse, mat.normal, mat.tiling, mat.layer_normal, mat.kind, mat.alpha_test, mat.stencil_colors,
+           size)
     hit = cache.memo(key)
     if hit is not None:
         return hit
     base = cache.get(mat.diffuse, size) if mat.diffuse else None
+    if base is not None and mat.stencil_colors:
+        base = _stencil(base, mat.stencil_colors)
     normal = cache.get(mat.normal, size, normal=True) if mat.normal else None
     uv_scale = 1.0
     if base is not None and abs(mat.tiling - 1.0) > 1e-3:
@@ -99,7 +112,7 @@ def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True):
         name=f"{kind}|{name}", baseColorFactor=[*rgb, alpha], baseColorTexture=base, normalTexture=normal,
         metallicFactor=0.85 if mat.metal else 0.3, roughnessFactor=0.45 if mat.metal else 0.6,
         alphaMode=alpha_mode, alphaCutoff=(mat.alpha_test or 0.5) if alpha_mode == "MASK" else None,
-        doubleSided=True)
+        emissiveFactor=list(_srgb(mat.emissive)) if mat.emissive else None, doubleSided=True)
     mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T if axis else v, f, process=False)
     if base is not None or normal is not None:
         # trimesh expects OpenGL UVs (V up) and flips them back when writing glTF

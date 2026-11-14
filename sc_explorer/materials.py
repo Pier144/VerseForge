@@ -16,6 +16,8 @@ class Material:
     layer_normal: bool = False     # normal map comes from the tiled layer, not the object
     alpha_test: float = 0.0
     metal: bool = False
+    stencil_colors: tuple | None = None   # stencil decal: diffuse is the palette's R/G/B mask, coloured with these
+    emissive: tuple | None = None         # linear RGB of self-lit parts (Illum with Glow)
 
 
 def srgb_to_linear(rgb8):
@@ -92,6 +94,21 @@ def _material(el, archive=None, palette=None):
         mat.alpha_test = float(el.get("AlphaTest", "0"))
     except ValueError:
         pass
+    if "%STENCIL_MAP" in (el.get("StringGenMask") or ""):
+        # texture "$TintPaletteDecal": the paint's stencil atlas. Without a paint there is nothing to draw (the
+        # decal's own colour is black and used to show as a black slab)
+        if palette and palette.get("decal"):
+            mat.diffuse = palette["decal"]
+            mat.stencil_colors = tuple(tuple(c) if c else (230, 230, 230) for c in palette.get("decal_colors") or [None] * 3)
+            mat.kind = "decal"
+        else:
+            mat.kind = "hidden"
+    try:
+        glow = float(el.get("Glow", "0") or 0)
+    except ValueError:
+        glow = 0.0
+    if glow > 0 and shader.lower().startswith("illum"):
+        mat.emissive = color
     layers = [l for l in el.findall("MatLayers/Layer") if not (l.get("Name") or "").lower().startswith("wear")]
     layer = layers[0] if layers else el.find("MatLayers/Layer")
     if layer is not None and layer.get("TintColor"):

@@ -95,7 +95,7 @@ def _decode(archive, path, max_size):
     head = archive.read(base)
     w, h, mips, fourcc, dxgi, block, hsize = _header(head)
     if not block:
-        return None, False                       # uncompressed / exotic formats: not worth it for a viewer
+        return _decode_plain(archive, base, head, w, h, mips, dxgi, hsize, max_size)
     split = 0
     while archive.exists(f"{base}.{split + 1}"):
         split += 1
@@ -118,6 +118,40 @@ def _decode(archive, path, max_size):
     img = Image.open(io.BytesIO(_single_mip_dds(head, hsize, mw, mh, payload)))
     img.load()
     return img, False
+
+
+_PLAIN_DXGI = {49: 2, 28: 4, 29: 4, 87: 4, 61: 1}   # R8G8, R8G8B8A8 (+sRGB), B8G8R8A8, R8: stencil atlases
+
+
+def _decode_plain(archive, base, head, w, h, mips, dxgi, hsize, max_size):
+    """Uncompressed DDS (palette stencil atlases are R8G8): same mip layout as the block formats."""
+    bpp = _PLAIN_DXGI.get(dxgi)
+    if not bpp:
+        return None, False
+    split = 0
+    while archive.exists(f"{base}.{split + 1}"):
+        split += 1
+    level = 0
+    while level + 1 < mips and max(w >> (level + 1), h >> (level + 1)) >= max_size:
+        level += 1
+
+    def size(lv):
+        return max(1, w >> lv) * max(1, h >> lv) * bpp
+    mw, mh = max(1, w >> level), max(1, h >> level)
+    if level < split:
+        payload = archive.read(f"{base}.{split - level}")[:size(level)]
+    else:
+        off = hsize + sum(size(lv) for lv in range(split, level))
+        payload = head[off:off + size(level)]
+    if len(payload) < size(level):
+        return None, False
+    a = np.frombuffer(payload, np.uint8, size(level)).reshape(mh, mw, bpp)
+    if bpp == 4:
+        rgba = a[..., [2, 1, 0, 3]] if dxgi == 87 else a
+        return Image.fromarray(np.ascontiguousarray(rgba), "RGBA"), False
+    rgb = np.zeros((mh, mw, 3), np.uint8)
+    rgb[..., :bpp] = a
+    return Image.fromarray(rgb, "RGB"), False
 
 
 class TextureCache:

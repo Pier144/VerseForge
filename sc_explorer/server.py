@@ -111,7 +111,7 @@ class State:
 
     def _variants(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"variants_v1_{self.cfg['language']}_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"variants_v2_{self.cfg['language']}_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
