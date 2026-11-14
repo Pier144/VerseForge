@@ -90,6 +90,11 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   *Rest pose* puts everything back. They are found automatically from the object's `.chrparams` (clips in `.caf`
   files or `.dba` databases) and named after the game's Mannequin database (`.adb`) when it has one. The GLB export
   includes them (switch *Animations in GLB*): in Blender each clip becomes an action.
+- **Full ship / Full vehicle**: for ships and ground vehicles a switch at the top right of the viewer mounts the
+  factory loadout read from the game database: landing-gear legs, weapons on their mounts, missiles, thrusters,
+  seats, dashboard and components, each on its item port. A full ship starts landed (gear down); the hull's landing
+  gear actions also move the legs, and component animations (gun recoil, missile clamps…) are listed under their
+  port. Exports and the 3D print use the full ship while the switch is on (files get a `_full` suffix).
 - Item names are the in-game (English) names.
 
 ## Export
@@ -113,10 +118,11 @@ For a large print, splitting into pegged pieces has to be done separately (e.g. 
   emissive lights and palette-coloured decals are not reconstructed: the result is close to the game but not
   identical. Use the **Textures** toggle at the top right of the viewer to compare.
 - **Ships**: the hull is assembled with all its nodes (wings, landing gear, doors…). Weapons, engines and components
-  mounted on hardpoints, and interiors (`.socpak` files), are separate objects that can be searched on their own.
+  mounted on hardpoints appear with *Full ship*; interiors (`.socpak` files) are separate objects.
 - **Animations**: moving parts are rigid (skinned meshes follow their main bone, fine for mechanical parts);
-  additive clips (offsets such as `*_add`) are left out. On ships only the hull moves: landing-gear legs and other
-  hardpoint items are separate objects with their own animations.
+  additive clips (offsets such as `*_add`) are left out. Without *Full ship* only the hull moves; the legs and other
+  hardpoint items are separate objects with their own animations. Loadout items whose port is not in the model are
+  skipped (the viewer tells how many); modular parts without a port node (gun barrels) hang from their parent.
 - **In-game names**: derived from the order of the strings in DataCore (not a full parse). They are correct for
   almost all weapons, armor, clothing and vehicles; for decorative props they can be inaccurate, which is why the
   Environments/Other categories keep the file names.

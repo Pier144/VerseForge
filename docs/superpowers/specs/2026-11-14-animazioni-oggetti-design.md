@@ -190,6 +190,17 @@ Oggi `load_geometry` porta ogni vertice nello spazio dell'oggetto, quindi niente
 
 ## Fase B — Interruttore "Full ship"
 
+> **Come è stata fatta (14/11):** il piano è in `docs/superpowers/plans/2026-11-14-animazioni-fase-b.md`.
+> Rispetto a quanto scritto sotto ci sono cinque differenze:
+> - Le gambe si trovano in `VehicleComponentParams.landingSystem`, poi `VehicleLandingGearSystem.gears[]`
+>   (`bone` + `geometry`).
+> - Le azioni si uniscono per nome di clip, non per `id`. La clip "extend" delle gambe prende il nome della clip
+>   Deploy dello scafo, che cambia da nave a nave. Se lo scafo ha una clip Retract a parte, le gambe usano "extend"
+>   al contrario.
+> - Le parti modulari senza snodo della porta (canne delle armi) si appendono all'origine del genitore.
+> - Le pose dei componenti si scartano.
+> - La nave completa parte "atterrata", con il Deploy già applicato.
+
 ### B1. Indice entità: `sc_explorer/entities.py` (seconda parte)
 
 Lo stesso file di cache di A2b (`entities_v2_<chiave p4k>.json`) riceve due cose:
