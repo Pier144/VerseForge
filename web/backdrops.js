@@ -2,7 +2,8 @@
 //  - "plain" / "inverted": the page's own background (CSS), transparent canvas (PNG snapshots stay transparent)
 //  - "pyro" / "stanton": 360° space panoramas built by the server from the game's sky textures (/api/backdrop/…)
 //  - "workbench": a modelling workshop: a room with a table, a green cutting mat with a centimetre grid, game props
-//    (lamp, toolboxes, tool chest, shelves) and a window onto Stanton's sky. Big models sit on the mat as a scale
+//    (lamp, toolboxes, tool chest, wall shelves with paints, tools and miniatures) and a window onto Stanton's sky
+//    in the side wall. Big models sit on the mat as a scale
 //    model (1:72, 1:144…, chosen so they are 20-40 cm long); small ones (weapons, helmets) at real size
 //  - "studio": a seamless photo-studio floor that fades into the background
 import * as THREE from "three";
@@ -19,7 +20,7 @@ const LIGHT = {
 };
 
 // the workshop, in metres around the table top (y = 0, floor 76 cm below). The default camera looks from -x, -z:
-// the window wall is at +z behind the model, the table's far end at +x.
+// the shelf wall is at +z behind the model, the table's far end at +x, the window in the -x wall (on the right).
 const TABLE_H = 0.76;
 const FLOOR = -TABLE_H, CEIL = 2.44;
 // game props. On the table, placed from its corners (dx, dz: metres in from the far/near end and back/front edge);
@@ -30,12 +31,45 @@ const TABLE_PROPS = [
   { path: "Objects/buildingsets/human/universal/prop/maintence/tool/tool_power_1_drill_a.cgf", end: 1, dx: 0.25, side: -1, dz: 0.25, yaw: -150 },
   { path: "Objects/buildingsets/human/shop/alpha/shippart/dumpersdepot/int/prop/dumper_int_prop_wrench_01.cgf", end: 0, dx: 0, side: 1, dz: 0.08, yaw: 4 },
 ];
-const WALL_PROPS = [   // wall: which wall ("x1" right, "x0" left, "z1" window wall); at: position along it
+const WALL_PROPS = [   // wall: which wall ("x1" far end, "x0" window wall, "z1" shelf wall); at: position along it
   { path: "Objects/buildingsets/human/shop/alpha/shippart/dumpersdepot/prop/prop_dumper_int_tool_chest_a.cgf", wall: "x1", at: -0.5, yaw: -90 },
   { path: "Objects/buildingsets/human/lowtech/prop/workbench/workbench_mobile_1_a.cgf", wall: "x1", at: -2.5, yaw: -90 },
-  { path: "Objects/buildingsets/human/lowtech/charlie/int/prop/uee_lawless_prop_toolcart.cgf", wall: "x0", at: -1.2, yaw: 90 },
+  { path: "Objects/buildingsets/human/lowtech/charlie/int/prop/uee_lawless_prop_toolcart.cgf", wall: "x0", at: -3.3, yaw: 90 },
   { path: "Objects/persistent_universe/uee/lowtech/nyx/int/Shop_kit_Structure_shelf_b_01x02x02.cgf", wall: "z1", at: 1, yaw: 180 },
   { path: "Objects/buildingsets/human/universal/prop/toolbox/box_toolbox_1_a_075x0375x0375.cgf", wall: "z1", at: -1, yaw: 180 },
+];
+// the wall behind the table (+z) carries three plain shelves above the table. y: height of the shelf's underside
+// above the table top, x: its middle (metres)
+const SHELF = "Objects/buildingsets/human/lowtech/charlie/int/prop/uee_lawless_prop_shelfwall_1x_01.cgf";
+const SHELVES = [{ path: SHELF, x: 0, y: 0.5 }, { path: SHELF, x: 0, y: 0.95 }, { path: SHELF, x: 0, y: 1.4 }];
+// what stands on them: shelf (index in SHELVES), x along it from its middle (metres), yaw (degrees; 180 turns most
+// game props to face the room, the figures face it as they are)
+const PROP = "Objects/buildingsets/human/universal/prop/";
+const SHELF_PROPS = [
+  // bottom shelf: paints, sprays, glue
+  { path: PROP + "dressing/can/can_paint_1_a.cgf", shelf: 0, x: -0.82, yaw: 180 },
+  { path: PROP + "dressing/can/can_paint_2_a.cgf", shelf: 0, x: -0.62, yaw: 180 },
+  { path: PROP + "dressing/can/can_spray_1_a.cgf", shelf: 0, x: -0.42, yaw: 180 },
+  { path: PROP + "dressing/can/can_spray_2_a.cgf", shelf: 0, x: -0.32, yaw: 180 },
+  { path: PROP + "dressing/bottle/bottle_spray_1_a.cgf", shelf: 0, x: -0.2, yaw: 210 },
+  { path: PROP + "dressing/personal/personal_toothpaste_1_a.cgf", shelf: 0, x: 0.02, yaw: 260 },   // the glue tube
+  { path: PROP + "dressing/personal/personal_toothpaste_1_b.cgf", shelf: 0, x: 0.12, yaw: 280 },
+  { path: PROP + "food/jar/jar_glass_1_empty_a.cgf", shelf: 0, x: 0.3, yaw: 180 },
+  { path: "Objects/props/cinematic/painting/brush_paint_1_a.cgf", shelf: 0, x: 0.55, yaw: 192 },
+  { path: PROP + "dressing/can/can_paint_1_a.cgf", shelf: 0, x: 0.8, yaw: 180 },
+  // middle shelf: hand tools and figures
+  { path: "Objects/buildingsets/human/lowtech/prop/tool/tool_manual_2_pliers_a.cgf", shelf: 1, x: -0.82, yaw: 250 },
+  { path: "Objects/buildingsets/human/lowtech/prop/tool/tool_manual_2_screwdriver_a.cgf", shelf: 1, x: -0.68, yaw: 275 },
+  { path: "Objects/buildingsets/human/lowtech/prop/tool/tool_manual_2_cutters_a.cgf", shelf: 1, x: -0.54, yaw: 260 },
+  { path: "Objects/buildingsets/human/hightech/prop/cgbot/accessory/tool_multi_a.cgf", shelf: 1, x: -0.36, yaw: 180 },
+  { path: "Objects/props/flair/figure/figure_marine_1_a.cgf", shelf: 1, x: 0.2 },
+  { path: "Objects/props/flair/figure/figure_worker_1_a.cgf", shelf: 1, x: 0.5 },
+  { path: "Objects/props/flair/figure/figure_vanduul_1_a.cgf", shelf: 1, x: 0.8 },
+  // top shelf: miniatures and a clamp
+  { path: "Objects/props/flair/model_spaceships/anvil/carrack_model_1_toy_a.cgf", shelf: 2, x: -0.78, yaw: 270 },
+  { path: "Objects/props/flair/model_spaceships/misc/flair_misc_hullc_toy_1_a.cgf", shelf: 2, x: -0.55, yaw: 270 },
+  { path: PROP + "tchotchke/model/model_ship_2_hornet_a.cgf", shelf: 2, x: -0.05, yaw: 20 },
+  { path: PROP + "accessory/tool/tool_clamp_a.cgf", shelf: 2, x: 0.6, yaw: 270 },
 ];
 
 // scale models: the usual kit scales
@@ -253,15 +287,17 @@ export class Backdrops {
     // the table grows with the mat; the room is laid out around the table
     const tw = Math.max(1.8, mx + 1.0), td = Math.max(0.9, mz + 0.3);
     const X1 = tw / 2 + 2.2, X0 = -tw / 2 - 2.2, Z1 = td / 2 + 0.55, Z0 = Z1 - 4.8;
-    const half = Math.min(1.5, (X1 - X0) / 2 - 1.3);
-    const WIN = { x0: -half, x1: half, y0: 0.22, y1: 1.92 };
+    // the window is in the -x wall (on the right of the default view), towards the shelf wall
+    const winLen = Math.min(2.4, Z1 - Z0 - 1.6);
+    const WIN = { z0: Z1 - 0.6 - winLen, z1: Z1 - 0.6, y0: 0.22, y1: 1.92 };
     const g = new THREE.Group();
     g.userData.layout = { tw, td, X0, X1, Z0, Z1 };
     g.name = "workshop";
     if (!this.wood) this.wood = woodTexture();
     const std = (o) => new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0, ...o });
-    const box = (w, h, d, x, y, z, m, shadow = true) => {
+    const box = (w, h, d, x, y, z, m, shadow = true, name = "") => {
       const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+      b.name = name;     // names the parts in exports of the room
       b.position.set(x, y, z);
       b.receiveShadow = shadow;
       b.castShadow = false;
@@ -273,34 +309,35 @@ export class Backdrops {
     const top = this.wood.clone();
     top.needsUpdate = true;
     top.repeat.set(2, 1);
-    box(tw, 0.04, td, 0, -0.02, 0, std({ map: top, roughness: 0.55 }));
+    box(tw, 0.04, td, 0, -0.02, 0, std({ map: top, roughness: 0.55 }), true, "table_top");
     const legM = std({ color: 0x2b2b2e, roughness: 0.5, metalness: 0.6 });
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      box(0.05, TABLE_H - 0.04, 0.05, sx * (tw / 2 - 0.06), FLOOR + (TABLE_H - 0.04) / 2, sz * (td / 2 - 0.06), legM, false);
+      box(0.05, TABLE_H - 0.04, 0.05, sx * (tw / 2 - 0.06), FLOOR + (TABLE_H - 0.04) / 2, sz * (td / 2 - 0.06), legM, false,
+        "table_leg");
     }
     // floor (dark boards), ceiling, plaster walls
     const boards = this.wood.clone();
     boards.needsUpdate = true;
     boards.repeat.set((X1 - X0) / 0.9, (Z1 - Z0) / 0.9);
-    box(X1 - X0, 0.02, Z1 - Z0, cx, FLOOR - 0.01, cz, std({ map: boards, color: 0x8a8580, roughness: 0.7 }));
+    box(X1 - X0, 0.02, Z1 - Z0, cx, FLOOR - 0.01, cz, std({ map: boards, color: 0x8a8580, roughness: 0.7 }), true, "floor");
     const wallM = std({ color: 0xd9d4cb, roughness: 0.95 });
-    box(X1 - X0, 0.02, Z1 - Z0, cx, CEIL + 0.01, cz, std({ color: 0xe8e5df }), false);
-    box(0.1, H, Z1 - Z0, X0 - 0.05, FLOOR + H / 2, cz, wallM);
-    box(0.1, H, Z1 - Z0, X1 + 0.05, FLOOR + H / 2, cz, wallM);
-    box(X1 - X0, H, 0.1, cx, FLOOR + H / 2, Z0 - 0.05, wallM);
-    // back wall with a wide window onto space (the Stanton panorama is the scene background, seen through it)
-    const zw = Z1 + 0.05;
-    box(WIN.x0 - X0, H, 0.1, (X0 + WIN.x0) / 2, FLOOR + H / 2, zw, wallM);
-    box(X1 - WIN.x1, H, 0.1, (WIN.x1 + X1) / 2, FLOOR + H / 2, zw, wallM);
-    box(WIN.x1 - WIN.x0, WIN.y0 - FLOOR, 0.1, (WIN.x0 + WIN.x1) / 2, (FLOOR + WIN.y0) / 2, zw, wallM);
-    box(WIN.x1 - WIN.x0, CEIL - WIN.y1, 0.1, (WIN.x0 + WIN.x1) / 2, (WIN.y1 + CEIL) / 2, zw, wallM);
+    box(X1 - X0, 0.02, Z1 - Z0, cx, CEIL + 0.01, cz, std({ color: 0xe8e5df }), false, "ceiling");
+    box(0.1, H, Z1 - Z0, X1 + 0.05, FLOOR + H / 2, cz, wallM, true, "wall_far");
+    box(X1 - X0, H, 0.1, cx, FLOOR + H / 2, Z0 - 0.05, wallM, true, "wall_near");
+    box(X1 - X0, H, 0.1, cx, FLOOR + H / 2, Z1 + 0.05, wallM, true, "wall_shelves");   // the shelves hang on it
+    // side wall with a wide window onto space (the Stanton panorama is the scene background, seen through it)
+    const xw = X0 - 0.05, wz = (WIN.z0 + WIN.z1) / 2, wy = (WIN.y0 + WIN.y1) / 2, wl = WIN.z1 - WIN.z0;
+    box(0.1, H, WIN.z0 - Z0, xw, FLOOR + H / 2, (Z0 + WIN.z0) / 2, wallM, true, "wall_window");
+    box(0.1, H, Z1 - WIN.z1, xw, FLOOR + H / 2, (WIN.z1 + Z1) / 2, wallM, true, "wall_window");
+    box(0.1, WIN.y0 - FLOOR, wl, xw, (FLOOR + WIN.y0) / 2, wz, wallM, true, "wall_window");
+    box(0.1, CEIL - WIN.y1, wl, xw, (WIN.y1 + CEIL) / 2, wz, wallM, true, "wall_window");
     const frameM = std({ color: 0x3a3d42, roughness: 0.4, metalness: 0.7 });
-    const fw = 0.06, wx = (WIN.x0 + WIN.x1) / 2, wy = (WIN.y0 + WIN.y1) / 2;
-    box(WIN.x1 - WIN.x0 + fw, fw, 0.16, wx, WIN.y0, zw, frameM);
-    box(WIN.x1 - WIN.x0 + fw, fw, 0.16, wx, WIN.y1, zw, frameM);
-    for (const fx of [WIN.x0, wx, WIN.x1]) box(fw, WIN.y1 - WIN.y0, 0.16, fx, wy, zw, frameM);
-    box(WIN.x1 - WIN.x0 + 0.2, 0.04, 0.3, wx, WIN.y0 - 0.02, zw - 0.12, std({ color: 0xcfc9bf }));   // sill
-    g.userData.window = new THREE.Vector3(wx, wy + 0.6, zw + 2);   // where the daylight comes from (this.day)
+    const fw = 0.06;
+    box(0.16, fw, wl + fw, xw, WIN.y0, wz, frameM, true, "window_frame");
+    box(0.16, fw, wl + fw, xw, WIN.y1, wz, frameM, true, "window_frame");
+    for (const fz of [WIN.z0, wz, WIN.z1]) box(0.16, WIN.y1 - WIN.y0, fw, xw, wy, fz, frameM, true, "window_frame");
+    box(0.3, 0.04, wl + 0.2, xw + 0.12, WIN.y0 - 0.02, wz, std({ color: 0xcfc9bf }), true, "window_sill");
+    g.userData.window = new THREE.Vector3(xw - 2, wy + 0.6, wz);   // where the daylight comes from (this.day)
     return g;
   }
 
@@ -309,11 +346,21 @@ export class Backdrops {
     if (!this.loadProp) return;
     const { tw, td, X0, X1, Z1 } = room.userData.layout;
     const place = [
-      // end 0: along the middle of the table (behind the mat, towards the window)
+      // end 0: along the middle of the table (behind the mat, towards the shelf wall)
       ...TABLE_PROPS.map((p) => ({ ...p, x: p.end ? p.end * (tw / 2 - p.dx) : 0, y: 0, z: p.side * (td / 2 - p.dz) })),
       ...WALL_PROPS.map((p) => ({ ...p, y: FLOOR, wallGap: 0.06 })),
+      // shelves before what stands on them: each records where its top is
+      ...SHELVES.map((p, i) => ({ ...p, yaw: 0, shelfIndex: i })),   // this shelf model faces the room as it is
+      ...SHELF_PROPS.map((p) => ({ ...p })),   // copies: their x is turned into a room position below
     ];
+    const shelves = [];      // shelf index -> its box once placed (room coordinates)
     for (const p of place) {
+      if (p.shelf !== undefined) {         // on a shelf: centred on its depth, resting on its top
+        const s = shelves[p.shelf];
+        if (!s) continue;
+        const sc = s.getCenter(new THREE.Vector3());
+        p.x = sc.x + p.x; p.y = s.max.y; p.z = sc.z;
+      }
       let obj;
       try {
         obj = await this.loadProp(p.path);
@@ -332,7 +379,13 @@ export class Backdrops {
         if (p.wall === "x0") { p.x = X0 + bs.x / 2 + p.wallGap; p.z = p.at; }
         if (p.wall === "z1") { p.z = Z1 - bs.z / 2 - p.wallGap; p.x = p.at * (X1 - bs.x / 2 - 0.3); }
       }
+      if (p.shelfIndex !== undefined) p.z = Z1 - bs.z / 2 - 0.01;   // a shelf: back against the shelf wall
       obj.position.set(p.x - bc.x, p.y - b.min.y, p.z - bc.z);
+      obj.name = p.path.split("/").pop().replace(/\.cg[af]$/, "");   // names the props in exports of the room
+      if (p.shelfIndex !== undefined) {
+        obj.updateMatrixWorld(true);
+        shelves[p.shelfIndex] = new THREE.Box3().setFromObject(obj);
+      }
       obj.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; o.userData.prop = true; } });
       room.add(obj);
       this.onChange?.(false);
