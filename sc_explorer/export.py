@@ -31,16 +31,30 @@ def select(model, include_hidden=False, include_decals=True, include_glass=True,
     return out
 
 
-def merged_by_material(parts, uv2=False):
+def _lite_key(mat):
+    """What a material looks like in the viewer's lite GLB once the game look has rebuilt it: the game look makes one
+    three.js material per shading id and takes only the colour, glow and metal flag from the GLB (see _glb_mesh and
+    gamelook.js). Materials equal on these are drawn the same: one group, one draw call. None = not rebuilt."""
+    if mat.stencil_colors or mat.kind not in ("solid", "decal"):
+        return None
+    sid = _sid(mat)
+    if not sid:
+        return None
+    return ("lite", mat.kind, mat.name, sid, tuple(mat.color), tuple(mat.emissive) if mat.emissive else None,
+            mat.metal, bool(mat.stencil_map))
+
+
+def merged_by_material(parts, uv2=False, lite=False):
     """Merge parts sharing a material so the viewer gets few draw calls -> [(material, verts, faces, uvs|None)].
-    uv2=True adds a fifth item: the second UV set (stencils) when every part of the group has one, else None."""
+    uv2=True adds a fifth item: the second UV set (stencils) when every part of the group has one, else None.
+    lite=True also merges materials that only differ in what the game look replaces anyway (_lite_key)."""
     # grouped by the material's content, not the object: interiors load each prop on its own, so equal materials
     # come as separate copies (3,400 draw calls on the Perseus interior instead of a few hundred)
     groups, keys = {}, {}
     for p in parts:
         k = keys.get(id(p.material))
         if k is None:
-            k = keys[id(p.material)] = repr(p.material)
+            k = keys[id(p.material)] = (_lite_key(p.material) if lite else None) or repr(p.material)
         groups.setdefault(k, []).append(p)
     out = []
     for ps in groups.values():
@@ -193,14 +207,18 @@ def _screen_mesh(mat, v, f, uv, axis):
     return mesh
 
 
-def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=None, lite=False):
+def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=None, lite=False, merge=None):
     """sources: animations.sources() -> animated GLB for models with a skeleton.
-    lite: viewer GLB (see _glb_mesh); also without normals, which the viewer computes (a third of the file)."""
+    lite: viewer GLB (see _glb_mesh); also without normals, which the viewer computes (a third of the file).
+    merge: fewer meshes for the viewer (default: with lite): parts that never move leave the still nodes of an animated
+    model for the root (see _to_glb_animated) and, in a lite GLB, materials the game look draws the same are merged
+    (_lite_key). User exports keep the plain layout."""
+    merge = lite if merge is None else merge
     parts = select(model, include_hidden=include_hidden)
     if sources and model.skeleton:
-        return _to_glb_animated(model, parts, textures, tex_size, sources, lite)
+        return _to_glb_animated(model, parts, textures, tex_size, sources, lite, merge)
     scene = trimesh.Scene()
-    for i, (mat, v, f, uv, uv2) in enumerate(merged_by_material(parts, uv2=True)):
+    for i, (mat, v, f, uv, uv2) in enumerate(merged_by_material(parts, uv2=True, lite=lite and merge)):
         node = f"{mat.kind}|{mat.name}|{i}"
         scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, uv2=uv2, lite=lite), node_name=node,
                            geom_name=node)
@@ -210,7 +228,7 @@ def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=Non
 ROOT_NODE = "__root__"
 
 
-def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False):
+def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False, merge=False):
     """Node hierarchy for the bones/nodes the clips move (and their ancestors); everything else stays merged by
     material under the root, so a ship does not explode into hundreds of draw calls."""
     from . import anim_glb
@@ -243,13 +261,16 @@ def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False):
         add_bone(i)
     kept = {bones[i].name: bones[i] for i in keep}
     # each part hangs from its nearest kept ancestor: meshes often sit on child nodes of the animated one
-    # (RSI landing gear: anim_leg -> geo_piston...), and must move with it
+    # (RSI landing gear: anim_leg -> geo_piston...), and must move with it. The viewer's lite GLB hangs it from its
+    # nearest *moved* ancestor instead (merge): the still ancestors of moving parts (geo_front, geo_main_wings on the
+    # Perseus) never move, so their parts join the root's and are drawn with them (403 -> 243 draw calls)
+    hosts = {bones[i].name for i in moved} if merge else kept
     home = {}
 
     def nearest(name):
         if name not in home:
             i = by_name.get(name, -1)
-            while i >= 0 and bones[i].name not in kept:
+            while i >= 0 and bones[i].name not in hosts:
                 i = bones[i].parent
             home[name] = bones[i].name if i >= 0 else ROOT_NODE
         return home[name]
@@ -262,7 +283,7 @@ def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False):
         if frame != ROOT_NODE:
             inv = np.linalg.inv(kept[frame].world)
             ps = [replace(p, vertices=p.vertices @ inv[:3, :3].T + inv[:3, 3]) for p in ps]
-        for mat, v, f, uv, uv2 in merged_by_material(ps, uv2=True):
+        for mat, v, f, uv, uv2 in merged_by_material(ps, uv2=True, lite=lite and merge):
             node = f"{mat.kind}|{mat.name}|{n}"
             n += 1
             scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False, uv2=uv2, lite=lite),

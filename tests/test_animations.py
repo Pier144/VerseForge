@@ -292,6 +292,42 @@ def test_full_ship_gear_meshes_follow_animated_nodes(archive, entity_index, path
         assert moving > total * 0.9, (port, moving, total)    # all but the mounting bracket (node 0 used to stay behind)
 
 
+@pytest.mark.parametrize("path", [GLADIUS, PERSEUS])
+def test_viewer_glb_merges_still_parts(archive, entity_index, path):
+    """The viewer's GLB hangs each part from its nearest *moving* node: the still ancestors of moving parts no longer
+    split their materials (fewer meshes, fewer draw calls). Every triangle is still there, the same triangles move,
+    and the animations target the same nodes."""
+    from sc_explorer import animations, assembly, entities, export
+    full = assembly.load_full(archive, path, entities.vehicle_for(entity_index, path), entities.adb_for(entity_index, path))
+    src, _ = animations.sources(archive, full)
+    plain, merged = (_glb_json(export.to_glb(full, sources=src, lite=True, merge=m)) for m in (False, True))
+
+    def tris(js, i):
+        return sum(js["accessors"][pr["indices"]]["count"] // 3 for pr in js["meshes"][js["nodes"][i]["mesh"]]["primitives"])
+
+    def summary(js):
+        nodes = js["nodes"]
+        parent = {c: i for i, n in enumerate(nodes) for c in n.get("children", [])}
+        animated = {c["target"]["node"] for a in js["animations"] for c in a["channels"]}
+        total = moving = 0
+        for i, n in enumerate(nodes):
+            if "mesh" not in n:
+                continue
+            j, chain = i, []
+            while j in parent:
+                j = parent[j]
+                chain.append(j)
+            total += tris(js, i)
+            moving += tris(js, i) if any(k in animated for k in chain) else 0
+        channels = sorted((a["name"], nodes[c["target"]["node"]]["name"], c["target"]["path"])
+                          for a in js["animations"] for c in a["channels"])
+        return total, moving, channels
+
+    assert summary(merged) == summary(plain)
+    assert len(merged["meshes"]) < len(plain["meshes"]) * 0.85, (len(merged["meshes"]), len(plain["meshes"]))
+    assert export.to_glb(full, sources=src) == export.to_glb(full, sources=src, merge=False)   # user export as before
+
+
 def test_adb_fragment_fallback(archive, entity_index):
     """Polaris: the first Landing_Gear fragments name the legs' clip; the hull's (Landing_Deploy, -1 for Retract)
     come after and must be used. Gladius: the untagged Compress only repeats Deploy and is not offered."""
