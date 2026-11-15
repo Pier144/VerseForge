@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { AmmoScreen, isFire, isReload } from "./screen.js";
+import { vertexNormals } from "./normals.js";
 import { GameLook } from "./gamelook.js";
 import { hangarTexture } from "./hangar.js";
 import { Backdrops, BACKDROPS } from "./backdrops.js";
@@ -206,7 +207,7 @@ backdrop.loadProp = (path) => {
       const root = (await new GLTFLoader().parseAsync(buf, "")).scene;
       root.traverse((o) => {
         if (!o.isMesh) return;
-        if (!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+        if (!o.geometry.attributes.normal) vertexNormals(o.geometry);
         o.visible = !["hidden", "screen"].includes(meshKind(o));     // collision proxies and dead screens
         if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
       });
@@ -455,7 +456,7 @@ async function loadModel(item, keepView = false) {
     progress(70, T("loadScene"));
     const gltf = await new GLTFLoader().parseAsync(buf, "");
     if (state.current !== item) return;
-    gltf.scene.traverse((o) => { if (o.isMesh && !o.geometry.attributes.normal) o.geometry.computeVertexNormals(); });
+    gltf.scene.traverse((o) => { if (o.isMesh && !o.geometry.attributes.normal) vertexNormals(o.geometry); });
     progress(75, T("loadScene"));
     stopAnimations();
     ammoScreen?.dispose();
