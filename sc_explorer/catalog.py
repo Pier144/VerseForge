@@ -7,8 +7,8 @@ from . import i18n
 
 GEOMETRY_EXT = (".cgf", ".cga", ".skin", ".cdf", ".chr")
 
-# category ids in display order; labels in i18n.CATEGORIES
-CATEGORIES = ["weapons", "attachments", "tools", "armor", "clothing", "ships", "components", "vehicles", "characters",
+# category ids in display order (ships and vehicles, personal gear, the rest); labels in i18n.CATEGORIES
+CATEGORIES = ["ships", "components", "vehicles", "weapons", "attachments", "armor", "clothing", "tools", "characters",
               "props", "environments", "other"]
 
 CAT_ORDER = {k: i for i, k in enumerate(CATEGORIES)}

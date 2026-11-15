@@ -80,7 +80,10 @@ class _Index:
             nested = e["loadout"]
             sub = nested["entries"] if nested is not None and nested.has("entries") else None
             children = self.tree(sub if sub else self.entries(comps), depth + 1)
-            out.append({"port": port, "geometry": geo, "adb": adb, "children": children})
+            # the record's material override: variant paints, and invisible stand-ins (an effects material that the
+            # game draws transparent, e.g. the Nox's retro thrusters reuse the Vanduul Scythe's thruster model)
+            out.append({"port": port, "geometry": geo, "adb": adb, "material": _geometry_material(comps),
+                        "children": children})
         return out
 
 

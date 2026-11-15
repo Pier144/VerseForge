@@ -128,7 +128,7 @@ class State:
 
     def _entities(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"entities_v4_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"entities_v5_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
@@ -262,7 +262,7 @@ def categories():
         if it.main:
             counts[it.category] = counts.get(it.category, 0) + 1
     subs = catalog.subcategories(state.items)
-    return [{"id": k, "label": i18n.CATEGORIES[k], "count": counts.get(k, 0),
+    return [{"id": k, "label": i18n.CATEGORIES[k], "short": i18n.CATEGORIES_SHORT[k], "count": counts.get(k, 0),
              "subs": [{"id": s, "label": label, "count": n} for s, label, n in subs[k]]} for k in catalog.CATEGORIES]
 
 

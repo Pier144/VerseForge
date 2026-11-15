@@ -19,11 +19,13 @@ def _srgb(c):
     return np.where(c <= 0.0031308, c * 12.92, 1.055 * np.power(c, 1 / 2.4) - 0.055)
 
 
-def select(model, include_hidden=False, include_decals=True, include_glass=True):
+def select(model, include_hidden=False, include_decals=True, include_glass=True, include_holo=True):
     out = []
     for p in model.parts:
         k = p.material.kind
         if (k == "hidden" and not include_hidden) or (k == "decal" and not include_decals) or (k == "glass" and not include_glass):
+            continue
+        if p.material.holo and not include_holo:      # HUD veils floating in the air: nothing to print
             continue
         out.append(p)
     return out
@@ -170,9 +172,18 @@ def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True, uv2=None, lite=False
 
 
 def _screen_mesh(mat, v, f, uv, axis):
-    pbr = trimesh.visual.material.PBRMaterial(
-        name=f"screen|{mat.name}", baseColorFactor=[*_srgb(mat.color), 1.0], metallicFactor=0.0, roughnessFactor=0.15,
-        emissiveFactor=list(_srgb(mat.emissive or (0.15, 0.6, 0.8))), emissiveTexture=screen_image(), doubleSided=True)
+    # glTF colour factors are linear: the screen's colours go in as they are (sRGB-encoding them again turned the
+    # near-black glass mid grey and washed the glow out to white)
+    glow = [float(c) for c in (mat.emissive or (0.15, 0.6, 0.8))]
+    if mat.holo:
+        # holographic HUD: a faint glowing veil you see through (the material name ends in "|holo")
+        pbr = trimesh.visual.material.PBRMaterial(
+            name=f"screen|{mat.name}|holo", baseColorFactor=[*glow, 0.16], metallicFactor=0.0, roughnessFactor=1.0,
+            emissiveFactor=glow, emissiveTexture=screen_image(), alphaMode="BLEND", doubleSided=True)
+    else:
+        pbr = trimesh.visual.material.PBRMaterial(
+            name=f"screen|{mat.name}", baseColorFactor=[*(float(c) for c in mat.color), 1.0], metallicFactor=0.0,
+            roughnessFactor=0.15, emissiveFactor=glow, emissiveTexture=screen_image(), doubleSided=True)
     mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T if axis else v, f, process=False)
     if uv is not None:
         mesh.visual = trimesh.visual.TextureVisuals(uv=np.column_stack([uv[:, 0], 1.0 - uv[:, 1]]).astype(np.float64),
@@ -310,7 +321,7 @@ def to_obj_zip(model, stem, include_decals=True, textures=None, tex_size=2048):
 
 def to_stl(model, include_decals=False):
     """Single STL in millimetres, Z up (slicer convention). Raw game surfaces: see print export for a solid."""
-    parts = select(model, include_decals=include_decals, include_glass=True)
+    parts = select(model, include_decals=include_decals, include_glass=True, include_holo=False)
     v = np.vstack([p.vertices for p in parts]) * 1000.0
     off = np.cumsum([0] + [len(p.vertices) for p in parts[:-1]])
     f = np.vstack([p.faces + o for p, o in zip(parts, off)])

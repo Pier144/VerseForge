@@ -86,3 +86,18 @@ def test_lite_glb_has_uvs_but_no_normals_or_game_textures(archive):
     attrs = [p["attributes"] for mesh in jl["meshes"] for p in mesh["primitives"]]
     assert not any("NORMAL" in a for a in attrs) and any("TEXCOORD_0" in a for a in attrs)
     assert len(jl.get("images", [])) < len(jf.get("images", [])) and len(lite) < len(full)
+
+
+NOX = "Objects/Spaceships/Ships/XIAN/Nox/XIAN_Nox.cga"
+
+
+def test_invisible_loadout_items_are_skipped(archive, index):
+    # the Nox's retro thrusters reuse the Vanduul Scythe's model dressed in an effects "transparent" material: in
+    # game they are invisible, drawn as they are they were a big grey box over the tail
+    v = entities.vehicle_for(index, NOX)
+    retro = [n for n in v["tree"] if n["port"].startswith("hardpoint_thruster_retro")]
+    assert retro and all(assembly.invisible(n["material"]) for n in retro)
+    m = assembly.load_full(archive, NOX, v)
+    mats = {p.material.name for p in m.parts}
+    assert "vs_panels_a" not in mats and "base_metal" not in mats
+    assert any(p.name.startswith("hardpoint_weapon_left") for p in m.parts)    # the rest is still mounted

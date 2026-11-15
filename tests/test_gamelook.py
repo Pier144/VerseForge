@@ -116,9 +116,11 @@ def test_illum_pom_decals_shade_the_paint(archive):
     assert not mats["decals_diff"].pom          # plain colour decal, no parallax
 
 
-def test_hud_plane_is_hidden(archive):
+def test_ui_planes_are_screens(archive):
+    # UIPlane: the Nox's dashboard screens are lit screens, its flight HUD a see-through holographic veil
     mats = {m.name: m for m in materials.load(archive, NOX_MTL)}
-    assert mats["UI_HUD_RTT"].kind == "hidden" and mats["screen_rtt"].kind == "hidden"
+    assert mats["screen_rtt"].kind == "screen" and not mats["screen_rtt"].holo
+    assert mats["UI_HUD_RTT"].kind == "screen" and mats["UI_HUD_RTT"].holo
 
 
 def test_material_name_with_dash(archive):

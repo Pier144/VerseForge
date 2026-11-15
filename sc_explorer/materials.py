@@ -34,6 +34,7 @@ class Material:
     stencil: dict | None = None           # {tiling, uv2, opacity, colors: 3 linear RGB} for stencil_map
     detail_normal: str | None = None      # normal map of the tiled layer (repeats `tiling` times)
     albedo: tuple | None = None           # diffuse colour of the game shading (None = `color`); black for metals
+    holo: bool = False                    # screen kind: a holographic HUD projection (see-through), not a panel
 
 
 SCREEN_RGB = (110, 205, 235)       # default screen light (sRGB): the cold cyan of the game's holo UI
@@ -59,10 +60,11 @@ def _floats(text, default):
 
 def classify(name, shader):
     n, s = name.lower(), shader.lower()
-    # UIPlane: the cockpit's holographic HUD, drawn live by the UI (an empty grey card without it)
-    if s in ("nodraw", "uiplane") or "proxy" in n or "nodraw" in n or "physics" in n:
+    if s == "nodraw" or "proxy" in n or "nodraw" in n or "physics" in n:
         return "hidden"
-    if s == "displayscreen":       # in game its picture is drawn live by the UI ($RenderToTexture)
+    # DisplayScreen / UIPlane: dashboard screens and the holographic HUD, whose picture the game's UI draws live
+    # ($RenderToTexture). Shown switched on, without content; the viewer's "Screens" switch hides them
+    if s in ("displayscreen", "uiplane"):
         return "screen"
     if s in ("meshdecal", "decal") or any(k in n for k in ("decal", "pom", "stencil", "glow", "emissive")):
         return "decal"
@@ -195,6 +197,8 @@ def _material(el, archive=None, palette=None):
     if "%STENCIL_MAP" in gen and mat.kind == "solid":
         _hull_stencil(mat, el, palette)
     if mat.kind == "screen":
+        # UIPlane HUDs (RTT_HUD, UI_HUD_RTT) are projections in the air in front of the pilot: a faint see-through veil
+        mat.holo = shader.lower() == "uiplane" and "hud" in name.lower()
         accent = (palette or {}).get("decal_colors") or [None]
         # the paint's first stencil colour when it is a real colour (VOLT green); greys and whites -> holo cyan
         rgb = accent[0] if accent[0] and max(accent[0]) >= 100 and max(accent[0]) - min(accent[0]) >= 60 else SCREEN_RGB

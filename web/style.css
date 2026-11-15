@@ -210,6 +210,18 @@ button.ghost:hover { background: var(--hover); }
 .chip .n { margin-left: 6px; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
 .chip.on { background: var(--accent); border-color: transparent; color: var(--accent-ink); box-shadow: 0 4px 14px var(--accent-glow); }
 .chip.on .n { color: inherit; opacity: .72; }
+/* main categories: a tidy two-column grid of tiles (icon, name, count); "All" spans the first row */
+.catgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.catgrid .chip {
+  display: flex; align-items: center; gap: 6px; min-width: 0; height: 30px; padding: 0 7px;
+  border-radius: 9px; text-align: left;
+}
+.catgrid .chip.all { grid-column: 1 / -1; }
+.catgrid .chip .i { width: 15px; height: 15px; flex: none; color: var(--muted); transition: color .15s; }
+.catgrid .chip:hover .i { color: var(--accent); }
+.catgrid .chip.on .i { color: inherit; }
+.catgrid .chip .l { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.catgrid .chip .n { margin-left: auto; padding-left: 3px; font-size: 10.5px; }
 /* second row: the sub-categories of the selected category */
 .subcats { padding-left: 10px; margin-top: -4px; border-left: 2px solid var(--accent); }
 .subcats[hidden] { display: none; }

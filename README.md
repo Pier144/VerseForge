@@ -67,13 +67,15 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
 - **Search**: type in the box at the top left. In-game names ("P4-AR", "Morozov-SH", "Arrowhead"), ship names
   ("Gladius", "Cutlass") and file names ("brfl_fps_behr") all work. Dashes and spaces are ignored; with several
   words, all of them must match.
-- **Categories**: the buttons filter by type. Picking a category shows a second row with its sub-categories (pistols,
+- **Categories**: the tiles under the search box filter by type, grouped as ships and vehicles, personal gear and the
+  rest (the full name and exact count are in each tile's tooltip). Picking a category shows a second row with its sub-categories (pistols,
   shotguns, LMGs… for weapons; helmets, light/medium/heavy armor… for armor; manufacturers for ships). The "Main models" switch hides LODs, decals, physics proxies and ship
   interior parts: turn it off to see every single file.
 - **Viewer**: drag to rotate, wheel to zoom, right button to pan.
   Keys: `F` frame, `W` wireframe, `R` auto-rotate, `G` grid (also in the toolbar at the bottom).
-  Textures, decals, glass and proxies are toggled at the top right of the viewer; single materials can be hidden
-  from the right panel.
+  Textures, decals, glass, screens and proxies are toggled at the top right of the viewer; single materials can be
+  hidden from the right panel. *Screens* (shown on models that have them) switches the cockpit and weapon screens and
+  the holographic HUDs; *Proxy* shows what the game never draws (collision shapes, shields, placeholders).
 - **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows Windows
   (also selectable in **Settings → Appearance**).
 - **Updates**: at startup VerseForge checks the [Releases](../../releases) page. When a newer version exists it shows

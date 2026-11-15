@@ -50,6 +50,10 @@ CATEGORIES = {"weapons": "Weapons", "attachments": "Weapon attachments", "tools"
               "components": "Ship components", "vehicles": "Vehicles and exosuits",
               "characters": "Characters and creatures", "props": "Props",
               "environments": "Environments and structures", "other": "Other"}
+# short labels for the category grid (the full label is its tooltip)
+CATEGORIES_SHORT = {"weapons": "Weapons", "attachments": "Attachments", "tools": "Tools", "armor": "Armor",
+                    "clothing": "Clothing", "ships": "Ships", "components": "Components", "vehicles": "Vehicles",
+                    "characters": "Characters", "props": "Props", "environments": "Environments", "other": "Other"}
 
 # category id -> {sub-category id -> label} (ids and display order are in catalog.SUBCATEGORIES; ships use manufacturers)
 SUBCATEGORIES = {

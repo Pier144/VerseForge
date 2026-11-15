@@ -28,15 +28,15 @@ const STRINGS = {
   printReady: "Ready: {size} mm, {volume} cm³, {closed}.", closedYes: "watertight ✓", closedNo: "not fully closed",
   downloadStl: "Download STL", printDone: "Printable STL of {name} ready", results: "{n} results",
   resultsOf: "{n} results · showing {shown}", all: "All", openSettings: "open Settings to fix the path",
-  serverDown: "Server not reachable…", saved: "Settings saved", kindDecal: "decal", kindGlass: "glass", kindProxy: "proxy",
+  serverDown: "Server not reachable…", saved: "Settings saved", kindDecal: "decal", kindGlass: "glass", kindProxy: "proxy", kindScreen: "screen",
 };
 const T = (key, vars = {}) => (STRINGS[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
 const num = (n) => n.toLocaleString("en-US");
 
 const CAT_LABELS = {};
-const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy", screen: "" };
+const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy", screen: "kindScreen" };
 const SUBCATS = {};
-const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false }, matOff: new Set(), printJob: null, tex: true, variant: null, full: false,
+const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false, screen: true }, matOff: new Set(), printJob: null, tex: true, variant: null, full: false,
   look: true, swapXY: false, light: "hangar", interior: false, cut: 0.65 };
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
 try { state.light = localStorage.getItem("vf.light") === "studio" ? "studio" : "hangar"; } catch { /* storage unavailable */ }
@@ -280,7 +280,7 @@ function applyVisibility() {
   modelRoot.traverse((o) => {
     if (!o.isMesh) return;
     const kind = meshKind(o);
-    const kindOn = kind === "solid" || kind === "screen" ? true : state.kinds[kind];
+    const kindOn = kind === "solid" ? true : state.kinds[kind] ?? true;
     o.visible = kindOn && !state.matOff.has(meshMat(o));
   });
 }
@@ -383,7 +383,13 @@ async function loadModel(item, keepView = false) {
     anim.clips = new Map(gltf.animations.map((c) => [c.name, c]));
     anim.mixer = gltf.animations.length ? new THREE.AnimationMixer(modelRoot) : null;
     const screens = [];
-    modelRoot.traverse((o) => { if (o.isMesh && meshKind(o) === "screen" && o.geometry.attributes.uv) screens.push(o); });
+    let anyScreen = false;
+    modelRoot.traverse((o) => {
+      if (!o.isMesh || meshKind(o) !== "screen") return;
+      anyScreen = true;
+      if (o.geometry.attributes.uv && !o.material.name.endsWith("|holo")) screens.push(o);   // HUD veils: no ammo
+    });
+    $("#scrPill").classList.toggle("hidden", !anyScreen);
     if (screens.length && info.ammo) ammoScreen = new AmmoScreen(screens, info.ammo, info.screen);
     applyWireframe();
     applyVisibility();
@@ -804,19 +810,39 @@ async function loadCategories() {
   const cats = await (await api("/api/categories")).json();
   const box = $("#cats");
   box.innerHTML = "";
-  const mk = (id, label, n) => {
+  // a grid of tiles: icon, short name, number of models; the full name is the tooltip
+  const mk = (id, label, n, title) => {
     const c = chip(id, label, n);
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("class", "i");
+    icon.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", `#c-${id || "all"}`);
+    icon.appendChild(use);
+    c.prepend(icon);
+    c.title = n != null ? `${title || label} · ${num(n)}` : title || label;
+    // half-width tiles: big counts in short form (55,413 -> 55k), the exact number is in the tooltip
+    if (id && n >= 10000) c.querySelector(".n").textContent = `${Math.round(n / 1000)}k`;
     c.onclick = () => { state.cat = state.cat === id ? "" : id; state.sub = ""; loadCategoriesUI(); runSearch(); };
     return c;
   };
-  box.appendChild(mk("", T("all")));
-  cats.forEach((c) => { CAT_LABELS[c.id] = c.label; SUBCATS[c.id] = c.subs; box.appendChild(mk(c.id, c.label, c.count)); });
+  const all = mk("", T("all"), cats.reduce((s, c) => s + c.count, 0));
+  all.classList.add("all");
+  box.appendChild(all);
+  cats.forEach((c) => {
+    CAT_LABELS[c.id] = c.label;
+    SUBCATS[c.id] = c.subs;
+    box.appendChild(mk(c.id, c.short || c.label, c.count, c.label));
+  });
   loadCategoriesUI();
 }
 function chip(id, label, n) {
   const c = document.createElement("button");
   c.className = "chip";
-  c.textContent = label;
+  const l = document.createElement("span");
+  l.className = "l";
+  l.textContent = label;
+  c.appendChild(l);
   if (n != null) {
     const s = document.createElement("span");
     s.className = "n";

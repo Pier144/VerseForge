@@ -24,6 +24,15 @@ def _ensure_skeleton(archive, m):
     return replace(m, parts=parts, skeleton=bones)
 
 
+INVISIBLE_MATERIALS = ("objects/vfx/mesheffects/particle_transparent_meshes/",)
+
+
+def invisible(mtl):
+    """Item records that dress their geometry in an effects "transparent" material: drawn invisible in game."""
+    m = (mtl or "").replace("\\", "/").lower()
+    return bool(m) and m.startswith(INVISIBLE_MATERIALS)
+
+
 def load_full(archive, path, vehicle, adb_path=None):
     hull = _ensure_skeleton(archive, model.load_model(archive, path, adb_path))
     out = replace(hull, parts=list(hull.parts), skeleton=list(hull.skeleton), animations=list(hull.animations),
@@ -36,11 +45,14 @@ def load_full(archive, path, vehicle, adb_path=None):
     loaded = {}
     stats = {"missing": 0, "mounted": 0}
 
-    def load(geo, adb):
-        key = (geo.lower(), adb or "")
+    def load(geo, adb, mtl=""):
+        key = (geo.lower(), adb or "", (mtl or "").lower())
         if key not in loaded:
             try:
-                loaded[key] = _ensure_skeleton(archive, model.load_model(archive, geo, adb or None))
+                m = _ensure_skeleton(archive, model.load_model(archive, geo, adb or None))
+                if mtl and archive.exists(mtl):
+                    m = model.with_variant(m, archive, mtl)      # the item record's own material
+                loaded[key] = m
             except Exception as e:      # one broken component never hides the ship
                 out.warnings.append(("warn_part_error", {"path": geo, "error": str(e)}))
                 loaded[key] = None
@@ -61,7 +73,13 @@ def load_full(archive, path, vehicle, adb_path=None):
         if port_i is None or not archive.exists(geo):
             stats["missing"] += 1
             return
-        comp = load(geo, node.get("adb"))
+        if invisible(node.get("material")):
+            # an invisible stand-in: nothing to draw, but what hangs from it still does
+            if depth < 4:
+                for child in node.get("children") or []:
+                    mount(child, prefix + node["port"] + "/", depth + 1, port_i)
+            return
+        comp = load(geo, node.get("adb"), node.get("material"))
         if comp is None or not comp.parts:
             return
         stats["mounted"] += 1
