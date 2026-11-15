@@ -26,7 +26,7 @@ const STRINGS = {
   loadFailed: "Could not load the model: {error}", exported: "Exported {name} (copy saved to {dir})",
   exportsDir: "exports", exportFailed: "Export failed: {error}", print3d: "3D print: {error}",
   loadPrepare: "Preparing the model on the server…", loadDownload: "Downloading {done} / {total} MB",
-  loadDownloadNoSize: "Downloading {done} MB", loadTextures: "Game textures {done} / {total}", loadScene: "Building the scene…",
+  loadDownloadNoSize: "Downloading {done} MB", loadTextures: "Game textures {done} / {total}", loadScene: "Building the scene…", loadShaders: "Preparing shaders…",
   printReady: "Ready: {size} mm, {volume} cm³, {closed}.", closedYes: "watertight ✓", closedNo: "not fully closed",
   downloadStl: "Download STL", printDone: "Printable STL of {name} ready", results: "{n} results",
   resultsOf: "{n} results · showing {shown}", all: "All", openSettings: "open Settings to fix the path",
@@ -210,9 +210,12 @@ backdrop.loadProp = (path) => {
         if (!o.isMesh) return;
         if (!o.geometry.attributes.normal) vertexNormals(o.geometry);
         o.visible = !["hidden", "screen"].includes(meshKind(o));     // collision proxies and dead screens
+        o.receiveShadow = true;                                      // as placed in the room: compiled that way
         if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
       });
       await propLook.apply(root, info.shading, { sun });
+      // shaders compiled in parallel before the prop is shown (each prop used to freeze the view a moment as it arrived)
+      try { await renderer.compileAsync(root, camera, scene); } catch { /* compiled at its first frame instead */ }
       return root;
     })().catch((e) => { propCache.delete(path); throw e; }));
   }
@@ -485,6 +488,11 @@ async function loadModel(item, keepView = false) {
         if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
       }
     });
+    // compile the shaders before the model is shown, in parallel and without blocking the page
+    // (KHR_parallel_shader_compile): compiling them all in the first frame froze the view for 1-2 s on big ships
+    progress(99, T("loadShaders"));
+    try { await renderer.compileAsync(modelRoot, camera, scene); } catch { /* compiled at the first frame instead */ }
+    if (state.current !== item) return;
     scene.add(modelRoot);
     anim.clips = new Map(gltf.animations.map((c) => [c.name, c]));
     anim.mixer = gltf.animations.length ? new THREE.AnimationMixer(modelRoot) : null;

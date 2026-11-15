@@ -104,6 +104,9 @@ export class GameLook {
   static bust = "";                     // set by benchmarks to a fresh value per run
 
   constructor(renderer) {
+    this.renderer = renderer;
+    this.swapQueue = [];                // full-size textures waiting to be uploaded and swapped in (see swapIn)
+    this.swapTimer = null;
     this.loader = new THREE.TextureLoader();
     this.gpu = gpuFormats(renderer);    // "s3tc,rgtc,bptc" or "" (decoded images only)
     this.textures = new Map();          // url -> Promise<Texture | null>
@@ -188,11 +191,37 @@ export class GameLook {
     await Promise.all([...wanted.values()].map(async (s) => {
       const big = this.disposed ? null : await this.load(s.path, s.kind, s.repeat, s.size, false);
       if (this.disposed || !big) return;                    // model changed meanwhile, or no full size: keep the small one
-      for (const m of users.get(s.tex)) swapRefs(m, s.tex, big);
-      s.tex.dispose();
-      this.owned.delete(s.tex);
-      this.onChange?.();
+      await this.swapIn(big, () => {
+        for (const m of users.get(s.tex)) swapRefs(m, s.tex, big);
+        s.tex.dispose();
+        this.owned.delete(s.tex);
+      });
     }));
+  }
+
+  // Full-size textures arrive in bursts: uploading a dozen of them in the same frame made the view stutter. They are
+  // queued and uploaded to the GPU a few at a time (about 6 ms per slice, then a frame to breathe), each swapped in
+  // right after its upload.
+  swapIn(big, apply) {
+    return new Promise((resolve) => {
+      this.swapQueue.push({ big, apply, resolve });
+      if (!this.swapTimer) this.swapTimer = setTimeout(() => this.drainSwaps(), 0);
+    });
+  }
+
+  drainSwaps() {
+    this.swapTimer = null;
+    const t0 = performance.now();
+    while (this.swapQueue.length && performance.now() - t0 < 6) {
+      const { big, apply, resolve } = this.swapQueue.shift();
+      if (!this.disposed) {
+        try { this.renderer.initTexture(big); } catch { /* uploaded at the next render instead */ }
+        apply();
+      }
+      resolve();
+    }
+    if (this.swapQueue.length) this.swapTimer = setTimeout(() => this.drainSwaps(), 16);
+    this.onChange?.();
   }
 
   // POM mesh decals (panel seams, rivets, vents, grilles) have no colour of their own in the game: their texture
@@ -299,6 +328,9 @@ void main() {
 
   dispose() {
     this.disposed = true;
+    clearTimeout(this.swapTimer);
+    for (const q of this.swapQueue) q.resolve();          // nothing left to swap into
+    this.swapQueue.length = 0;
     for (const t of this.owned) t.dispose();
     this.owned.clear();
     // textures still on their way are freed when they land
