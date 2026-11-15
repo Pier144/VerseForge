@@ -1,4 +1,5 @@
 """Material (.mtl) loading: sub-material names, a display colour, textures and a visibility class."""
+import re
 from dataclasses import dataclass
 
 from . import cryxml
@@ -58,9 +59,16 @@ def _floats(text, default):
         return default
 
 
+# the damage layer of ship hulls: girders, cables and plating that the game shows only where the hull is shot
+# through (a damage map cuts holes in the hull). It lies just under the skin: drawn with an intact hull it showed
+# through from a distance (Anvil Hawk). Real interior framework (internal_framework, girders, trims) stays.
+DAMAGE_LAYER = re.compile(r"^(ext_)?(damage_)?internals?_(pom|tile|structure|mesh)(_alpha|_core)?$"
+                          r"|^(ext_)?damage_(structure|poms?)(_alpha)?$")
+
+
 def classify(name, shader):
     n, s = name.lower(), shader.lower()
-    if s == "nodraw" or "proxy" in n or "nodraw" in n or "physics" in n:
+    if s == "nodraw" or "proxy" in n or "nodraw" in n or "physics" in n or DAMAGE_LAYER.match(n):
         return "hidden"
     # DisplayScreen / UIPlane: dashboard screens and the holographic HUD, whose picture the game's UI draws live
     # ($RenderToTexture). Shown switched on, without content; the viewer's "Screens" switch hides them

@@ -101,3 +101,10 @@ def test_invisible_loadout_items_are_skipped(archive, index):
     mats = {p.material.name for p in m.parts}
     assert "vs_panels_a" not in mats and "base_metal" not in mats
     assert any(p.name.startswith("hardpoint_weapon_left") for p in m.parts)    # the rest is still mounted
+
+
+def test_decks_found_in_the_interior(archive, index):
+    base = model.load_model(archive, PERSEUS)
+    m = assembly.load_interior(archive, base, entities.vehicle_for(index, PERSEUS), entities.classes_of(index))
+    d = assembly.decks(m)
+    assert 3 <= len(d) <= 6 and all(b - a >= assembly.DECK_MIN_GAP for a, b in zip(d, d[1:]))

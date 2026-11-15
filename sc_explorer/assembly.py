@@ -291,3 +291,42 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
     if failed:
         out.warnings.append(("warn_interior_missing", {"n": failed}))
     return out
+
+
+DECK_BIN = 0.15        # metres
+DECK_MIN_GAP = 1.9     # two decks are at least this far apart
+
+
+def decks(m):
+    """Floor heights (metres, viewer Y = game Z) of the decks of an interior model: the levels where the interior's
+    level, upward-facing surfaces add up to the most area. [] when the model has no interior parts.
+    In the cache of the model: computed once."""
+    if "decks" in m.cache:
+        return m.cache["decks"]
+    bins = {}
+    for p in m.parts:
+        if not p.name.startswith(INTERIOR_PREFIX) or p.material.kind != "solid" or not len(p.faces):
+            continue
+        v = p.vertices[p.faces]                              # (n, 3, 3)
+        n = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])
+        ln = np.linalg.norm(n, axis=1)
+        ok = (ln > 1e-9) & (n[:, 2] > 0.97 * ln)            # floors: facing up, level
+        if not ok.any():
+            continue
+        k = np.round(v[ok, :, 2].mean(axis=1) / DECK_BIN).astype(int)
+        area = ln[ok] / 2
+        for kk in np.unique(k):
+            bins[int(kk)] = bins.get(int(kk), 0.0) + float(area[k == kk].sum())
+    out = []
+    if bins:
+        peak = max(bins.values())
+        cand = sorted(((a, k) for k, a in bins.items()
+                       if a >= max(2.0, peak * 0.12) and a >= bins.get(k - 1, 0) and a >= bins.get(k + 1, 0)), reverse=True)
+        for _, k in cand:
+            y = k * DECK_BIN
+            if all(abs(y - f) >= DECK_MIN_GAP for f in out):
+                out.append(y)
+        out = sorted(out)[:8]
+    m.cache["decks"] = [round(y, 3) for y in out]
+    return m.cache["decks"]
+

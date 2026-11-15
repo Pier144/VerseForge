@@ -448,3 +448,37 @@ dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(6px); }
 #animTime { flex: 1; min-width: 0; accent-color: var(--accent); }
 .anim-clock { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
 .anim-opts { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+
+/* backdrop menu: opens above its toolbar button */
+.bg-wrap { position: relative; display: inline-flex; }
+.bg-menu {
+  position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%); z-index: 5; min-width: 230px;
+  display: flex; flex-direction: column; gap: 1px; padding: 6px; border-radius: 14px;
+  background: var(--float-bg); border: 1px solid var(--float-border); box-shadow: var(--float-shadow);
+  backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%);
+}
+.bg-menu.hidden { display: none; }
+.bg-head { padding: 7px 9px 3px; font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.bg-menu button {
+  display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 9px; border: 0; border-radius: 9px; background: none;
+  color: var(--text-2); font-size: 12.5px; text-align: left; white-space: nowrap;
+}
+.bg-menu button:hover { background: var(--hover); color: var(--text); }
+.bg-menu button.on { background: var(--accent-soft); color: var(--accent-text); }
+.bg-menu .sw { width: 22px; height: 16px; flex: none; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+.sw-plain { background: var(--canvas-bg); }
+.sw-inv { background: var(--canvas-bg-alt); }
+.sw-pyro { background: radial-gradient(circle at 60% 55%, #e8a060 0, #7a3d1c 35%, #1a0d07 75%); }
+.sw-stanton { background: radial-gradient(circle at 68% 50%, #b9c3d6 0 22%, transparent 24%), radial-gradient(circle at 35% 55%, #2f7a72 0, #0c2224 50%, #03070a 85%); }
+.sw-bench { background: linear-gradient(#2f6e57, #2f6e57) 4px 3px / 14px 10px no-repeat, #7a5233; }
+.sw-studio { background: linear-gradient(#9aa0a8, #d4d8dd); }
+
+/* deck buttons next to the section slider */
+.decks { display: flex; gap: 3px; padding-left: 8px; border-left: 1px solid var(--divider); }
+.decks[hidden] { display: none; }
+.decks button {
+  min-width: 26px; height: 24px; padding: 0 7px; border: 0; border-radius: 7px; background: var(--chip-bg);
+  color: var(--text-2); font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
+.decks button:hover { background: var(--hover); color: var(--text); }
+.decks button.on { background: var(--accent); color: var(--accent-ink); }

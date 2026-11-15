@@ -112,8 +112,9 @@
 
           <div id="cutBox" class="cutbox floating hidden" title="Section: slice the ship from above to look into the decks">
             <span>Section</span>
-            <input id="cut" type="range" min="0" max="1000" value="650" aria-label="Section height">
-            <span id="cutVal">65%</span>
+            <input id="cut" type="range" min="0" max="1000" value="1000" aria-label="Section height">
+            <span id="cutVal">100%</span>
+            <div id="decks" class="decks" hidden title="Decks found in the ship: show one, with everything above it taken away"></div>
           </div>
 
           <div class="toolbar floating">
@@ -122,7 +123,20 @@
             <button data-act="rotate" class="tool toggle" title="Auto-rotate (R)"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
             <button data-act="grid" class="tool toggle on" title="Grid (G)"><svg class="i"><use href="#i-grid"/></svg><span>Grid</span></button>
             <button data-act="light" class="tool toggle on" title="Lighting: game-like hangar (on) or plain white studio (off)"><svg class="i"><use href="#i-sun"/></svg><span>Hangar</span></button>
-            <button data-act="bg" class="tool" title="Swap the 3D backdrop between light and dark"><svg class="i"><use href="#i-contrast"/></svg><span>Backdrop</span></button>
+            <div class="bg-wrap">
+              <button data-act="bg" class="tool" title="Backdrop: plain, space from the game (Pyro, Stanton), modelling workbench or photo studio" aria-haspopup="menu"><svg class="i"><use href="#i-contrast"/></svg><span>Backdrop</span></button>
+              <div id="bgMenu" class="bg-menu hidden" role="menu" aria-label="Backdrop">
+                <div class="bg-head">Plain</div>
+                <button data-bg="plain" role="menuitemradio"><span class="sw sw-plain"></span>Default</button>
+                <button data-bg="inverted" role="menuitemradio"><span class="sw sw-inv"></span>Inverted</button>
+                <div class="bg-head">Space · from the game</div>
+                <button data-bg="pyro" role="menuitemradio"><span class="sw sw-pyro"></span>Pyro nebula</button>
+                <button data-bg="stanton" role="menuitemradio"><span class="sw sw-stanton"></span>Stanton · Crusader</button>
+                <div class="bg-head">Scenes</div>
+                <button data-bg="workbench" role="menuitemradio"><span class="sw sw-bench"></span>Modelling workshop</button>
+                <button data-bg="studio" role="menuitemradio"><span class="sw sw-studio"></span>Photo studio</button>
+              </div>
+            </div>
             <span class="tool-sep"></span>
             <button data-act="shot" class="tool" title="Save a PNG screenshot"><svg class="i"><use href="#i-camera"/></svg><span>Snapshot</span></button>
           </div>

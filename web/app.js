@@ -5,6 +5,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { AmmoScreen, isFire, isReload } from "./screen.js";
 import { GameLook } from "./gamelook.js";
 import { hangarTexture } from "./hangar.js";
+import { Backdrops, BACKDROPS } from "./backdrops.js";
 
 const $ = (s) => document.querySelector(s);
 const api = async (url, opts) => {
@@ -37,7 +38,7 @@ const CAT_LABELS = {};
 const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy", screen: "kindScreen" };
 const SUBCATS = {};
 const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false, screen: true }, matOff: new Set(), printJob: null, tex: true, variant: null, full: false,
-  look: true, swapXY: false, light: "hangar", interior: false, cut: 0.65 };
+  look: true, swapXY: false, light: "hangar", interior: false, cut: 1 };
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
 try { state.light = localStorage.getItem("vf.light") === "studio" ? "studio" : "hangar"; } catch { /* storage unavailable */ }
 
@@ -143,15 +144,29 @@ function setLighting(kind) {
   const h = kind === "hangar";
   renderer.toneMapping = h ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = h ? 1.1 : 1.0;
-  if (lightRig.hemi) { lightRig.hemi.intensity = h ? 0.25 : 0.6; lightRig.sun.intensity = h ? 2.2 : 1.4; }
-  renderer.shadowMap.enabled = h;
-  if (lightRig.sun) lightRig.sun.castShadow = h;
+  if (lightRig.hemi) {
+    // the backdrop tints and scales the fill and key lights (space: warm or white sun, desk lamp, studio softbox)
+    const b = backdrop?.light;
+    lightRig.hemi.intensity = (h ? 0.25 : 0.6) * (b ? b.hemiK : 1);
+    lightRig.hemi.color.set(b ? b.sky : 0xdde8ff);
+    lightRig.hemi.groundColor.set(b ? b.ground : 0x202830);
+    lightRig.sun.intensity = (h ? 2.2 : 1.4) * (b ? b.sunK : 1);
+    lightRig.sun.color.set(b ? b.sun : 0xffffff);
+  }
+  updateShadows();
+}
+// shadows: always with the hangar light, and whenever the backdrop has a floor to cast them on
+function updateShadows() {
+  const on = state.light === "hangar" || !!backdrop?.hasGround;
+  renderer.shadowMap.enabled = on;
+  if (lightRig.sun) lightRig.sun.castShadow = on;
   modelRoot?.traverse((o) => {
     if (!o.isMesh) return;
-    o.castShadow = h && meshKind(o) !== "decal" && !o.material.transparent;
-    o.receiveShadow = h && !o.material.userData?.pom;
+    o.castShadow = on && meshKind(o) !== "decal" && !o.material.transparent;
+    o.receiveShadow = on && !o.material.userData?.pom;
     o.material.needsUpdate = true;
   });
+  backdrop?.group.traverse((o) => { if (o.isMesh) o.material.needsUpdate = true; });
   renderer.shadowMap.needsUpdate = true;
 }
 const camera = new THREE.PerspectiveCamera(40, 1, 0.001, 10000);
@@ -173,6 +188,34 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.autoUpdate = false;
 
 let gameLook = new GameLook(renderer);   // game-look materials (gamelook.js)
+// what is drawn behind the model (backdrops.js); the choice is remembered
+const backdrop = new Backdrops(scene, renderer, wrap);
+try { backdrop.kind = BACKDROPS.includes(localStorage.getItem("vf.bg")) ? localStorage.getItem("vf.bg") : "plain"; } catch { /* storage unavailable */ }
+// game props of the workshop backdrop: loaded once per session, with their own game-look textures (kept when the
+// model changes, unlike the model's)
+const propLook = new GameLook(renderer);
+const propCache = new Map();
+backdrop.loadProp = (path) => {
+  if (!propCache.has(path)) {
+    propCache.set(path, (async () => {
+      const q = `path=${encodeURIComponent(path)}`;
+      const [info, buf] = await Promise.all([
+        api(`/api/model/info?${q}`).then((r) => r.json()),
+        api(`/api/model/glb?${q}&anim=false&lite=true`).then((r) => r.arrayBuffer()),
+      ]);
+      const root = (await new GLTFLoader().parseAsync(buf, "")).scene;
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        if (!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+        o.visible = !["hidden", "screen"].includes(meshKind(o));     // collision proxies and dead screens
+        if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
+      });
+      await propLook.apply(root, info.shading, { sun });
+      return root;
+    })().catch((e) => { propCache.delete(path); throw e; }));
+  }
+  return propCache.get(path);
+};
 let grid = null;
 let modelRoot = null;
 let wireframe = false;
@@ -206,7 +249,8 @@ const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), curr
 const clock = new THREE.Clock();
 let ammoScreen = null;   // weapon display drawn on its DisplayScreen (screen.js)
 window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; },
-  camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting };   // for automated checks (tools/, tests)
+  camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting,
+  get backdrop() { return backdrop; } };   // for automated checks (tools/, tests)
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   if (anim.mixer) {
@@ -239,11 +283,36 @@ function frame() {
   camera.position.copy(center).add(new THREE.Vector3(-0.9, 0.55, -1.0).normalize().multiplyScalar(dist));
   controls.target.copy(center);
   controls.update();
-  sun.position.copy(center).add(new THREE.Vector3(radius * 2, radius * 3, radius * 2.5));
+  placeSun(center, radius);
+}
+
+// the backdrop's floor goes under the model as it stands now (a full ship has its landing gear down by then)
+function fitBackdrop() {
+  if (!modelRoot) return;
+  modelRoot.updateMatrixWorld(true);
+  backdrop.fit(new THREE.Box3().setFromObject(modelRoot));
+  updateShadows();
+}
+backdrop.onChange = (full = true) => {
+  if (!full) { renderer.shadowMap.needsUpdate = true; return; }      // a workshop prop arrived
+  setLighting(state.light);
+  if (modelRoot) {
+    const box = new THREE.Box3().setFromObject(modelRoot);
+    placeSun(box.getCenter(new THREE.Vector3()), Math.max(box.getSize(new THREE.Vector3()).length() / 2, 0.01));
+    if (grid) grid.visible = $('[data-act="grid"]').classList.contains("on") && !backdrop.hasGround;
+  }
+  document.querySelectorAll("#bgMenu [data-bg]").forEach((b) => b.classList.toggle("on", b.dataset.bg === backdrop.kind));
+  $('[data-act="bg"]').classList.toggle("on", backdrop.kind !== "plain");
+};
+
+// key light: from the backdrop's side (space sun, desk lamp…); with a floor the shadow map also covers the ground
+function placeSun(center, radius) {
+  const d = backdrop.light?.dir || [2, 3, 2.5];
+  sun.position.copy(center).add(new THREE.Vector3(d[0], d[1], d[2]).multiplyScalar(radius));
   sun.target.position.copy(center);
-  const sc = sun.shadow.camera;
-  sc.left = sc.bottom = -radius * 1.1; sc.right = sc.top = radius * 1.1;
-  sc.near = radius * 0.5; sc.far = radius * 8;
+  const sc = sun.shadow.camera, span = backdrop.hasGround ? 2.2 : 1.1;
+  sc.left = sc.bottom = -radius * span; sc.right = sc.top = radius * span;
+  sc.near = radius * 0.5; sc.far = radius * 10;
   sc.updateProjectionMatrix();
   sun.shadow.normalBias = radius * 0.0015;
   renderer.shadowMap.needsUpdate = true;
@@ -262,7 +331,7 @@ function buildGrid(box) {
   const cells = Math.ceil(span / step);
   grid = new THREE.GridHelper(cells * step, cells, cssColor("--grid-major", "#2f4a60"), cssColor("--grid-minor", "#1c2a36"));
   grid.position.set((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2);
-  grid.visible = $('[data-act="grid"]').classList.contains("on");
+  grid.visible = $('[data-act="grid"]').classList.contains("on") && !backdrop.hasGround;   // the floor has its own
   scene.add(grid);
 }
 
@@ -401,11 +470,13 @@ async function loadModel(item, keepView = false) {
     showAnimations(info.animations || []);
     anim.landed = info.full ? anim.list.find((a) => /land/i.test(a.group) && /^(deploy|extend|open)$/i.test(a.label)) : null;
     settleLanded();
+    fitBackdrop();
     renderer.shadowMap.needsUpdate = true;
     $("#fullPill").classList.toggle("hidden", !info.can_full);
     $("#intPill").classList.toggle("hidden", !info.can_interior);
     $("#cutBox").classList.toggle("hidden", !info.interior);
     sectionBox = info.interior ? new THREE.Box3().setFromObject(modelRoot) : null;
+    buildDecks(info.decks || []);
     applySection();
     $("#fullLabel").textContent = info.ground_vehicle ? "Full vehicle" : "Full ship";
     loadRelated(item);
@@ -642,18 +713,35 @@ async function loadRelated(item) {
 
 // ---------------------------------------------------------------- toolbar
 document.querySelectorAll(".toolbar [data-act]").forEach((b) => b.addEventListener("click", () => act(b.dataset.act, b)));
+// backdrop menu (opens above the toolbar button)
+document.querySelectorAll("#bgMenu [data-bg]").forEach((b) => b.addEventListener("click", async () => {
+  $("#bgMenu").classList.add("hidden");
+  try { localStorage.setItem("vf.bg", b.dataset.bg); } catch { /* storage unavailable */ }
+  try {
+    await backdrop.set(b.dataset.bg);
+  } catch (e) {
+    toast(T("loadFailed", { error: e.message }), true);
+    await backdrop.set("plain");
+  }
+}));
+document.addEventListener("pointerdown", (e) => {
+  if (!e.target.closest(".bg-wrap")) $("#bgMenu").classList.add("hidden");
+});
+// the space panoramas come from the game files: a saved one is put back once the catalogue is ready (pollStatus)
+const savedBackdrop = backdrop.kind;
+backdrop.set(["pyro", "stanton", "workbench"].includes(savedBackdrop) ? "plain" : savedBackdrop);
 function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
   if (a === "reset") frame();
   if (a === "wire") { wireframe = !wireframe; b.classList.toggle("on", wireframe); applyWireframe(); }
   if (a === "rotate") { controls.autoRotate = !controls.autoRotate; b.classList.toggle("on", controls.autoRotate); }
-  if (a === "grid") { b.classList.toggle("on"); if (grid) grid.visible = b.classList.contains("on"); }
+  if (a === "grid") { b.classList.toggle("on"); if (grid) grid.visible = b.classList.contains("on") && !backdrop.hasGround; }
   if (a === "light") {
     state.light = state.light === "hangar" ? "studio" : "hangar";
     b.classList.toggle("on", state.light === "hangar");
     try { localStorage.setItem("vf.light", state.light); } catch { /* storage unavailable */ }
     setLighting(state.light);
   }
-  if (a === "bg") { wrap.classList.toggle("alt"); b.classList.toggle("on", wrap.classList.contains("alt")); }
+  if (a === "bg") $("#bgMenu").classList.toggle("hidden");
   if (a === "shot") {
     const link = document.createElement("a");
     link.download = `${(state.current?.path.split("/").pop() || "model").replace(/\.\w+$/, "")}.png`;
@@ -670,6 +758,7 @@ function applySection() {
   renderer.clippingPlanes = on ? [sectionPlane] : [];
   $("#cut").value = Math.round(state.cut * 1000);
   $("#cutVal").textContent = `${Math.round(state.cut * 100)}%`;
+  document.querySelectorAll("#decks button").forEach((b) => b.classList.remove("on"));
   renderer.shadowMap.needsUpdate = true;
 }
 try { state.interior = sessionStorage.getItem("vf.int") === "1"; } catch { /* storage unavailable */ }
@@ -680,6 +769,30 @@ $("#intOn").addEventListener("change", (e) => {
   if (state.current) loadModel(state.current, true);
 });
 $("#cut").addEventListener("input", (e) => { state.cut = e.target.value / 1000; applySection(); });
+
+// Decks: the ship's floors, found by the server in the interior (info.decks, floor heights in metres). Each deck
+// button cuts the ship just under that deck's ceiling: everything above is taken away, the deck stays whole.
+const DECK_HEADROOM = 2.4;
+function buildDecks(floors = []) {
+  const box = $("#decks");
+  box.replaceChildren();
+  if (!sectionBox) floors = [];
+  box.hidden = floors.length < 2;
+  if (box.hidden) return;
+  const span = sectionBox.max.y - sectionBox.min.y;
+  const mk = (label, title, cut) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.title = title;
+    btn.onclick = () => { state.cut = cut; applySection(); btn.classList.add("on"); };
+    box.appendChild(btn);
+  };
+  floors.forEach((f, i) => {
+    const top = Math.min(f + DECK_HEADROOM, (floors[i + 1] ?? Infinity) - 0.2);
+    mk(String(i + 1), `Deck ${i + 1}: remove everything above it`, Math.min(1, (top - sectionBox.min.y) / span));
+  });
+  mk("All", "Whole ship", 1);
+}
 
 // "Full ship": remembered for the session, shown only for ships and vehicles that have a factory loadout
 try { state.full = sessionStorage.getItem("vf.full") === "1"; } catch { /* storage unavailable */ }
@@ -1012,6 +1125,7 @@ async function pollStatus() {
     el.title = s.p4k_path;
     window.__status = s;
     if (s.ready) {
+      if (backdrop.kind !== savedBackdrop) backdrop.set(savedBackdrop).catch(() => backdrop.set("plain"));
       await loadCategories();
       runSearch();
       return;

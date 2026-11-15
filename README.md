@@ -76,6 +76,13 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   Textures, decals, glass, screens and proxies are toggled at the top right of the viewer; single materials can be
   hidden from the right panel. *Screens* (shown on models that have them) switches the cockpit and weapon screens and
   the holographic HUDs; *Proxy* shows what the game never draws (collision shapes, shields, placeholders).
+- **Backdrop** (toolbar): plain (default or inverted); *Pyro nebula* and *Stanton · Crusader*, 360° space panoramas
+  made from the game's own sky textures (the Pyro skybox, Stanton's nebula layers and the gas giant Crusader); a
+  *Modelling workshop*: a room with a table, a cutting mat with a centimetre grid, tools and furniture taken from the
+  game (desk lamp, toolboxes, drill, tool chest, shelves) and a window onto Stanton's sky. The model stands on the mat
+  as a scale model (1:72, 1:144… so a ship is 20-40 cm long; weapons and armour at real size, the scale is printed on
+  the mat); a seamless
+  *Photo studio* floor. Each backdrop sets its own light and shadows, and snapshots include it.
 - **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows Windows
   (also selectable in **Settings → Appearance**).
 - **Updates**: at startup VerseForge checks the [Releases](../../releases) page. When a newer version exists it shows
@@ -99,7 +106,9 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   port. Exports and the 3D print use the full ship while the switch is on (files get a `_full` suffix).
 - **Interiors**: for ships with object containers an *Interiors* switch mounts rooms, corridors and props inside the
   hull (placed as the game does, from the vehicle record and the `.socpak` containers). The *Section* slider cuts the
-  model horizontally to look inside. Exports include the interior while the switch is on (`_interior` suffix).
+  model horizontally to look inside (it starts at 100%, the whole ship); next to it, the ship's decks are found
+  automatically (the levels where the interior's floors are) and each deck button takes away everything above that
+  deck. Exports include the interior while the switch is on (`_interior` suffix).
 - **Game look**: materials follow the game's spec/gloss model (coloured reflectance, gloss maps, ambient occlusion,
   detail normals), paints with camo patterns are drawn with their stencil masks, and parallax decals shade the paint
   under them instead of printing over it. The *Hangar* button in the toolbar switches to a dark hangar light with
@@ -155,6 +164,7 @@ sc_explorer/textures.py  .dds textures split into mips (.dds.1 … .dds.N), BC1�
 sc_explorer/model.py     assembly: ship nodes, .cdf attachments on bones
 sc_explorer/assembly.py  full ship (loadout on item ports) and interiors
 sc_explorer/containers.py object containers (.socpak): placed brushes and entities of ship interiors
+sc_explorer/backdrops.py 360° space panoramas (Pyro, Stanton) from the game's sky textures
 sc_explorer/catalog.py   catalogue, categories, in-game names, search
 sc_explorer/i18n.py      texts produced by the server (status, categories, warnings)
 sc_explorer/export.py    GLB / OBJ / STL
@@ -163,6 +173,7 @@ sc_explorer/server.py    web API
 sc_explorer/updates.py   new versions: GitHub releases check, installer download and hand-over
 web/                     interface (HTML/CSS/JS); three.js 0.160 bundled in web/vendor (MIT license)
 web/gamelook.js          game-look materials (spec/gloss, camo stencils, POM decals); web/hangar.js hangar light
+web/backdrops.js         viewer backdrops: space panoramas, modelling workbench, photo studio
 verseforge_app.py        windowed app (Qt WebEngine), entry point of VerseForge.exe
 VerseForge.spec          PyInstaller configuration; installer/VerseForge.iss for Inno Setup
 tests/test_formats.py    tests against the installed game (python -m pytest tests; skipped if Data.p4k is missing)

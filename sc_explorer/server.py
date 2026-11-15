@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import APP_NAME, __version__, animations, assembly, catalog, entities, export, i18n, materials, model, printing, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, entities, export, i18n, materials, model, printing, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -300,6 +300,7 @@ def model_info(path: str, variant: str = None, full: bool = False, interior: boo
             "ammo": entities.ammo_for(state.entities, path),
             "screen": _screen_info(m, it),
             "shading": _shading(m),
+            "decks": assembly.decks(m) if bool(interior) and state.can_interior(path) else [],
             "animations": [{"id": a.id, "label": a.label, "group": a.group, "clip": a.clip, "duration": a.duration,
                             "speed": a.speed, "pose": a.pose} for a in m.animations]}
 
@@ -335,6 +336,34 @@ def texture(path: str, kind: str = Query("color", pattern="^(color|normal|gloss|
         img.convert("RGB").save(buf, "JPEG", quality=92)
         media = "image/jpeg"
     return Response(buf.getvalue(), media_type=media, headers={"Cache-Control": "max-age=86400"})
+
+
+_backdrop_lock = threading.Lock()
+
+
+@app.get("/api/backdrop/{name}")
+def backdrop(name: str):
+    """360° space panorama made from the game's sky textures (see backdrops.py), cached on disk per game version."""
+    _require_ready()
+    if name not in backdrops.NAMES:
+        raise HTTPException(404, "unknown backdrop")
+    st = os.stat(state.archive.path)
+    path = os.path.join(CACHE_DIR, f"backdrop_v4_{name}_{st.st_size}_{int(st.st_mtime)}.jpg")
+    with _backdrop_lock:
+        if not os.path.exists(path):
+            img = backdrops.build(name, state.textures)
+            if img is None:
+                raise HTTPException(404, "backdrop textures not found")
+            for old in os.listdir(CACHE_DIR):
+                if old.startswith(f"backdrop_v4_{name}_") or (old.startswith("backdrop_") and not old.startswith("backdrop_v4_")):
+                    try:
+                        os.remove(os.path.join(CACHE_DIR, old))
+                    except OSError:
+                        pass
+            img.save(path, "JPEG", quality=92)
+    with open(path, "rb") as f:
+        # kept on disk by the server: the browser asks again each session, so a new version of the panorama shows
+        return Response(f.read(), media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
 
 def _screen_info(m, it):

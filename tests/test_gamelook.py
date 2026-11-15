@@ -137,3 +137,11 @@ def test_empty_decals_are_hidden(archive):
         archive, "Objects/Spaceships/Ships/DRAK/Cutlass/cutlass_black/DRAK_Cutlass_Black.mtl")}
     assert mats["decal_placeholder"].kind == "hidden" and mats["RTT_Text_To_Decal"].kind == "hidden"
     assert mats["Decals_EXT"].kind == "decal" and mats["POM_EXT"].kind == "decal"
+
+
+def test_hull_damage_layer_is_hidden(archive):
+    # girders and cables under the skin, shown in game only where the hull is shot through: with an intact hull they
+    # showed through it from a distance (Anvil Hawk)
+    mats = {m.name: m for m in materials.load(archive, NOX_MTL)}
+    assert mats["internal_mesh"].kind == "hidden" and mats["internal_pom"].kind == "hidden"
+    assert materials.classify("internal_framework", "Illum") == "solid"     # real framework stays
