@@ -10,7 +10,8 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query
+import zstandard
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -320,13 +321,37 @@ def _shading(m):
     return out
 
 
+DDS_MEDIA = "image/vnd-ms.dds"
+
+
+def _dds_response(request, data):
+    """Raw blocks are about twice the size of the JPEGs: zstd level 1 halves them for ~2 ms a texture (the browser
+    unpacks it natively)."""
+    headers = {"Cache-Control": "max-age=86400", "Vary": "Accept-Encoding"}
+    if "zstd" in request.headers.get("accept-encoding", ""):
+        data = zstandard.ZstdCompressor(level=1).compress(data)
+        headers["Content-Encoding"] = "zstd"
+    return Response(data, media_type=DDS_MEDIA, headers=headers)
+
+
 @app.get("/api/texture")
-def texture(path: str, kind: str = Query("color", pattern="^(color|normal|gloss|hal|mask)$"), size: int = 1024):
+def texture(request: Request, path: str, kind: str = Query("color", pattern="^(color|normal|gloss|hal|mask)$"),
+            size: int = 1024, gpu: str = ""):
     """One game texture for the viewer's game-look materials: colour, normal (RGB), gloss (grey), HAL or a stencil
-    mask (RGB data, sent lossless)."""
+    mask (RGB data, sent lossless). gpu=s3tc,rgtc,bptc (the compressed formats the viewer's GPU takes): the game's
+    own blocks as a DDS file when the map can be used as it is stored (textures.gpu_blocks), else the image."""
     _require_ready()
     size = max(64, min(int(size), 2048))
     key = (path.lower(), kind, size)
+    accept = {f for f in gpu.lower().split(",") if f in ("s3tc", "rgtc", "bptc")}
+    if accept:
+        cached = state.disk.get("tex", key, "dds")
+        if cached is not None and textures.gpu_dds(cached[:148])[1] in accept:
+            return _dds_response(request, cached)
+        data = state.textures.gpu(path, kind, size, tuple(sorted(accept)))
+        if data is not None:
+            state.disk.put("tex", key, "dds", data)
+            return _dds_response(request, data)
     for ext, media in (("png", "image/png"), ("jpg", "image/jpeg")):
         cached = state.disk.get("tex", key, ext)
         if cached is not None:
