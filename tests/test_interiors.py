@@ -77,6 +77,18 @@ def test_merge_by_material_content(archive):
     assert len(merged) == len(export.merged_by_material(a.parts))   # equal materials from two loads: one group
 
 
+def test_lite_merge_joins_materials_the_game_look_draws_the_same():
+    from sc_explorer.materials import Material
+    from sc_explorer.model import Part
+    a = Material("Paint", "Illum", "solid", (0.5, 0.5, 0.5), diffuse="paint_diff.dds", gloss=0.7)
+    b = Material("Paint", "HardSurface", "solid", (0.5, 0.5, 0.5), diffuse="paint_diff.dds", gloss=0.7)
+    c = Material("Paint", "Illum", "solid", (0.5, 0.5, 0.5), diffuse="paint_diff.dds", gloss=0.2)    # other gloss
+    tri = np.array([[0, 1, 2]])
+    parts = [Part(f"p{i}", m, np.eye(3, dtype=np.float32), tri, "test") for i, m in enumerate((a, b, c))]
+    assert len(export.merged_by_material(parts)) == 3                 # user exports: every material on its own
+    assert len(export.merged_by_material(parts, lite=True)) == 2      # viewer: a and b get the same game-look material
+
+
 def test_lite_glb_has_uvs_but_no_normals_or_game_textures(archive):
     from sc_explorer import textures
     m = model.load_model(archive, "Objects/fps_weapons/weapons_v7/volt/smg/quartz/esmg_fps_volt_quartz.cdf")
