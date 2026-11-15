@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, entities, export, i18n, materials, model, printing, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, diskcache, entities, export, i18n, materials, model, printing, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,7 +31,7 @@ DEFAULT_P4K = r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE\Data.
 
 def load_config():
     cfg = {"p4k_path": DEFAULT_P4K, "export_dir": DEFAULT_EXPORTS, "blender": "", "language": "english",
-           "appearance": "system", "check_updates": True, "skip_version": ""}
+           "appearance": "system", "check_updates": True, "skip_version": "", "disk_cache": True}
     if os.path.exists(CONFIG_FILE):
         try:
             cfg.update(json.load(open(CONFIG_FILE, encoding="utf-8")))
@@ -61,6 +61,8 @@ class State:
         self.lock = threading.Lock()
         self.jobs = {}
         self.update = None                # last answer from GitHub (checked at most once an hour)
+        self.disk = diskcache.DiskCache(CACHE_DIR)   # built models and textures kept on disk (diskcache.py)
+        self.disk.enabled = bool(self.cfg.get("disk_cache", True))
         self.update_time = 0.0
 
     def load(self):
@@ -88,6 +90,7 @@ class State:
             items = catalog.build(arch, names)
             self.archive, self.items = arch, items
             self.textures = textures.TextureCache(arch)
+            self.disk.bind(__version__, path)
             self.by_path = {it.path.lower(): it for it in items}
             self.models.clear()
             self.status = {"ready": True, "message": ("models_ready", {"n": len(items)}), "progress": 1.0, "error": None}
@@ -252,7 +255,15 @@ def status():
     return {**state.status, "message": _msg(state.status["message"]), "error": _msg(state.status["error"]),
             "app": APP_NAME, "version": __version__, "p4k_path": state.cfg["p4k_path"], "export_dir": state.cfg["export_dir"],
             "blender": printing.find_blender(state.cfg.get("blender")), "appearance": state.cfg.get("appearance", "system"),
-            "check_updates": bool(state.cfg.get("check_updates", True))}
+            "check_updates": bool(state.cfg.get("check_updates", True)),
+            "disk_cache": state.disk.enabled, "disk_cache_bytes": state.disk.size, "disk_cache_limit": state.disk.limit}
+
+
+@app.post("/api/cache/clear")
+def clear_cache():
+    """Delete the disk cache of models and textures (Settings → Cache)."""
+    state.disk.clear()
+    return {"ok": True, "bytes": state.disk.size}
 
 
 @app.get("/api/categories")
@@ -286,6 +297,18 @@ def related(path: str):
 @app.get("/api/model/info")
 def model_info(path: str, variant: str = None, full: bool = False, interior: bool = False):
     _require_ready()
+    key = (path.lower(), variant, bool(full), bool(interior))
+    cached = state.disk.get("info", key, "json")
+    if cached is not None:
+        return Response(cached, media_type="application/json")
+    # numpy numbers (stats, deck heights) become plain JSON numbers
+    data = json.dumps(_model_info(path, variant, full, interior),
+                      default=lambda o: o.item() if hasattr(o, "item") else str(o)).encode("utf-8")
+    state.disk.put("info", key, "json", data)
+    return Response(data, media_type="application/json")
+
+
+def _model_info(path, variant, full, interior):
     m = state.get_model(path, variant, full, interior)
     s = m.stats()
     it = state.by_path.get(path.lower())
@@ -321,6 +344,11 @@ def texture(path: str, kind: str = Query("color", pattern="^(color|normal|gloss|
     mask (RGB data, sent lossless)."""
     _require_ready()
     size = max(64, min(int(size), 2048))
+    key = (path.lower(), kind, size)
+    for ext, media in (("png", "image/png"), ("jpg", "image/jpeg")):
+        cached = state.disk.get("tex", key, ext)
+        if cached is not None:
+            return Response(cached, media_type=media, headers={"Cache-Control": "max-age=86400"})
     tc = state.textures
     if kind == "gloss":
         img = tc.gloss(path, size)
@@ -335,6 +363,7 @@ def texture(path: str, kind: str = Query("color", pattern="^(color|normal|gloss|
     else:
         img.convert("RGB").save(buf, "JPEG", quality=92)
         media = "image/jpeg"
+    state.disk.put("tex", key, "png" if media == "image/png" else "jpg", buf.getvalue())
     return Response(buf.getvalue(), media_type=media, headers={"Cache-Control": "max-age=86400"})
 
 
@@ -389,6 +418,10 @@ def _sources(m):
 def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = True, full: bool = False,
               interior: bool = False, lite: bool = False):
     _require_ready()
+    dkey = (path.lower(), variant, bool(full), bool(interior), bool(tex), bool(anim), bool(lite))
+    cached = state.disk.get("glb", dkey, "glb")
+    if cached is not None:
+        return Response(cached, media_type="model/gltf-binary")
     m = state.get_model(path, variant, full, interior)
     if not m.parts:
         raise HTTPException(422, "; ".join(_msg(w) for w in m.warnings) or tr("no_geometry"))
@@ -396,6 +429,7 @@ def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = Tru
     if key not in m.cache:
         m.cache[key] = export.to_glb(m, textures=state.textures if tex else None, tex_size=1024,
                                      sources=_sources(m) if anim else None, lite=lite)
+        state.disk.put("glb", dkey, "glb", m.cache[key])
     return Response(m.cache[key], media_type="model/gltf-binary")
 
 
@@ -475,10 +509,13 @@ def print_file(job_id: str):
 
 # ------------------------------------------------------------------ settings
 @app.post("/api/config")
-def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", appearance: str = "", check_updates: str = ""):
+def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", appearance: str = "", check_updates: str = "",
+               disk_cache: str = ""):
     changed_p4k = p4k_path and p4k_path != state.cfg["p4k_path"]
     if check_updates in ("true", "false"):
         state.cfg["check_updates"] = check_updates == "true"
+    if disk_cache in ("true", "false"):
+        state.cfg["disk_cache"] = state.disk.enabled = disk_cache == "true"
     if p4k_path:
         state.cfg["p4k_path"] = p4k_path
     if export_dir:

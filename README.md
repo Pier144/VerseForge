@@ -83,6 +83,10 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   as a scale model (1:72, 1:144… so a ship is 20-40 cm long; weapons and armour at real size, the scale is printed on
   the mat); a seamless
   *Photo studio* floor. Each backdrop sets its own light and shadows, and snapshots include it.
+- **Cache** (Settings → Cache): models and textures already opened are kept on disk, so they open again much faster
+  (a ship with its interior: about 10 s the first time, under a second afterwards). Up to 10 GB, least recently
+  used files are removed first; a new game patch or program version starts a fresh cache. The switch turns it off,
+  *Clear* empties it.
 - **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows Windows
   (also selectable in **Settings → Appearance**).
 - **Updates**: at startup VerseForge checks the [Releases](../../releases) page. When a newer version exists it shows
@@ -165,6 +169,7 @@ sc_explorer/model.py     assembly: ship nodes, .cdf attachments on bones
 sc_explorer/assembly.py  full ship (loadout on item ports) and interiors
 sc_explorer/containers.py object containers (.socpak): placed brushes and entities of ship interiors
 sc_explorer/backdrops.py 360° space panoramas (Pyro, Stanton) from the game's sky textures
+sc_explorer/diskcache.py disk cache of built models (GLB, info) and textures, per program and game version
 sc_explorer/catalog.py   catalogue, categories, in-game names, search
 sc_explorer/i18n.py      texts produced by the server (status, categories, warnings)
 sc_explorer/export.py    GLB / OBJ / STL

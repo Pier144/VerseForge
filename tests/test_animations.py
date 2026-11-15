@@ -20,6 +20,13 @@ GEAR_DBA = "Animations/Spaceships/Ships/AEGS/LandingGear/Gladius.dba"
 SHIP_DBA = "Animations/Spaceships/Ships/AEGS/Gladius.dba"
 
 
+def _info(*a, **k):
+    """/api/model/info as a dict (the endpoint answers with ready-made JSON, cached on disk)."""
+    import json
+    from sc_explorer import server
+    return json.loads(server.model_info(*a, **k).body)
+
+
 @pytest.fixture(scope="module")
 def archive():
     a = P4kArchive(P4K, CACHE_DIR)
@@ -175,13 +182,13 @@ def test_server_animations():
     if not server.state.status["ready"]:
         server.state.load()
     assert server.state.status["ready"], server.state.status
-    info = server.model_info(GLADIUS)
+    info = _info(GLADIUS)
     by_id = {a["id"]: a for a in info["animations"]}
     assert by_id["canopy/open"]["speed"] < 0 and by_id["canopy/open"]["clip"] == "canopy_close"
     glb = server.model_glb(GLADIUS, tex=False).body
     assert b'"animations"' in glb and b"canopy_close" in glb
     assert b'"animations"' not in server.model_glb(GLADIUS, tex=False, anim=False).body
-    assert server.model_info("Objects/fps_weapons/attachments/magazines/behr/mgzn_s03_behr_p6lr.cgf")["animations"] == []
+    assert _info("Objects/fps_weapons/attachments/magazines/behr/mgzn_s03_behr_p6lr.cgf")["animations"] == []
 
 
 def test_find_tool_skips_additive_by_name(archive, entity_index):
@@ -241,10 +248,10 @@ def test_server_full_flag():
     from sc_explorer import server
     if not server.state.status["ready"]:
         server.state.load()
-    info = server.model_info(GLADIUS, full=True)
+    info = _info(GLADIUS, full=True)
     assert info["can_full"] and info["full"]
-    assert info["stats"]["triangles"] > server.model_info(GLADIUS)["stats"]["triangles"]
-    assert not server.model_info(P6LR, full=True)["can_full"]
+    assert info["stats"]["triangles"] > _info(GLADIUS)["stats"]["triangles"]
+    assert not _info(P6LR, full=True)["can_full"]
 
 
 PERSEUS = "Objects/Spaceships/Ships/RSI/perseus/exterior/rsi_perseus.cga"
@@ -350,11 +357,11 @@ def test_screens_and_ammo():
     arch = server.state.archive
     q = next(n for n in arch.names if n.replace("\\", "/").lower().endswith(
         "smg/quartz/esmg_fps_volt_quartz.cdf")).replace("\\", "/")[5:]
-    info = server.model_info(q)
+    info = _info(q)
     assert info["ammo"] == {"max": 45, "low": pytest.approx(0.1)}
     assert info["screen"]["accent"].startswith("#") and info["screen"]["maker"]
     js = _glb_json(server.model_glb(q, tex=False).body)
     screens = [m for m in js["materials"] if m["name"].startswith("screen|")]
     assert screens and all("emissiveTexture" in m and max(m["emissiveFactor"]) > 0.3 for m in screens)
     assert any(n["name"].startswith("screen|") for n in js["nodes"] if "mesh" in n)
-    assert server.model_info(GLADIUS)["ammo"] is None
+    assert _info(GLADIUS)["ammo"] is None

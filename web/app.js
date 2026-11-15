@@ -222,6 +222,12 @@ let wireframe = false;
 setLighting(state.light);
 document.querySelector('[data-act="light"]')?.classList.toggle("on", state.light === "hangar");
 
+// render on demand (see the render loop below): frames are drawn until `renderUntil`
+let renderUntil = 0;           // keep drawing until this time (ms)
+let lastRender = 0;
+const stats = { frames: 0 };   // frames actually drawn (for checks: __verseforge.stats)
+function invalidate(ms = 0) { renderUntil = Math.max(renderUntil, performance.now() + ms); }
+
 // Part of the canvas hidden behind the floating panels (the viewer fills the whole window):
 // the camera is shifted so the model is centred in the area that stays visible.
 function covered() {
@@ -239,6 +245,7 @@ function resize() {
   if (l || r || t) camera.setViewOffset(w, h, (r - l) / 2, -t / 2, w, h);
   else camera.clearViewOffset();
   camera.updateProjectionMatrix();
+  invalidate();
 }
 new ResizeObserver(resize).observe(wrap);
 window.addEventListener("resize", resize);
@@ -250,19 +257,43 @@ const clock = new THREE.Clock();
 let ammoScreen = null;   // weapon display drawn on its DisplayScreen (screen.js)
 window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; },
   camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting,
-  get backdrop() { return backdrop; } };   // for automated checks (tools/, tests)
-renderer.setAnimationLoop(() => {
+  get backdrop() { return backdrop; }, stats, invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
+// Render on demand: a frame is drawn only when something changed (camera moving or settling, an animation or the
+// auto-rotate running, a texture/material update, a shadow redraw request, an explicit invalidate()), plus once a
+// second as a safety net. A still model leaves the GPU idle instead of redrawing it 60 times a second.
+// textures and materials announce their changes through `needsUpdate`: listen to it (texture loads, the ammo
+// screen's canvas, game-look materials being built)
+for (const proto of [THREE.Texture.prototype, THREE.Material.prototype]) {
+  const d = Object.getOwnPropertyDescriptor(proto, "needsUpdate");
+  if (d?.set) Object.defineProperty(proto, "needsUpdate", { ...d, set(v) { d.set.call(this, v); if (v) invalidate(); } });
+}
+function tick() {
   const dt = clock.getDelta();
+  const now = performance.now();
+  let draw = now <= renderUntil || now - lastRender > 1000;
   if (anim.mixer) {
-    anim.mixer.update(dt);
-    syncTimeline();
-    if (renderer.shadowMap.enabled && (anim.dragging || anim.mixer._actions.some((a) => a.isRunning()))) {
-      renderer.shadowMap.needsUpdate = true;
+    const running = anim.dragging || anim.mixer._actions.some((a) => a.isRunning());
+    if (running || now <= renderUntil) {
+      anim.mixer.update(dt);
+      syncTimeline();
+    }
+    if (running) {
+      draw = true;
+      if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
     }
   }
-  controls.update();
+  if (controls.update()) draw = true;          // true while the camera moves (dragging, damping, auto-rotate)
+  if (controls.autoRotate || renderer.shadowMap.needsUpdate) draw = true;
+  if (!draw) return;
   renderer.render(scene, camera);
-});
+  lastRender = now;
+  stats.frames++;
+}
+renderer.setAnimationLoop(tick);
+// user input on the canvas: keep drawing a little while (the camera's damping finishes after the pointer stops)
+for (const ev of ["pointerdown", "pointermove", "wheel"]) renderer.domElement.addEventListener(ev, () => invalidate(300), { passive: true });
+// any click or change in the panels (animations, rest pose, layers, menus) may change the scene: a few frames
+for (const ev of ["click", "input", "change", "keydown"]) document.addEventListener(ev, () => invalidate(400), { passive: true });
 
 function frame() {
   if (!modelRoot) return;
@@ -324,6 +355,7 @@ function cssColor(name, fallback) {
 }
 
 function buildGrid(box) {
+  invalidate();
   if (grid) scene.remove(grid);
   const size = box.getSize(new THREE.Vector3());
   const span = Math.max(size.x, size.z) * 1.6;
@@ -345,6 +377,7 @@ function meshMat(obj) {
 }
 
 function applyVisibility() {
+  invalidate();
   if (!modelRoot) return;
   modelRoot.traverse((o) => {
     if (!o.isMesh) return;
@@ -355,6 +388,7 @@ function applyVisibility() {
 }
 
 function applyWireframe() {
+  invalidate();
   modelRoot?.traverse((o) => { if (o.isMesh) o.material.wireframe = wireframe; });
 }
 
@@ -734,7 +768,7 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
   if (a === "reset") frame();
   if (a === "wire") { wireframe = !wireframe; b.classList.toggle("on", wireframe); applyWireframe(); }
   if (a === "rotate") { controls.autoRotate = !controls.autoRotate; b.classList.toggle("on", controls.autoRotate); }
-  if (a === "grid") { b.classList.toggle("on"); if (grid) grid.visible = b.classList.contains("on") && !backdrop.hasGround; }
+  if (a === "grid") { b.classList.toggle("on"); if (grid) grid.visible = b.classList.contains("on") && !backdrop.hasGround; invalidate(); }
   if (a === "light") {
     state.light = state.light === "hangar" ? "studio" : "hangar";
     b.classList.toggle("on", state.light === "hangar");
@@ -1143,17 +1177,32 @@ $("#btnSettings").addEventListener("click", async () => {
   appearanceDropdown.sync();
   $("#cfgUpdates").checked = s.check_updates !== false;
   $("#versionLine").textContent = `You are using VerseForge ${s.version}`;
+  $("#cfgDiskCache").checked = s.disk_cache !== false;
+  showCacheSize(s.disk_cache_bytes, s.disk_cache_limit);
   $("#settings").showModal();
 });
-$("#settings").addEventListener("close", async () => {
-  if ($("#settings").returnValue !== "save") return;
+// saved on the Save button's click (the dialog's "close" event can come late or not at all in a hidden window)
+$("#cfgSave").addEventListener("click", async () => {
   const p = new URLSearchParams({ p4k_path: $("#cfgP4k").value, export_dir: $("#cfgExport").value, blender: $("#cfgBlender").value,
-    appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked });
+    appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked, disk_cache: $("#cfgDiskCache").checked });
   applyAppearance($("#cfgAppearance").value);
   try {
     await api(`/api/config?${p}`, { method: "POST" });
     toast(T("saved"));
     pollStatus();
+  } catch (e) { toast(e.message, true); }
+});
+
+// disk cache (Settings → Cache): how much it holds, and a button to empty it
+const gb = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : `${Math.round(n / 1048576)} MB`);
+function showCacheSize(bytes = 0, limit = 0) {
+  $("#cacheLine").textContent = `Using ${gb(bytes)}${limit ? ` of ${gb(limit)}` : ""} · older files are removed beyond that`;
+}
+$("#btnClearCache").addEventListener("click", async () => {
+  try {
+    const r = await (await api("/api/cache/clear", { method: "POST" })).json();
+    showCacheSize(r.bytes, (await (await api("/api/status")).json()).disk_cache_limit);
+    toast("Cache cleared");
   } catch (e) { toast(e.message, true); }
 });
 
