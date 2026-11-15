@@ -8,14 +8,13 @@ import threading
 import time
 import traceback
 import uuid
-from collections import OrderedDict
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, diskcache, entities, export, i18n, materials, model, printing, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, diskcache, entities, export, i18n, materials, model, modelcache, printing, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,7 +56,7 @@ class State:
         self.entities = {}               # geometry path -> Mannequin animation database (see entities.py)
         # messages are (i18n key, {args}) tuples, turned into text when the interface asks for them
         self.status = {"ready": False, "message": ("starting",), "progress": 0.0, "error": None}
-        self.models = OrderedDict()       # path -> Model (small LRU)
+        self.models = modelcache.ModelCache()   # built models, LRU within a memory budget (modelcache.py)
         self.lock = threading.Lock()
         self.jobs = {}
         self.update = None                # last answer from GitHub (checked at most once an hour)
@@ -163,53 +162,29 @@ class State:
         full: ships and vehicles with their factory loadout and landing gear mounted (assembly.load_full).
         interior: the rooms of the ship's object containers placed inside (assembly.load_interior)."""
         if interior and self.can_interior(path):
-            key = (path.lower(), "interior", variant, bool(full))
-            with self.lock:
-                if key in self.models:
-                    self.models.move_to_end(key)
-                    return self.models[key]
-            m = assembly.load_interior(self.archive, self.get_model(path, variant, full),
-                                       entities.vehicle_for(self.entities, path), entities.classes_of(self.entities))
-            with self.lock:
-                self.models[key] = m
-                while len(self.models) > 8:
-                    self.models.popitem(last=False)
-            return m
+            return self.models.get_or_build(
+                (path.lower(), "interior", variant, bool(full)),
+                lambda: assembly.load_interior(self.archive, self.get_model(path, variant, full),
+                                               entities.vehicle_for(self.entities, path),
+                                               entities.classes_of(self.entities)))
         full = bool(full) and self.can_full(path)
         vs = self.variant_list(path)
         v = next((x for x in vs if x["tag"] == variant), vs[0] if vs else None)
         if v is None:
             return self._base_model(path, full)
-        key = (path.lower(), v["tag"], full)
-        with self.lock:
-            if key in self.models:
-                self.models.move_to_end(key)
-                return self.models[key]
-        m = model.with_variant(self._base_model(path, full), self.archive, v["material"], v["palette"])
-        with self.lock:
-            self.models[key] = m
-            while len(self.models) > 8:
-                self.models.popitem(last=False)
-        return m
+        return self.models.get_or_build(
+            (path.lower(), v["tag"], full),
+            lambda: model.with_variant(self._base_model(path, full), self.archive, v["material"], v["palette"]))
 
     def _base_model(self, path, full=False):
-        key = (path.lower(), full)
-        with self.lock:
-            if key in self.models:
-                self.models.move_to_end(key)
-                return self.models[key]
-        if not self.archive or not self.archive.exists(path):
-            raise HTTPException(404, tr("file_missing", path=path))
-        adb = entities.adb_for(self.entities, path)
-        if full:
-            m = assembly.load_full(self.archive, path, entities.vehicle_for(self.entities, path), adb)
-        else:
-            m = model.load_model(self.archive, path, adb)
-        with self.lock:
-            self.models[key] = m
-            while len(self.models) > 8:
-                self.models.popitem(last=False)
-        return m
+        def build():
+            if not self.archive or not self.archive.exists(path):
+                raise HTTPException(404, tr("file_missing", path=path))
+            adb = entities.adb_for(self.entities, path)
+            if full:
+                return assembly.load_full(self.archive, path, entities.vehicle_for(self.entities, path), adb)
+            return model.load_model(self.archive, path, adb)
+        return self.models.get_or_build((path.lower(), full), build)
 
 
 state = State()
@@ -260,7 +235,10 @@ def status():
             "app": APP_NAME, "version": __version__, "p4k_path": state.cfg["p4k_path"], "export_dir": state.cfg["export_dir"],
             "blender": printing.find_blender(state.cfg.get("blender")), "appearance": state.cfg.get("appearance", "system"),
             "check_updates": bool(state.cfg.get("check_updates", True)),
-            "disk_cache": state.disk.enabled, "disk_cache_bytes": state.disk.size, "disk_cache_limit": state.disk.limit}
+            "disk_cache": state.disk.enabled, "disk_cache_bytes": state.disk.size, "disk_cache_limit": state.disk.limit,
+            "memory": {"models": len(state.models), "models_bytes": state.models.bytes, "models_budget": state.models.budget,
+                       "textures_bytes": state.textures.bytes if state.textures else 0,
+                       "textures_budget": state.textures.budget if state.textures else 0}}
 
 
 @app.post("/api/cache/clear")
@@ -430,11 +408,15 @@ def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = Tru
     if not m.parts:
         raise HTTPException(422, "; ".join(_msg(w) for w in m.warnings) or tr("no_geometry"))
     key = ("glb", tex, anim, lite)
-    if key not in m.cache:
-        m.cache[key] = export.to_glb(m, textures=state.textures if tex else None, tex_size=1024,
-                                     sources=_sources(m) if anim else None, lite=lite)
-        state.disk.put("glb", dkey, "glb", m.cache[key])
-    return Response(m.cache[key], media_type="model/gltf-binary")
+    data = m.cache.get(key)
+    if data is None:
+        data = export.to_glb(m, textures=state.textures if tex else None, tex_size=1024,
+                             sources=_sources(m) if anim else None, lite=lite)
+        # once on disk the file is read from there (above): a second copy in memory would only take room
+        if not state.disk.put("glb", dkey, "glb", data):
+            m.cache[key] = data
+        state.models.trim()
+    return Response(data, media_type="model/gltf-binary")
 
 
 def _save_export(data, filename):

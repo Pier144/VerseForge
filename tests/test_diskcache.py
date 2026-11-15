@@ -50,3 +50,12 @@ def test_least_recently_used_files_go_first(tmp_path):
     c.put("tex", 3, "jpg", b"x" * 40)                # 160 > 130: oldest go until <= 110 bytes
     assert c.get("tex", 0, "jpg") is not None and c.get("tex", 3, "jpg") is not None
     assert c.get("tex", 1, "jpg") is None and c.get("tex", 2, "jpg") is None and c.size <= 110
+
+
+def test_put_says_whether_the_file_is_on_disk(tmp_path):
+    c = DiskCache(str(tmp_path))
+    assert c.put("glb", "k", "glb", b"data") is False          # not bound to a game yet
+    c.bind("1.0.0", _fake_p4k(tmp_path, 10))
+    assert c.put("glb", "k", "glb", b"data") is True
+    c.enabled = False
+    assert c.put("glb", "k2", "glb", b"data") is False
