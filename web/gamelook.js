@@ -14,33 +14,68 @@ import * as THREE from "three";
 
 const TEX_SIZE = 1024;
 const DECAL_SIZE = 2048;   // decal sheets pack dozens of small labels and grilles: they need the full resolution
+// Progressive loading: every texture is first fetched at SMALL_SIZE (a 1/16 of the bytes), the model is shown with
+// those, then each one is swapped for the full size as it arrives and the small copy is freed.
+const SMALL_SIZE = 256;
 
 function texUrl(path, kind, size = TEX_SIZE) {
-  return `/api/texture?path=${encodeURIComponent(path)}&kind=${kind}&size=${size}`;
+  const bust = GameLook.bust ? `&_=${GameLook.bust}` : "";   // benchmarks: bypass the browser's HTTP cache
+  return `/api/texture?path=${encodeURIComponent(path)}&kind=${kind}&size=${size}${bust}`;
+}
+
+// every texture a game-look material may hold: the standard maps, the extra map kept in userData and the uniforms of
+// the patched shader (userData.gameUniforms) or of the decal shader (uniforms)
+function swapRefs(m, from, to) {
+  for (const k of ["map", "normalMap", "roughnessMap", "specularColorMap"]) if (m[k] === from) m[k] = to;
+  if (m.userData.detailNormal === from) m.userData.detailNormal = to;
+  for (const u of [m.uniforms, m.userData.gameUniforms]) {
+    if (u) for (const v of Object.values(u)) if (v && v.value === from) v.value = to;
+  }
 }
 
 export class GameLook {
+  static progressive = true;            // false: load the full sizes straight away (old behaviour, for comparisons)
+  static bust = "";                     // set by benchmarks to a fresh value per run
+
   constructor(renderer) {
     this.loader = new THREE.TextureLoader();
     this.textures = new Map();          // url -> Promise<Texture | null>
+    this.owned = new Set();             // every texture object made here (clones too), freed by dispose()
     this.maxAniso = renderer.capabilities.getMaxAnisotropy();
     this.requested = 0;                 // textures asked for / finished, for the loading bar
     this.finished = 0;
     this.onProgress = null;             // (finished, requested)
+    this.onChange = null;               // a full-size texture replaced a small one: redraw
+    this.full = Promise.resolve();      // resolves when every full-size texture is in place
+    this.disposed = false;
   }
 
-  texture(path, kind, repeat = 1, size = TEX_SIZE) {
+  // the texture at `size` (as a clone with its own UV repeat when repeat != 1); progressive: a SMALL_SIZE copy,
+  // listed in `slots` for upgrade() to replace
+  texture(path, kind, repeat = 1, size = TEX_SIZE, slots = null) {
     if (!path) return Promise.resolve(null);
+    const small = GameLook.progressive && slots && size > SMALL_SIZE;
+    return this.load(path, kind, repeat, small ? SMALL_SIZE : size, true).then((t) => {
+      // an image smaller than SMALL_SIZE is already the whole texture
+      if (t && small && Math.max(t.image.width, t.image.height) >= SMALL_SIZE) slots.push({ tex: t, path, kind, repeat, size });
+      return t;
+    });
+  }
+
+  load(path, kind, repeat, size, counted) {
     const url = texUrl(path, kind, size);
     if (!this.textures.has(url)) {
-      this.requested++;
-      this.onProgress?.(this.finished, this.requested);
-      const tick = () => { this.finished++; this.onProgress?.(this.finished, this.requested); };
+      if (counted) {
+        this.requested++;
+        this.onProgress?.(this.finished, this.requested);
+      }
+      const tick = () => { if (counted) { this.finished++; this.onProgress?.(this.finished, this.requested); } };
       this.textures.set(url, this.loader.loadAsync(url).finally(tick).then((t) => {
         t.colorSpace = kind === "color" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         t.wrapS = t.wrapT = THREE.RepeatWrapping;
         t.anisotropy = Math.min(8, this.maxAniso);
         t.flipY = false;                 // glTF UV convention (the GLB's own textures are not flipped either)
+        this.owned.add(t);
         return t;
       }).catch(() => null));
     }
@@ -49,18 +84,44 @@ export class GameLook {
       const c = t.clone();               // same image, own UV transform
       c.repeat.set(repeat, repeat);
       c.needsUpdate = true;
+      this.owned.add(c);
       return c;
     });
+  }
+
+  // swap the small textures listed in `slots` for their full size in `materials`, as each one arrives; the small
+  // copies are disposed
+  async upgrade(materials, slots) {
+    if (!slots.length) return;
+    const users = new Map(slots.map((s) => [s.tex, []]));   // small texture -> materials holding it
+    for (const m of materials) {
+      const refs = [m.map, m.normalMap, m.roughnessMap, m.specularColorMap, m.userData.detailNormal,
+        ...[m.uniforms, m.userData.gameUniforms].flatMap((u) => (u ? Object.values(u).map((v) => v?.value) : []))];
+      for (const r of new Set(refs)) users.get(r)?.push(m);
+    }
+    // one full-size request per small texture: the largest size asked for it (a texture used both as a decal at
+    // DECAL_SIZE and on a hull at TEX_SIZE shares one small copy)
+    const wanted = new Map();
+    for (const s of slots) if ((wanted.get(s.tex)?.size || 0) < s.size) wanted.set(s.tex, s);
+    await new Promise((r) => setTimeout(r, 0));             // let the first frame (small textures) be drawn first
+    await Promise.all([...wanted.values()].map(async (s) => {
+      const big = this.disposed ? null : await this.load(s.path, s.kind, s.repeat, s.size, false);
+      if (this.disposed || !big) return;                    // model changed meanwhile, or no full size: keep the small one
+      for (const m of users.get(s.tex)) swapRefs(m, s.tex, big);
+      s.tex.dispose();
+      this.owned.delete(s.tex);
+      this.onChange?.();
+    }));
   }
 
   // POM mesh decals (panel seams, rivets, vents, grilles) have no colour of their own in the game: their texture
   // multiplies the paint under them and their normal/height maps add relief. Drawn as a cheap unlit multiply
   // overlay: framebuffer x mix(1, texture x relief x cavity, coverage).
-  async pomDecal(sh, old, opts) {
+  async pomDecal(sh, old, opts, slots) {
     const [height, map, normal] = await Promise.all([
-      this.texture(sh.height_map, "mask", 1, DECAL_SIZE),
-      this.texture(sh.color_map, "color", 1, DECAL_SIZE),
-      this.texture(sh.normal_map, "normal", 1, DECAL_SIZE),
+      this.texture(sh.height_map, "mask", 1, DECAL_SIZE, slots),
+      this.texture(sh.color_map, "color", 1, DECAL_SIZE, slots),
+      this.texture(sh.normal_map, "normal", 1, DECAL_SIZE, slots),
     ]);
     const m = new THREE.ShaderMaterial({
       name: old.name,
@@ -152,6 +213,10 @@ void main() {
   }
 
   dispose() {
+    this.disposed = true;
+    for (const t of this.owned) t.dispose();
+    this.owned.clear();
+    // textures still on their way are freed when they land
     for (const p of this.textures.values()) p.then((t) => t?.dispose());
     this.textures.clear();
   }
@@ -161,6 +226,7 @@ void main() {
     if (!shading) return 0;
     const jobs = [];
     const made = new Map();              // shading id -> Promise<material>
+    const slots = [];                    // progressive: the small textures of these materials, for upgrade()
     root.traverse((o) => {
       if (!o.isMesh || !o.material) return;
       const id = (o.material.name || "").split("|")[2];
@@ -168,7 +234,7 @@ void main() {
       if (!sh) return;
       const kind = (o.material.name || "").split("|")[0];
       if (kind !== "solid" && kind !== "decal") return;
-      if (!made.has(id)) made.set(id, this.build(sh, o.material, kind, opts, o.geometry));
+      if (!made.has(id)) made.set(id, this.build(sh, o.material, kind, opts, o.geometry, slots));
       jobs.push(made.get(id).then((m) => {
         if (!m) return;
         o.material = m;
@@ -176,25 +242,27 @@ void main() {
       }));
     });
     await Promise.all(jobs);
+    const mats = await Promise.all(made.values());
+    this.full = this.upgrade(mats.filter(Boolean), slots);
     return made.size;
   }
 
-  async build(sh, old, kind, opts, geometry) {
-    if (kind === "decal" && sh.pom && (sh.color_map || old.map)) return this.pomDecal(sh, old, opts);
+  async build(sh, old, kind, opts, geometry, slots = null) {
+    if (kind === "decal" && sh.pom && (sh.color_map || old.map)) return this.pomDecal(sh, old, opts, slots);
     const us = sh.uv_scale || 1;
     const t = (sh.tiling || 1) / us;   // repeat of the tiled textures on the GLB's UVs
     const [specMap, colorMap, detailN, objN, decalMap, glossMap, objGloss, hal] = await Promise.all([
-      this.texture(sh.spec_map, "color", sh.spec_tiled ? t : 1 / us),
-      kind === "solid" ? this.texture(sh.color_map, "color", t) : Promise.resolve(null),
-      this.texture(sh.detail_normal, "normal", t),
-      this.texture(sh.normal_map, "normal", 1, kind === "decal" ? DECAL_SIZE : TEX_SIZE),
-      kind === "decal" ? this.texture(sh.color_map, "color", 1, DECAL_SIZE) : Promise.resolve(null),
-      this.texture(sh.gloss_map, "gloss", t),
-      this.texture(sh.obj_gloss, "gloss", 1),
-      this.texture(sh.hal, "hal", 1),
+      this.texture(sh.spec_map, "color", sh.spec_tiled ? t : 1 / us, TEX_SIZE, slots),
+      kind === "solid" ? this.texture(sh.color_map, "color", t, TEX_SIZE, slots) : Promise.resolve(null),
+      this.texture(sh.detail_normal, "normal", t, TEX_SIZE, slots),
+      this.texture(sh.normal_map, "normal", 1, kind === "decal" ? DECAL_SIZE : TEX_SIZE, slots),
+      kind === "decal" ? this.texture(sh.color_map, "color", 1, DECAL_SIZE, slots) : Promise.resolve(null),
+      this.texture(sh.gloss_map, "gloss", t, TEX_SIZE, slots),
+      this.texture(sh.obj_gloss, "gloss", 1, TEX_SIZE, slots),
+      this.texture(sh.hal, "hal", 1, TEX_SIZE, slots),
     ]);
     const st = sh.stencil;
-    const stencil = st && kind === "solid" ? await this.texture(sh.stencil_map, "mask", 1) : null;
+    const stencil = st && kind === "solid" ? await this.texture(sh.stencil_map, "mask", 1, TEX_SIZE, slots) : null;
     const stencilUv2 = !!(stencil && st.uv2 && geometry?.attributes?._uv2);
     const m = new THREE.MeshPhysicalMaterial({
       name: old.name,
@@ -249,6 +317,7 @@ void main() {
       gameStencilOpacity: { value: st ? st.opacity : 0 },
       gameStencilColors: { value: st ? st.colors.map((c) => new THREE.Vector3(...c)) : [] },
     };
+    m.userData.gameUniforms = u;         // upgrade() swaps the textures held here too
     const defs = [objGloss && "GAME_OBJ_GLOSS", hal && "GAME_HAL", m.userData.detailNormal && "GAME_DETAIL_NORMAL",
       flip && "GAME_SWAP_XY", stencil && "GAME_STENCIL", stencilUv2 && "GAME_STENCIL_UV2"].filter(Boolean);
     m.onBeforeCompile = (s) => {
