@@ -178,6 +178,82 @@ def _decode_plain(archive, base, head, w, h, mips, dxgi, hsize, max_size):
     return Image.fromarray(rgb, "RGB"), False
 
 
+# ---- GPU blocks: the game's compressed blocks sent as they are (DDS with a DX10 header), uploaded by the viewer as
+# THREE.CompressedTexture. Only maps the viewer reads exactly as they are stored; the others keep the decoded path.
+# format -> (DXGI code sent, WebGL extension family)
+_GPU_FOURCC = {b"DXT1": 71, b"DXT3": 74, b"DXT5": 77, b"ATI1": 80, b"BC4U": 80, b"ATI2": 83, b"BC5U": 83, b"BC5S": 84}
+_GPU_DXGI = {70: 71, 71: 71, 72: 71, 73: 74, 74: 74, 75: 74, 76: 77, 77: 77, 78: 77, 79: 80, 80: 80,
+             82: 83, 83: 83, 84: 84, 97: 98, 98: 98, 99: 98}
+GPU_FAMILY = {71: "s3tc", 74: "s3tc", 77: "s3tc", 80: "rgtc", 83: "rgtc", 84: "rgtc", 98: "bptc"}
+# what each kind of map may be sent as: colour-like maps are sampled as RGB(A) (BC4/BC5 would come out red/red-green),
+# normals also as two-channel BC5 (the viewer rebuilds Z), gloss only needs its red channel
+_GPU_KINDS = {"color": {71, 74, 77, 98}, "hal": {71, 74, 77, 98}, "mask": {71, 74, 77, 98},
+              "normal": {71, 74, 77, 98, 83, 84}, "gloss": {71, 74, 77, 98, 80}}
+
+
+def gpu_dds(head):
+    """DXGI code and WebGL family of a DDS answer made by gpu_blocks (None when it is not one)."""
+    if len(head) < 148 or head[:4] != b"DDS " or head[84:88] != b"DX10":
+        return None, None
+    dxgi = struct.unpack_from("<I", head, 128)[0]
+    return dxgi, GPU_FAMILY.get(dxgi)
+
+
+def gpu_blocks(archive, path, kind, max_size, accept):
+    """The texture's compressed blocks from the largest mip not above max_size down to the smallest one the GPU can
+    take, as a DDS file (DX10 header + mips, largest first). None when the map is not a block format the viewer can
+    use as it is (kind, family not in `accept`, sizes the GPU refuses) or gloss lives in the main map's alpha."""
+    base = dds_path(path)
+    alpha = kind == "gloss"
+    sfx = "a" if alpha else ""
+    hname = base + ".a" if alpha else base
+    if not archive.exists(hname):
+        return None
+    head = archive.read(hname)
+    if alpha and head[:4] != b"DDS ":
+        head = b"DDS " + head
+    w, h, mips, fourcc, dxgi, block, hsize = _header(head)
+    out_fmt = _GPU_DXGI.get(dxgi) if dxgi is not None else _GPU_FOURCC.get(fourcc)
+    if not block or out_fmt not in _GPU_KINDS.get(kind, ()) or GPU_FAMILY[out_fmt] not in accept:
+        return None
+    level = 0
+    while level < mips and max(w >> level, h >> level) > max_size:
+        level += 1
+    if level >= mips:
+        return None
+    bw, bh = max(1, w >> level), max(1, h >> level)
+    if bw % 4 or bh % 4:                     # block textures need a base size in whole blocks
+        return None
+    split = 0
+    while archive.exists(f"{base}.{split + 1}{sfx}"):
+        split += 1
+    parts, levels = [], 0
+    for lv in range(level, mips):
+        mw, mh, size = _mip_size(w, h, lv, block)
+        if (mw % 4 and mw > 2) or (mh % 4 and mh > 2):
+            break                            # odd sizes further down: stop the chain here (the GPU uses fewer mips)
+        if lv < split:
+            data = archive.read(f"{base}.{split - lv}{sfx}")[:size]
+        else:
+            off = hsize + sum(_mip_size(w, h, k, block)[2] for k in range(split, lv))
+            data = head[off:off + size]
+        if len(data) < size:
+            break
+        parts.append(data)
+        levels += 1
+    if not levels:
+        return None
+    hdr = bytearray(148)
+    hdr[:4] = b"DDS "
+    # size, flags (caps|height|width|pixelformat|mipmapcount|linearsize), height, width, linear size, depth, mips
+    struct.pack_into("<7I", hdr, 4, 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000 | 0x80000, bh, bw, len(parts[0]), 0,
+                     levels)
+    struct.pack_into("<2I4s", hdr, 76, 32, 0x4, b"DX10")          # pixel format: FourCC DX10
+    struct.pack_into("<I", hdr, 108, 0x1000 | 0x400000 | 0x8)     # caps: texture | mipmap | complex
+    struct.pack_into("<5I", hdr, 128, out_fmt, 3, 0, 1, 0)        # DXGI format, 2D, array size 1
+    return bytes(hdr) + b"".join(parts)
+
+
 class TextureCache:
     """Decoded textures by (path, size): LRU with a memory budget, shared by viewer and exports."""
 
@@ -190,6 +266,8 @@ class TextureCache:
 
     @staticmethod
     def _cost(value):
+        if isinstance(value, (bytes, bytearray)):
+            return len(value) + 64
         imgs = value if isinstance(value, tuple) else (value,)
         return sum(i.width * i.height * len(i.getbands()) for i in imgs if isinstance(i, Image.Image)) + 64
 
@@ -214,6 +292,21 @@ class TextureCache:
             elif img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGBA" if "A" in img.mode else "RGB")
         return self.memo(key, img, store=True)
+
+    def gpu(self, path, kind, max_size=1024, accept=("s3tc", "rgtc", "bptc")):
+        """Compressed blocks of a map as a DDS file (see gpu_blocks), or None to use the decoded image instead."""
+        if not path:
+            return None
+        key = ("gpu", dds_path(path).lower(), kind, max_size, tuple(sorted(accept)))
+        hit = self.memo(key)
+        if hit is not None:
+            return hit or None
+        try:
+            data = gpu_blocks(self.archive, path, kind, max_size, set(accept))
+        except Exception:
+            data = None
+        self.memo(key, data if data is not None else b"", store=True)
+        return data
 
     def gloss(self, path, max_size=1024):
         """Gloss (smoothness 0..1 as an 'L' image) of a _ddna normal map: its separate alpha image, or the alpha
