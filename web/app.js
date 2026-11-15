@@ -214,8 +214,9 @@ backdrop.loadProp = (path) => {
         if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
       });
       await propLook.apply(root, info.shading, { sun });
-      // shaders compiled in parallel before the prop is shown (each prop used to freeze the view a moment as it arrived)
-      try { await renderer.compileAsync(root, camera, scene); } catch { /* compiled at its first frame instead */ }
+      // shaders compiled in parallel before the prop is shown (each prop used to freeze the view a moment as it arrived),
+      // with and without the section plane: props stay for the next models, and an interior may be cut by a deck
+      try { await compileShaders(root, true); } catch { /* compiled at its first frame instead */ }
       return root;
     })().catch((e) => { propCache.delete(path); throw e; }));
   }
@@ -561,7 +562,7 @@ async function loadModel(item, keepView = false) {
     // compile the shaders before the model is shown, in parallel and without blocking the page
     // (KHR_parallel_shader_compile): compiling them all in the first frame froze the view for 1-2 s on big ships
     progress(99, T("loadShaders"));
-    try { await renderer.compileAsync(modelRoot, camera, scene); } catch { /* compiled at the first frame instead */ }
+    try { await compileShaders(modelRoot, !!info.interior); } catch { /* compiled at the first frame instead */ }
     if (state.current !== item) return;
     scene.add(modelRoot);
     await warmUp(modelRoot, () => state.current !== item);
@@ -588,6 +589,9 @@ async function loadModel(item, keepView = false) {
     anim.landed = info.full ? anim.list.find((a) => /land/i.test(a.group) && /^(deploy|extend|open)$/i.test(a.label)) : null;
     settleLanded();
     fitBackdrop();
+    // the section plane cuts the whole scene: the backdrop's room (rebuilt for each model) and the grid need their
+    // section shaders too
+    if (info.interior) for (const o of [backdrop.group, grid]) compileShaders(o, true).catch(() => {});
     renderer.shadowMap.needsUpdate = true;
     $("#fullPill").classList.toggle("hidden", !info.can_full);
     $("#intPill").classList.toggle("hidden", !info.can_interior);
@@ -869,6 +873,33 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
 // "Interiors": the ship's rooms, seen through a horizontal section (clipping plane) set with the slider
 let sectionBox = null;
 const sectionPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+// The section plane needs its own version of every shader. Left to the first deck click, they were all compiled in
+// one frame (Perseus interior 1.7 s) and the desktop window showed the 3D view without its panels meanwhile.
+// three.js compiles for the clipping state of the last frame it drew (compile() does not set it up): an empty frame
+// drawn off screen into a 1x1 target sets that state, so compileAsync can build each variant in parallel.
+const clipProbe = { target: new THREE.WebGLRenderTarget(1, 1), scene: new THREE.Scene() };
+function setClipState(planes) {
+  const target = renderer.getRenderTarget(), own = renderer.clippingPlanes;
+  renderer.clippingPlanes = planes;
+  renderer.setRenderTarget(clipProbe.target);
+  renderer.render(clipProbe.scene, camera);
+  renderer.setRenderTarget(target);
+  renderer.clippingPlanes = own;
+}
+// compile `root`'s shaders without the section plane and, if `section`, with it too
+async function compileShaders(root, section) {
+  if (!root) return;
+  const own = renderer.clippingPlanes, jobs = [];
+  try {
+    for (const planes of section ? [[], [sectionPlane]] : [[]]) {
+      setClipState(planes);
+      jobs.push(renderer.compileAsync(root, camera, scene));
+    }
+  } finally {
+    setClipState(own);
+  }
+  await Promise.all(jobs);
+}
 function applySection() {
   const on = !!sectionBox && state.cut < 0.999;
   if (on) sectionPlane.constant = THREE.MathUtils.lerp(sectionBox.min.y, sectionBox.max.y, state.cut);
