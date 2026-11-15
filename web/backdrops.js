@@ -107,31 +107,174 @@ function radialAlpha(inner = 0.35) {
   return texture(c, false);
 }
 
-// wood: warm planks with grain, drawn once
+// seeded random numbers: the room looks the same every time it is built
+function rng(seed) {
+  return () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+}
+
+// wood grain on a plank-sized strip of a canvas
+function grain(g, rnd, x0, y0, w, h, n, scale = 1) {
+  for (let i = 0; i < n; i++) {
+    const y = y0 + rnd() * h, a = 0.05 + rnd() * 0.12, amp = (2 + rnd() * 6) * scale, f = (0.004 + rnd() * 0.01) / scale;
+    g.strokeStyle = rnd() < 0.5 ? `rgba(60,34,18,${a})` : `rgba(170,120,80,${a * 0.7})`;
+    g.lineWidth = (0.6 + rnd() * 1.8) * scale;
+    g.beginPath();
+    const ph = rnd() * 100;
+    for (let x = x0; x <= x0 + w; x += 16 * scale) g.lineTo(x, y + Math.sin(x * f + ph) * amp);
+    g.stroke();
+  }
+  for (let i = 0; i < n / 10; i++) {   // knots
+    const kx = x0 + rnd() * w, ky = y0 + rnd() * h, r = (3 + rnd() * 7) * scale;
+    const k = g.createRadialGradient(kx, ky, 0, kx, ky, r * 2.2);
+    k.addColorStop(0, "rgba(45,26,12,0.45)"); k.addColorStop(1, "rgba(45,26,12,0)");
+    g.fillStyle = k; g.fillRect(kx - r * 3, ky - r * 3, r * 6, r * 6);
+  }
+}
+
+// wood: warm planks with grain, drawn once (the table top)
 function woodTexture() {
-  const [c, g] = canvas(1024, 1024);
-  g.fillStyle = "#7a5233"; g.fillRect(0, 0, 1024, 1024);
-  const plank = 1024 / 4;
-  let seed = 11;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const S = 2048;
+  const [c, g] = canvas(S, S);
+  g.fillStyle = "#7a5233"; g.fillRect(0, 0, S, S);
+  const plank = S / 4, rnd = rng(11);
   for (let p = 0; p < 4; p++) {
     const y0 = p * plank, tone = 0.86 + rnd() * 0.24;
     g.fillStyle = `rgb(${Math.round(122 * tone)},${Math.round(82 * tone)},${Math.round(51 * tone)})`;
-    g.fillRect(0, y0, 1024, plank);
-    for (let i = 0; i < 70; i++) {       // grain lines
-      const y = y0 + rnd() * plank, a = 0.05 + rnd() * 0.12, amp = 2 + rnd() * 6, f = 0.004 + rnd() * 0.01;
-      g.strokeStyle = rnd() < 0.5 ? `rgba(60,34,18,${a})` : `rgba(170,120,80,${a * 0.7})`;
-      g.lineWidth = 0.6 + rnd() * 1.8;
-      g.beginPath();
-      for (let x = 0; x <= 1024; x += 16) g.lineTo(x, y + Math.sin(x * f + i) * amp);
-      g.stroke();
-    }
-    g.fillStyle = "rgba(30,18,10,0.55)"; g.fillRect(0, y0, 1024, 2);   // plank seam
+    g.fillRect(0, y0, S, plank);
+    grain(g, rnd, 0, y0, S, plank, 120, 2);
+    g.fillStyle = "rgba(30,18,10,0.55)"; g.fillRect(0, y0, S, 3);   // plank seam
+  }
+  // a used work surface: a few rings, scratches and glue spots
+  for (let i = 0; i < 40; i++) {
+    const x = rnd() * S, y = rnd() * S, l = 30 + rnd() * 160, a = rnd() * Math.PI;
+    g.strokeStyle = `rgba(${rnd() < 0.5 ? "225,190,150" : "40,24,12"},${0.08 + rnd() * 0.12})`;
+    g.lineWidth = 1 + rnd() * 1.5;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+  for (let i = 0; i < 4; i++) {
+    const x = rnd() * S, y = rnd() * S, r = 40 + rnd() * 30;
+    g.strokeStyle = "rgba(50,30,15,0.12)"; g.lineWidth = 5;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke();
   }
   const t = texture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 16;
   return t;
 }
+
+// floor boards drawn for the whole floor (no repeat): staggered planks, worn where people walk, darker by the walls
+const canvasCache = new Map();
+function floorTexture(wM, dM) {
+  const key = `floor:${wM.toFixed(2)}:${dM.toFixed(2)}`;
+  if (!canvasCache.has(key)) {
+    const ppm = Math.min(2048 / Math.max(wM, dM), 400);        // pixels per metre
+    const [c, g] = canvas(Math.round(wM * ppm), Math.round(dM * ppm));
+    const rnd = rng(23), pw = 0.16 * ppm;                       // 16 cm boards along x
+    g.fillStyle = "#4a3324"; g.fillRect(0, 0, c.width, c.height);
+    for (let y0 = 0, row = 0; y0 < c.height; y0 += pw, row++) {
+      let x0 = -rnd() * 1.6 * ppm;
+      while (x0 < c.width) {
+        const len = (1.2 + rnd() * 1.4) * ppm, tone = 0.8 + rnd() * 0.3;
+        g.fillStyle = `rgb(${Math.round(92 * tone)},${Math.round(64 * tone)},${Math.round(44 * tone)})`;
+        g.fillRect(x0, y0, len, pw);
+        grain(g, rnd, x0, y0, len, pw, 14, 1);
+        g.fillStyle = "rgba(20,12,6,0.6)";
+        g.fillRect(x0, y0, 2, pw); g.fillRect(x0, y0, len, 1.5);   // seams
+        x0 += len;
+      }
+    }
+    // wear in the middle (lighter, duller), dust and shade along the walls
+    const mid = g.createRadialGradient(c.width / 2, c.height / 2, 0, c.width / 2, c.height / 2, Math.max(c.width, c.height) * 0.45);
+    mid.addColorStop(0, "rgba(190,160,120,0.10)"); mid.addColorStop(1, "rgba(190,160,120,0)");
+    g.fillStyle = mid; g.fillRect(0, 0, c.width, c.height);
+    edgeShade(g, c.width, c.height, 0.25 * ppm, 0.45);
+    canvasCache.set(key, c);
+  }
+  const t = texture(canvasCache.get(key));
+  t.anisotropy = 16;
+  return t;
+}
+
+// darkening towards the edges of a surface: the soft shade of a room's corners
+function edgeShade(g, w, h, size, a, sides = "tblr") {
+  const band = (x0, y0, x1, y1, rx, ry, rw, rh) => {
+    const l = g.createLinearGradient(x0, y0, x1, y1);
+    l.addColorStop(0, `rgba(25,20,15,${a})`); l.addColorStop(1, "rgba(25,20,15,0)");
+    g.fillStyle = l; g.fillRect(rx, ry, rw, rh);
+  };
+  if (sides.includes("t")) band(0, 0, 0, size, 0, 0, w, size);
+  if (sides.includes("b")) band(0, h, 0, h - size, 0, h - size, w, size);
+  if (sides.includes("l")) band(0, 0, size, 0, 0, 0, size, h);
+  if (sides.includes("r")) band(w, 0, w - size, 0, w - size, 0, size, h);
+}
+
+// a wall's own plaster (wM × hM metres, no repeat): blotchy paint, grime rising from the floor, scuffs at kicking
+// height, a few streaks running down, darker corners. floor/ceil: whether the bottom/top edge meets them
+function wallTexture(wM, hM, seed, { floor = true, ceil = true, sides = "lr", streaks = true } = {}) {
+  const key = `wall:${wM.toFixed(2)}:${hM.toFixed(2)}:${seed}:${floor}:${ceil}:${sides}:${streaks}`;
+  if (!canvasCache.has(key)) {
+    const ppm = Math.min(1024 / Math.max(wM, hM), 220);
+    const W = Math.max(8, Math.round(wM * ppm)), H = Math.max(8, Math.round(hM * ppm));
+    const [c, g] = canvas(W, H);
+    const rnd = rng(seed);
+    g.fillStyle = "#d9d4cb"; g.fillRect(0, 0, W, H);
+    for (let i = 0; i < 60; i++) {            // uneven paint
+      const x = rnd() * W, y = rnd() * H, r = (0.2 + rnd() * 0.8) * ppm;
+      const b = g.createRadialGradient(x, y, 0, x, y, r);
+      const col = rnd() < 0.6 ? "190,182,168" : "236,232,224";
+      b.addColorStop(0, `rgba(${col},${0.05 + rnd() * 0.08})`); b.addColorStop(1, `rgba(${col},0)`);
+      g.fillStyle = b; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    for (let i = 0; i < W * H / 60; i++) {    // speckle
+      g.fillStyle = `rgba(${rnd() < 0.5 ? "120,110,96" : "255,255,250"},${0.04 + rnd() * 0.06})`;
+      g.fillRect(rnd() * W, rnd() * H, 1 + rnd(), 1 + rnd());
+    }
+    if (floor) {                               // grime rising from the floor, scuffs at kicking height
+      const f = g.createLinearGradient(0, H, 0, H - 0.6 * ppm);
+      f.addColorStop(0, "rgba(70,55,40,0.28)"); f.addColorStop(1, "rgba(70,55,40,0)");
+      g.fillStyle = f; g.fillRect(0, H - 0.6 * ppm, W, 0.6 * ppm);
+      for (let i = 0; i < wM * 3; i++) {
+        const x = rnd() * W, y = H - (0.1 + rnd() * 0.45) * ppm, l = (0.05 + rnd() * 0.25) * ppm;
+        g.strokeStyle = `rgba(55,45,35,${0.08 + rnd() * 0.12})`; g.lineWidth = 1 + rnd() * 2;
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x + l, y + (rnd() - 0.5) * 6); g.stroke();
+      }
+    }
+    for (let i = 0; i < (streaks ? wM * 0.8 : 0); i++) {       // streaks running down from the top
+      const x = rnd() * W, y0 = ceil ? 0 : rnd() * H * 0.3, l = (0.3 + rnd() * 1.2) * ppm, w = (0.02 + rnd() * 0.05) * ppm;
+      const s = g.createLinearGradient(0, y0, 0, y0 + l);
+      s.addColorStop(0, "rgba(110,95,75,0.10)"); s.addColorStop(1, "rgba(110,95,75,0)");
+      g.fillStyle = s; g.fillRect(x, y0, w, l);
+    }
+    for (let i = 0; i < 3; i++) {              // a few smudges at hand height
+      const x = rnd() * W, y = H - (0.9 + rnd() * 0.8) * ppm, r = (0.05 + rnd() * 0.12) * ppm;
+      const b = g.createRadialGradient(x, y, 0, x, y, r);
+      b.addColorStop(0, "rgba(60,50,40,0.12)"); b.addColorStop(1, "rgba(60,50,40,0)");
+      g.fillStyle = b; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    edgeShade(g, W, H, 0.35 * ppm, 0.22, (floor ? "b" : "") + (ceil ? "t" : "") + sides);
+    canvasCache.set(key, c);
+  }
+  return texture(canvasCache.get(key));
+}
+
+// fine plaster relief, tiled (bump map)
+let plaster = null;
+function plasterBump() {
+  if (!plaster) {
+    const S = 256, [c, g] = canvas(S, S), img = g.createImageData(S, S), rnd = rng(5);
+    for (let i = 0; i < S * S; i++) {
+      const v = 120 + rnd() * 30;
+      img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    g.globalAlpha = 0.5; g.filter = "blur(1px)"; g.drawImage(c, 0, 0); g.filter = "none"; g.globalAlpha = 1;
+    plaster = c;
+  }
+  const t = texture(plaster, false);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
 
 // self-healing cutting mat: 1 cm grid, 5 cm bolder, 10 cm numbered, 45° guides, scale label
 function matTexture(wCm, hCm, scale) {
@@ -238,6 +381,7 @@ export class Backdrops {
         m.geometry.dispose();
         if (m.material.map && m.material.map !== this.wood) m.material.map.dispose();
         m.material.alphaMap?.dispose();
+        m.material.bumpMap?.dispose();
         m.material.dispose();
       });
     }
@@ -315,28 +459,40 @@ export class Backdrops {
       box(0.05, TABLE_H - 0.04, 0.05, sx * (tw / 2 - 0.06), FLOOR + (TABLE_H - 0.04) / 2, sz * (td / 2 - 0.06), legM, false,
         "table_leg");
     }
-    // floor (dark boards), ceiling, plaster walls
-    const boards = this.wood.clone();
-    boards.needsUpdate = true;
-    boards.repeat.set((X1 - X0) / 0.9, (Z1 - Z0) / 0.9);
-    box(X1 - X0, 0.02, Z1 - Z0, cx, FLOOR - 0.01, cz, std({ map: boards, color: 0x8a8580, roughness: 0.7 }), true, "floor");
-    const wallM = std({ color: 0xd9d4cb, roughness: 0.95 });
-    box(X1 - X0, 0.02, Z1 - Z0, cx, CEIL + 0.01, cz, std({ color: 0xe8e5df }), false, "ceiling");
-    box(0.1, H, Z1 - Z0, X1 + 0.05, FLOOR + H / 2, cz, wallM, true, "wall_far");
-    box(X1 - X0, H, 0.1, cx, FLOOR + H / 2, Z0 - 0.05, wallM, true, "wall_near");
-    box(X1 - X0, H, 0.1, cx, FLOOR + H / 2, Z1 + 0.05, wallM, true, "wall_shelves");   // the shelves hang on it
+    // floor: boards drawn for the whole floor, worn in the middle, darker along the walls
+    box(X1 - X0, 0.02, Z1 - Z0, cx, FLOOR - 0.01, cz, std({ map: floorTexture(X1 - X0, Z1 - Z0), roughness: 0.72 }), true, "floor");
+    // ceiling and walls: each its own plaster (uneven paint, grime from the floor, streaks, shaded corners) over a
+    // fine tiled relief
+    let seed = 101;
+    const plasterM = (wM, hM, opts, tint = 0xffffff) => {
+      const bump = plasterBump();
+      bump.repeat.set(wM / 0.7, hM / 0.7);
+      return std({ map: wallTexture(wM, hM, seed++, opts), bumpMap: bump, bumpScale: 0.8, color: tint, roughness: 0.95 });
+    };
+    const fullH = { floor: true, ceil: true };
+    box(X1 - X0, 0.02, Z1 - Z0, cx, CEIL + 0.01, cz,
+      plasterM(X1 - X0, Z1 - Z0, { floor: false, ceil: false, sides: "tblr", streaks: false }, 0xf2efe9), false, "ceiling");
+    box(0.1, H, Z1 - Z0, X1 + 0.05, FLOOR + H / 2, cz, plasterM(Z1 - Z0, H, fullH), true, "wall_far");
+    box(X1 - X0, H, 0.1, cx, FLOOR + H / 2, Z0 - 0.05, plasterM(X1 - X0, H, fullH), true, "wall_near");
+    box(X1 - X0, H, 0.1, cx, FLOOR + H / 2, Z1 + 0.05, plasterM(X1 - X0, H, fullH), true, "wall_shelves");   // the shelves hang on it
     // side wall with a wide window onto space (the Stanton panorama is the scene background, seen through it)
     const xw = X0 - 0.05, wz = (WIN.z0 + WIN.z1) / 2, wy = (WIN.y0 + WIN.y1) / 2, wl = WIN.z1 - WIN.z0;
-    box(0.1, H, WIN.z0 - Z0, xw, FLOOR + H / 2, (Z0 + WIN.z0) / 2, wallM, true, "wall_window");
-    box(0.1, H, Z1 - WIN.z1, xw, FLOOR + H / 2, (WIN.z1 + Z1) / 2, wallM, true, "wall_window");
-    box(0.1, WIN.y0 - FLOOR, wl, xw, (FLOOR + WIN.y0) / 2, wz, wallM, true, "wall_window");
-    box(0.1, CEIL - WIN.y1, wl, xw, (WIN.y1 + CEIL) / 2, wz, wallM, true, "wall_window");
+    box(0.1, H, WIN.z0 - Z0, xw, FLOOR + H / 2, (Z0 + WIN.z0) / 2, plasterM(WIN.z0 - Z0, H, { ...fullH, sides: "l" }), true, "wall_window");
+    box(0.1, H, Z1 - WIN.z1, xw, FLOOR + H / 2, (WIN.z1 + Z1) / 2, plasterM(Z1 - WIN.z1, H, { ...fullH, sides: "r" }), true, "wall_window");
+    box(0.1, WIN.y0 - FLOOR, wl, xw, (FLOOR + WIN.y0) / 2, wz, plasterM(wl, WIN.y0 - FLOOR, { floor: true, ceil: false, sides: "" }), true, "wall_window");
+    box(0.1, CEIL - WIN.y1, wl, xw, (WIN.y1 + CEIL) / 2, wz, plasterM(wl, CEIL - WIN.y1, { floor: false, ceil: true, sides: "" }), true, "wall_window");
     const frameM = std({ color: 0x3a3d42, roughness: 0.4, metalness: 0.7 });
     const fw = 0.06;
     box(0.16, fw, wl + fw, xw, WIN.y0, wz, frameM, true, "window_frame");
     box(0.16, fw, wl + fw, xw, WIN.y1, wz, frameM, true, "window_frame");
     for (const fz of [WIN.z0, wz, WIN.z1]) box(0.16, WIN.y1 - WIN.y0, fw, xw, wy, fz, frameM, true, "window_frame");
     box(0.3, 0.04, wl + 0.2, xw + 0.12, WIN.y0 - 0.02, wz, std({ color: 0xcfc9bf }), true, "window_sill");
+    // skirting boards all round
+    const skirtM = std({ color: 0x4d4741, roughness: 0.6 }), sk = 0.08, st = 0.015;
+    box(X1 - X0, sk, st, cx, FLOOR + sk / 2, Z1 - st / 2, skirtM, true, "skirting");
+    box(X1 - X0, sk, st, cx, FLOOR + sk / 2, Z0 + st / 2, skirtM, true, "skirting");
+    box(st, sk, Z1 - Z0, X1 - st / 2, FLOOR + sk / 2, cz, skirtM, true, "skirting");
+    box(st, sk, Z1 - Z0, X0 + st / 2, FLOOR + sk / 2, cz, skirtM, true, "skirting");
     g.userData.window = new THREE.Vector3(xw - 2, wy + 0.6, wz);   // where the daylight comes from (this.day)
     return g;
   }
