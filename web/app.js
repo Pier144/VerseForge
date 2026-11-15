@@ -272,9 +272,11 @@ for (const proto of [THREE.Texture.prototype, THREE.Material.prototype]) {
   const d = Object.getOwnPropertyDescriptor(proto, "needsUpdate");
   if (d?.set) Object.defineProperty(proto, "needsUpdate", { ...d, set(v) { d.set.call(this, v); if (v) invalidate(); } });
 }
+let holdRender = false;        // true while a model is being sent to the GPU piece by piece (warmUp)
 function tick() {
   const dt = clock.getDelta();
   const now = performance.now();
+  if (holdRender) return;
   let draw = now <= renderUntil || now - lastRender > 1000;
   if (anim.mixer) {
     const running = anim.dragging || anim.mixer._actions.some((a) => a.isRunning());
@@ -320,6 +322,66 @@ function frame() {
   controls.target.copy(center);
   controls.update();
   placeSun(center, radius);
+}
+
+// Send a model's geometry, textures and shaders to the GPU a few pieces at a time before its first real frame: the
+// first frame of a big interior used to do it all at once and froze the page for 1-2 s. Each piece is drawn on its
+// own into a 1x1 corner of the canvas (layer 31, lights included): the same canvas and the same tone mapping as a real
+// frame, so exactly the shaders the real frames will use get built. With shadows on, each piece also goes through
+// the shadow pass alone (the lights' shadow cameras look at layer 31 only), which builds the shadow shaders three.js
+// makes internally; the real shadow map is redrawn whole afterwards. Normal frames are held meanwhile.
+const WARM_LAYER = 31;
+async function warmUp(root, cancelled) {
+  const meshes = [];
+  root.traverse((o) => { if (o.isMesh && o.visible) meshes.push(o); });
+  if (meshes.length < 2) return;
+  const cam = camera.clone();
+  cam.layers.set(WARM_LAYER);
+  const lights = [], shadowCams = [];
+  scene.traverse((o) => {
+    if (!o.isLight) return;
+    if (!o.layers.isEnabled(WARM_LAYER)) { o.layers.enable(WARM_LAYER); lights.push(o); }
+    if (o.castShadow && o.shadow?.camera) { shadowCams.push([o.shadow.camera, o.shadow.camera.layers.mask]); o.shadow.camera.layers.set(WARM_LAYER); }
+  });
+  const shadows = renderer.shadowMap.enabled && shadowCams.length > 0;
+  const bg = scene.background;
+  const vp = renderer.getViewport(new THREE.Vector4()), sc = renderer.getScissor(new THREE.Vector4());
+  const scTest = renderer.getScissorTest(), autoClear = renderer.autoClear;
+  holdRender = true;
+  const shadowWanted = renderer.shadowMap.needsUpdate;
+  try {
+    scene.background = null;                     // nothing else to draw in the warm-up passes
+    renderer.autoClear = false;
+    renderer.setViewport(0, 0, 1, 1);
+    renderer.setScissor(0, 0, 1, 1);
+    renderer.setScissorTest(true);
+    let i = 0;
+    while (i < meshes.length && !cancelled()) {
+      const t0 = performance.now();
+      while (i < meshes.length && performance.now() - t0 < 12) {
+        const m = meshes[i++];
+        const culled = m.frustumCulled;
+        m.frustumCulled = false;
+        m.layers.enable(WARM_LAYER);
+        renderer.shadowMap.needsUpdate = shadows;      // this piece alone in the shadow pass
+        renderer.render(scene, cam);
+        m.layers.disable(WARM_LAYER);
+        m.frustumCulled = culled;
+      }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  } finally {
+    renderer.setViewport(vp);
+    renderer.setScissor(sc);
+    renderer.setScissorTest(scTest);
+    renderer.autoClear = autoClear;
+    for (const l of lights) l.layers.disable(WARM_LAYER);
+    for (const [c, mask] of shadowCams) c.layers.mask = mask;
+    scene.background = bg;
+    renderer.shadowMap.needsUpdate = shadowWanted || shadows || renderer.shadowMap.needsUpdate;
+    holdRender = false;
+    invalidate();
+  }
 }
 
 // the backdrop's floor goes under the model as it stands now (a full ship has its landing gear down by then)
@@ -460,7 +522,15 @@ async function loadModel(item, keepView = false) {
     progress(70, T("loadScene"));
     const gltf = await new GLTFLoader().parseAsync(buf, "");
     if (state.current !== item) return;
-    gltf.scene.traverse((o) => { if (o.isMesh && !o.geometry.attributes.normal) vertexNormals(o.geometry); });
+    // normals of the lite GLB, computed mesh by mesh with breaks so the page keeps breathing on big interiors
+    const noNormals = [];
+    gltf.scene.traverse((o) => { if (o.isMesh && !o.geometry.attributes.normal) noNormals.push(o.geometry); });
+    let slice = performance.now();
+    for (const g of noNormals) {
+      vertexNormals(g);
+      if (performance.now() - slice > 12) { await new Promise((r) => setTimeout(r, 0)); slice = performance.now(); }
+    }
+    if (state.current !== item) return;
     progress(75, T("loadScene"));
     stopAnimations();
     ammoScreen?.dispose();
@@ -494,6 +564,8 @@ async function loadModel(item, keepView = false) {
     try { await renderer.compileAsync(modelRoot, camera, scene); } catch { /* compiled at the first frame instead */ }
     if (state.current !== item) return;
     scene.add(modelRoot);
+    await warmUp(modelRoot, () => state.current !== item);
+    if (state.current !== item) return;
     anim.clips = new Map(gltf.animations.map((c) => [c.name, c]));
     anim.mixer = gltf.animations.length ? new THREE.AnimationMixer(modelRoot) : null;
     const screens = [];

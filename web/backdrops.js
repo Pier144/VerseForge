@@ -151,6 +151,11 @@ export class Backdrops {
     this.group = new THREE.Group();
     this.group.name = "__backdrop__";
     scene.add(this.group);
+    // the workshop's daylight from the window. It always stays in the scene (off when not needed): adding or removing
+    // a light changes every shader of the model and had them all recompiled, a 1-2 s stall on big ships
+    this.day = new THREE.DirectionalLight(0xc8d8ff, 0);
+    this.day.name = "__window_light__";
+    scene.add(this.day, this.day.target);
     this.pano = {};          // name -> equirect texture
     this.wood = null;
     this.box = null;
@@ -202,6 +207,7 @@ export class Backdrops {
         m.material.dispose();
       });
     }
+    this.day.intensity = 0;
     if (!box || box.isEmpty() || !this.hasGround) return;
     const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
     const y = box.min.y - Math.max(size.y, 0.001) * 0.002;   // a hair below the landing gear / feet
@@ -234,6 +240,11 @@ export class Backdrops {
     room.scale.setScalar(scale);
     room.position.set(c.x, y, c.z);
     this.group.add(room);
+    room.updateMatrixWorld(true);
+    this.day.position.copy(room.localToWorld(room.userData.window.clone()));
+    this.day.target.position.copy(room.localToWorld(new THREE.Vector3(0, 0, 0)));
+    this.day.target.updateMatrixWorld();
+    this.day.intensity = 0.7;
     this.furnish(room, this.generation);
   }
 
@@ -289,11 +300,7 @@ export class Backdrops {
     box(WIN.x1 - WIN.x0 + fw, fw, 0.16, wx, WIN.y1, zw, frameM);
     for (const fx of [WIN.x0, wx, WIN.x1]) box(fw, WIN.y1 - WIN.y0, 0.16, fx, wy, zw, frameM);
     box(WIN.x1 - WIN.x0 + 0.2, 0.04, 0.3, wx, WIN.y0 - 0.02, zw - 0.12, std({ color: 0xcfc9bf }));   // sill
-    // daylight from the window (cool, no shadows) and a soft ceiling light
-    const day = new THREE.DirectionalLight(0xc8d8ff, 0.7);
-    day.position.set(wx, wy + 0.6, zw + 2);
-    day.target.position.set(0, 0, 0);
-    g.add(day, day.target);
+    g.userData.window = new THREE.Vector3(wx, wy + 0.6, zw + 2);   // where the daylight comes from (this.day)
     return g;
   }
 

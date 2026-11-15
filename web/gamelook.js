@@ -438,9 +438,13 @@ void main() {
     const defs = [objGloss && "GAME_OBJ_GLOSS", hal && "GAME_HAL", m.userData.detailNormal && "GAME_DETAIL_NORMAL",
       flip && "GAME_SWAP_XY", stencil && "GAME_STENCIL", stencilUv2 && "GAME_STENCIL_UV2",
       normalDefine(m.normalMap, "GAME_N"), normalDefine(m.userData.detailNormal, "GAME_DN")].filter(Boolean);
+    // the defines live on the material from the start: adding them inside onBeforeCompile wrote into
+    // material.defines (three.js passes that very object), so the program key changed after the first compile and
+    // every material was compiled a second time at the next update (the 1-2 s stall when a big interior appeared)
+    m.defines = { ...(m.defines || {}) };
+    for (const d of defs) m.defines[d] = "";
     m.onBeforeCompile = (s) => {
       Object.assign(s.uniforms, u);
-      for (const d of defs) s.defines[d] = "";
       s.vertexShader = s.vertexShader
         .replace("#include <uv_pars_vertex>", `#include <uv_pars_vertex>
 varying vec2 vGameUv;
