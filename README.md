@@ -22,7 +22,8 @@ It never modifies the game files and downloads nothing: the archive is opened re
 > files, models or textures**: you need your own installed copy of Star Citizen.
 
 The demo videos (`01_search_and_view.mp4`: search, viewer, ships, materials; `02_export_and_print.mp4`:
-GLB/OBJ/STL export, STL for 3D printing, settings) are attached to the [Release](../../releases).
+GLB/OBJ/STL export, STL for 3D printing, settings) are attached to the [latest release](../../releases/latest); they
+were recorded with version 1.3, so the interface has changed a little since.
 They are regenerated in `docs/video/` with `python tools/record_video.py` while the app is running: the script drives
 Edge/Chrome in headless mode and compresses to H.264 with the Windows transcoder (`tools/compress_video.ps1`).
 
@@ -78,13 +79,14 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   the holographic HUDs; *Proxy* shows what the game never draws (collision shapes, shields, placeholders).
 - **Backdrop** (toolbar): plain (default or inverted); *Pyro nebula* and *Stanton · Crusader*, 360° space panoramas
   made from the game's own sky textures (the Pyro skybox, Stanton's nebula layers and the gas giant Crusader); a
-  *Modelling workshop*: a room with a table, a cutting mat with a centimetre grid, tools and furniture taken from the
-  game (desk lamp, toolboxes, drill, tool chest, shelves) and a window onto Stanton's sky. The model stands on the mat
+  *Modelling workshop*: a lived-in room with a table, a cutting mat with a centimetre grid and props taken from the
+  game (desk lamp, toolboxes, drill, tool chest); behind the table a wall of shelves holds paints, spray cans, tools,
+  action figures and ship miniatures, and a window in the side wall looks onto Stanton's sky. The model stands on the mat
   as a scale model (1:72, 1:144… so a ship is 20-40 cm long; weapons and armour at real size, the scale is printed on
   the mat); a seamless
   *Photo studio* floor. Each backdrop sets its own light and shadows, and snapshots include it.
 - **Cache** (Settings → Cache): models and textures already opened are kept on disk, so they open again much faster
-  (a ship with its interior: about 10 s the first time, under a second afterwards). Up to 10 GB, least recently
+  (a ship with its interior: about 5-8 s the first time, under a second afterwards). Up to 10 GB, least recently
   used files are removed first; a new game patch or program version starts a fresh cache. The switch turns it off,
   *Clear* empties it.
 - **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows Windows
