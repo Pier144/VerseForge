@@ -188,6 +188,11 @@ class TextureCache:
         self._bytes = 0
         self._lock = threading.Lock()
 
+    @property
+    def bytes(self):
+        """Decoded pixels held now (the budget counts these)."""
+        return self._bytes
+
     @staticmethod
     def _cost(value):
         imgs = value if isinstance(value, tuple) else (value,)

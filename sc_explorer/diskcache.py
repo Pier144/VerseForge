@@ -67,8 +67,9 @@ class DiskCache:
             return None
 
     def put(self, kind, key, ext, data):
+        """Store bytes; True when they are on disk now (False: cache off, or the write failed)."""
         if not self.enabled or not self.dir or not data:
-            return
+            return False
         p = self._path(kind, key, ext)
         try:
             os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -78,12 +79,13 @@ class DiskCache:
             old = os.path.getsize(p) if os.path.exists(p) else 0
             os.replace(tmp, p)
         except OSError:
-            return
+            return False
         with self._lock:
             self.size += len(data) - old
             over = self.size > self.limit
         if over:
             self._evict()
+        return os.path.exists(p)        # an eviction may have taken it already
 
     def _evict(self):
         """Remove the least recently used files down to 85 % of the limit."""
