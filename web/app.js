@@ -1,13 +1,17 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { AmmoScreen, isFire, isReload } from "./screen.js";
+import { vertexNormals } from "./normals.js";
 import { GameLook } from "./gamelook.js";
 import { hangarTexture } from "./hangar.js";
 import { Backdrops, BACKDROPS } from "./backdrops.js";
 
 const $ = (s) => document.querySelector(s);
+// the viewer GLB comes quantized and meshopt-compressed (sc_explorer/glb_pack.py)
+const gltfLoader = () => new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 const api = async (url, opts) => {
   const r = await fetch(url, opts);
   if (!r.ok) {
@@ -203,10 +207,10 @@ backdrop.loadProp = (path) => {
         api(`/api/model/info?${q}`).then((r) => r.json()),
         api(`/api/model/glb?${q}&anim=false&lite=true`).then((r) => r.arrayBuffer()),
       ]);
-      const root = (await new GLTFLoader().parseAsync(buf, "")).scene;
+      const root = (await gltfLoader().parseAsync(buf, "")).scene;
       root.traverse((o) => {
         if (!o.isMesh) return;
-        if (!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+        if (!o.geometry.attributes.normal) vertexNormals(o.geometry);
         o.visible = !["hidden", "screen"].includes(meshKind(o));     // collision proxies and dead screens
         if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
       });
@@ -453,9 +457,9 @@ async function loadModel(item, keepView = false) {
     });
     if (state.current !== item) return;
     progress(70, T("loadScene"));
-    const gltf = await new GLTFLoader().parseAsync(buf, "");
+    const gltf = await gltfLoader().parseAsync(buf, "");
     if (state.current !== item) return;
-    gltf.scene.traverse((o) => { if (o.isMesh && !o.geometry.attributes.normal) o.geometry.computeVertexNormals(); });
+    gltf.scene.traverse((o) => { if (o.isMesh && !o.geometry.attributes.normal) vertexNormals(o.geometry); });
     progress(75, T("loadScene"));
     stopAnimations();
     ammoScreen?.dispose();

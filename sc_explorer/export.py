@@ -8,7 +8,7 @@ import numpy as np
 import trimesh
 from PIL import Image
 
-from . import materials
+from . import glb_pack, materials
 
 # CryEngine is Z-up/Y-forward; glTF and OBJ are Y-up.
 Z_UP_TO_Y_UP = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], np.float64)
@@ -204,7 +204,8 @@ def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=Non
         node = f"{mat.kind}|{mat.name}|{i}"
         scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, uv2=uv2, lite=lite), node_name=node,
                            geom_name=node)
-    return scene.export(file_type="glb", include_normals=not lite)
+    glb = scene.export(file_type="glb", include_normals=not lite)
+    return glb_pack.pack(glb) if lite else glb
 
 
 ROOT_NODE = "__root__"
@@ -269,7 +270,8 @@ def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False):
                                node_name=node,
                                geom_name=node, parent_node_name=frame)
     glb = scene.export(file_type="glb", include_normals=not lite)
-    return anim_glb.add_animations(glb, [(n, c, {h: v for h, v in t.items() if v in kept}) for n, c, t in sources])
+    glb = anim_glb.add_animations(glb, [(n, c, {h: v for h, v in t.items() if v in kept}) for n, c, t in sources])
+    return glb_pack.pack(glb) if lite else glb
 
 
 def _safe(name):
