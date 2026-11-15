@@ -195,6 +195,7 @@ try { backdrop.kind = BACKDROPS.includes(localStorage.getItem("vf.bg")) ? localS
 // game props of the workshop backdrop: loaded once per session, with their own game-look textures (kept when the
 // model changes, unlike the model's)
 const propLook = new GameLook(renderer);
+propLook.onChange = () => invalidate(100);
 const propCache = new Map();
 backdrop.loadProp = (path) => {
   if (!propCache.has(path)) {
@@ -258,7 +259,7 @@ const clock = new THREE.Clock();
 let ammoScreen = null;   // weapon display drawn on its DisplayScreen (screen.js)
 window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; },
   camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting,
-  get backdrop() { return backdrop; }, stats, invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
+  get backdrop() { return backdrop; }, get look() { return gameLook; }, stats, invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
 // Render on demand: a frame is drawn only when something changed (camera moving or settling, an animation or the
 // auto-rotate running, a texture/material update, a shadow redraw request, an explicit invalidate()), plus once a
 // second as a safety net. A still model leaves the GPU idle instead of redrawing it 60 times a second.
@@ -471,6 +472,7 @@ async function loadModel(item, keepView = false) {
     gameLook.onProgress = (done, total) => {
       if (state.current === item && total) progress(75 + 25 * done / total, T("loadTextures", { done, total }));
     };
+    gameLook.onChange = () => invalidate(100);   // a full-size texture took the place of its small copy
     if (state.tex && state.look) await gameLook.apply(modelRoot, info.shading, { swapNormalXY: state.swapXY, sun });
     if (state.current !== item) return;
     modelRoot.traverse((o) => {
