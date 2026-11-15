@@ -15,7 +15,11 @@ def main():
     ap = argparse.ArgumentParser(description="VerseForge")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true", help="do not open the browser")
+    ap.add_argument("--no-disk-cache", action="store_true",
+                    help="do not read or write the disk cache (benchmarks; several servers side by side)")
     args = ap.parse_args()
+    if args.no_disk_cache:
+        os.environ["VERSEFORGE_DISK_CACHE"] = "0"
     url = f"http://127.0.0.1:{args.port}/"
 
     try:

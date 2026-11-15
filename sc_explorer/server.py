@@ -62,7 +62,10 @@ class State:
         self.jobs = {}
         self.update = None                # last answer from GitHub (checked at most once an hour)
         self.disk = diskcache.DiskCache(CACHE_DIR)   # built models and textures kept on disk (diskcache.py)
-        self.disk.enabled = bool(self.cfg.get("disk_cache", True))
+        # VERSEFORGE_DISK_CACHE=0 (start.py --no-disk-cache): off for this process whatever the setting says, and the
+        # shared cache folder is left alone (benchmarks, several dev servers side by side)
+        self.disk_forced_off = os.environ.get("VERSEFORGE_DISK_CACHE") == "0"
+        self.disk.enabled = bool(self.cfg.get("disk_cache", True)) and not self.disk_forced_off
         self.update_time = 0.0
 
     def load(self):
@@ -90,7 +93,8 @@ class State:
             items = catalog.build(arch, names)
             self.archive, self.items = arch, items
             self.textures = textures.TextureCache(arch)
-            self.disk.bind(__version__, path)
+            if not self.disk_forced_off:
+                self.disk.bind(__version__, path)
             self.by_path = {it.path.lower(): it for it in items}
             self.models.clear()
             self.status = {"ready": True, "message": ("models_ready", {"n": len(items)}), "progress": 1.0, "error": None}
@@ -515,7 +519,8 @@ def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", appe
     if check_updates in ("true", "false"):
         state.cfg["check_updates"] = check_updates == "true"
     if disk_cache in ("true", "false"):
-        state.cfg["disk_cache"] = state.disk.enabled = disk_cache == "true"
+        state.cfg["disk_cache"] = disk_cache == "true"
+        state.disk.enabled = state.cfg["disk_cache"] and not state.disk_forced_off
     if p4k_path:
         state.cfg["p4k_path"] = p4k_path
     if export_dir:
