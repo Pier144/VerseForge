@@ -337,7 +337,7 @@ def _is_mark(px):
 def start_app(port, exe, extra=()):
     env = dict(os.environ, QTWEBENGINE_REMOTE_DEBUGGING=str(port))
     env.update(kv.split("=", 1) for kv in extra)
-    cmd = [exe] if exe else [sys.executable, os.path.join(HERE, "verseforge_app.py")]
+    cmd = [os.path.abspath(exe)] if exe else [sys.executable, os.path.join(HERE, "verseforge_app.py")]
     proc = subprocess.Popen(cmd, cwd=HERE, env=env)
     for _ in range(600):
         try:
