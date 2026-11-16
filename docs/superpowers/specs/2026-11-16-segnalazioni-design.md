@@ -47,7 +47,7 @@ lo controlla, sostituisce il segnaposto dell'immagine e lo pubblica.
 | campo | regole |
 |---|---|
 | `kind` | `"bug"` o `"idea"` (decide l'etichetta: `bug` o `enhancement`) |
-| `title` | 5–130 caratteri, già con il prefisso `[Bug] ` / `[Idea] ` messo da B |
+| `title` | al massimo 130 caratteri, già con il prefisso `[Bug] ` / `[Idea] ` messo da B; dopo il prefisso almeno 4 caratteri che non siano spazi |
 | `body` | 10–20000 caratteri, Markdown costruito da B |
 | `version` | forma `1.2.3`, obbligatorio |
 | `screenshot` | JPEG in base64, facoltativo, ≤ 2 MB decodificato, deve iniziare con i byte `FF D8 FF` |
@@ -129,8 +129,8 @@ Funzioni (argomenti espliciti, niente stato globale):
 - `remember(cfg, number, title)` / `mine(cfg)`: elenco in `config.json` → `reports: [{number, title, date}]`
   (ultime 50).
 - `statuses(numbers)`: `GET api.github.com/repos/Pier144/VerseForge/issues/{n}` senza token per le 20 più recenti,
-  risultato in memoria 5 minuti. 404 e 410 → "Removed"; se GitHub rimanda a un'altra issue (trasferita, 301
-  seguito da `urllib`) si usa l'`html_url` della risposta. Si chiede solo quando l'utente apre "My reports", così
+  risultato in memoria 5 minuti. 404 e 410 → "Removed"; per un'issue trasferita (301, seguito da `urllib`) si
+  ha lo stato dell'issue spostata; il link resta su `issues/<n>` di VerseForge, che GitHub reindirizza. Si chiede solo quando l'utente apre "My reports", così
   non consuma il limite pubblico (60 richieste/ora per IP) che serve al controllo degli aggiornamenti; se il
   limite è finito si mostra l'elenco senza stato e "Status unavailable right now".
 
