@@ -17,3 +17,5 @@ docs/video/
 docs/flash-check/
 # Linux port checks (screenshots from WSL), local only
 docs/linux-check/
+# resin look checks, local only
+docs/resin-check/

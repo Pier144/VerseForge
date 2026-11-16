@@ -472,6 +472,12 @@ dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(6px); }
 .sw-stanton { background: radial-gradient(circle at 68% 50%, #b9c3d6 0 22%, transparent 24%), radial-gradient(circle at 35% 55%, #2f7a72 0, #0c2224 50%, #03070a 85%); }
 .sw-bench { background: linear-gradient(#2f6e57, #2f6e57) 4px 3px / 14px 10px no-repeat, #7a5233; }
 .sw-studio { background: linear-gradient(#9aa0a8, #d4d8dd); }
+.sw-resin-grey { background: linear-gradient(135deg, #b4b8bb, #6f7477); }
+.sw-resin-white { background: linear-gradient(135deg, #f4f2ec, #c9c6be); }
+.sw-resin-black { background: linear-gradient(135deg, #4a4d52, #15171a); }
+.sw-resin-clear { background: linear-gradient(135deg, rgba(255,246,214,.85), rgba(222,196,140,.45)); }
+.bg-note { padding: 6px 9px 4px; max-width: 220px; font-size: 11px; line-height: 1.35; color: var(--muted); }
+.bg-note:empty { display: none; }
 
 /* deck buttons next to the section slider */
 .decks { display: flex; gap: 3px; padding-left: 8px; border-left: 1px solid var(--divider); }

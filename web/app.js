@@ -462,7 +462,8 @@ function applyVisibility() {
   modelRoot.traverse((o) => {
     if (!o.isMesh) return;
     const kind = meshKind(o);
-    const kindOn = kind === "solid" ? true : state.kinds[kind] ?? true;
+    let kindOn = kind === "solid" ? true : state.kinds[kind] ?? true;
+    if (resin !== "off" && kind !== "solid" && kind !== "glass") kindOn = false;   // decals, screens: not printed
     o.visible = kindOn && !state.matOff.has(meshMat(o));
   });
 }
@@ -470,6 +471,80 @@ function applyVisibility() {
 function applyWireframe() {
   invalidate();
   modelRoot?.traverse((o) => { if (o.isMesh) o.material.wireframe = wireframe; });
+}
+
+// ---------------------------------------------------------------- resin print look
+// The model as it comes off a resin printer: one colour, satin surface, no paint, decals or screens, and the print
+// layers (0.05 mm) along the height, visible only up close like on a real print. Small items (weapons, armour,
+// props) are taken as printed 1:1; anything longer than 2.5 m as scaled down to 200 mm on its longest side.
+const RESIN = {
+  grey: { color: 0x8c9194, roughness: 0.42, clearcoat: 0.2 },
+  white: { color: 0xe4e1d9, roughness: 0.46, clearcoat: 0.15 },
+  black: { color: 0x1d1f22, roughness: 0.36, clearcoat: 0.35 },
+  clear: { color: 0xf6edd6, roughness: 0.06, clearcoat: 0.6, transmission: 0.95, thickness: 0.15, ior: 1.5 },
+};
+const RESIN_LAYER_MM = 0.05, RESIN_PLATE_MM = 200, RESIN_LIFE_SIZE_M = 2.5;
+const resinLayer = { value: 0.001 };                 // layer height in model units (metres), set per model
+const resinMats = {};
+let resin = "off";
+try { resin = localStorage.getItem("vf.resin") || "off"; } catch { /* storage unavailable */ }
+if (!(resin in RESIN)) resin = "off";
+
+function resinMaterial(kind) {
+  if (resinMats[kind]) return resinMats[kind];
+  const p = RESIN[kind];
+  const m = new THREE.MeshPhysicalMaterial({ color: p.color, roughness: p.roughness, metalness: 0, clearcoat: p.clearcoat,
+    clearcoatRoughness: 0.3, transmission: p.transmission || 0, thickness: p.thickness || 0, ior: p.ior || 1.5,
+    side: THREE.DoubleSide, envMapIntensity: 0.8 });
+  m.name = `resin|${kind}`;
+  m.onBeforeCompile = (s) => {
+    s.uniforms.resinLayer = resinLayer;
+    s.vertexShader = s.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying float vResinY;")
+      .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvResinY = (modelMatrix * vec4(transformed, 1.0)).y;");
+    s.fragmentShader = s.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vResinY;\nuniform float resinLayer;")
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+  {
+    // one ridge per layer; faded out where a layer is smaller than a pixel (no shimmering from afar)
+    float t = vResinY / resinLayer;
+    float fade = 1.0 - smoothstep(0.15, 0.45, fwidth(t));
+    float slope = cos(6.2831853 * t) * fade;
+    vec3 up = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+    normal = normalize(normal + up * slope * 0.35);
+    diffuseColor.rgb *= 1.0 - 0.05 * fade * (0.5 + 0.5 * sin(6.2831853 * t));
+  }`);
+  };
+  m.customProgramCacheKey = () => "resin";
+  return (resinMats[kind] = m);
+}
+
+function applyResin() {
+  invalidate(300);
+  document.querySelectorAll("#resinMenu [data-resin]").forEach((b) => b.classList.toggle("on", b.dataset.resin === resin));
+  $('[data-act="resin"]')?.classList.toggle("on", resin !== "off");
+  if (!modelRoot) { $("#resinScale").textContent = ""; return; }
+  const size = new THREE.Box3().setFromObject(modelRoot).getSize(new THREE.Vector3());
+  const longest = Math.max(size.x, size.y, size.z, 1e-6);
+  const scale = longest <= RESIN_LIFE_SIZE_M ? 1 : longest * 1000 / RESIN_PLATE_MM;   // model mm per printed mm
+  resinLayer.value = RESIN_LAYER_MM * scale / 1000;
+  $("#resinScale").textContent = resin === "off" ? "" : scale === 1
+    ? `Printed life size (1:1), ${RESIN_LAYER_MM} mm layers.`
+    : `Printed at 1:${Math.round(scale)} (${RESIN_PLATE_MM} mm long), ${RESIN_LAYER_MM} mm layers.`;
+  const mat = resin === "off" ? null : resinMaterial(resin);
+  modelRoot.traverse((o) => {
+    if (!o.isMesh) return;
+    if (mat) {
+      if (!o.userData.gameMaterial) o.userData.gameMaterial = o.material;
+      o.material = mat;
+    } else if (o.userData.gameMaterial) {
+      o.material = o.userData.gameMaterial;
+      delete o.userData.gameMaterial;
+    }
+  });
+  applyWireframe();
+  applyVisibility();
+  renderer.shadowMap.needsUpdate = true;
 }
 
 // loading overlay: pct null = indeterminate bar (waiting for the server), else 0-100
@@ -550,7 +625,7 @@ async function loadModel(item, keepView = false) {
     ammoScreen = null;
     if (modelRoot) {
       scene.remove(modelRoot);
-      modelRoot.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+      modelRoot.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); (o.userData.gameMaterial || o.material).dispose(); } });
     }
     modelRoot = gltf.scene;
     gameLook.dispose();
@@ -592,6 +667,7 @@ async function loadModel(item, keepView = false) {
     if (screens.length && info.ammo) ammoScreen = new AmmoScreen(screens, info.ammo, info.screen);
     applyWireframe();
     applyVisibility();
+    if (resin !== "off") applyResin();
     buildGrid(new THREE.Box3().setFromObject(modelRoot));
     renderer.shadowMap.needsUpdate = true;
     if (!keepView) frame();
@@ -666,7 +742,8 @@ function showMaterials() {
     if (!o.isMesh) return;
     const name = meshMat(o);
     // shader materials (POM decal overlays) have no .color: they keep the GLB colour in userData.swatch
-    const c = o.material.color || o.material.userData?.swatch;
+    const m0 = o.userData.gameMaterial || o.material;     // the game material, also while the resin look is on
+    const c = m0.color || m0.userData?.swatch;
     if (!mats.has(name)) mats.set(name, { kind: meshKind(o), color: c ? c.getHexString() : "888888" });
   });
   const ul = $("#mats");
@@ -857,9 +934,17 @@ document.querySelectorAll("#bgMenu [data-bg]").forEach((b) => b.addEventListener
     await backdrop.set("plain");
   }
 }));
+document.querySelectorAll("#resinMenu [data-resin]").forEach((b) => b.addEventListener("click", () => {
+  $("#resinMenu").classList.add("hidden");
+  resin = b.dataset.resin;
+  try { localStorage.setItem("vf.resin", resin); } catch { /* storage unavailable */ }
+  applyResin();
+}));
 document.addEventListener("pointerdown", (e) => {
-  if (!e.target.closest(".bg-wrap")) $("#bgMenu").classList.add("hidden");
+  if (!e.target.closest("#bgMenu, [data-act=\"bg\"]")) $("#bgMenu").classList.add("hidden");
+  if (!e.target.closest("#resinMenu, [data-act=\"resin\"]")) $("#resinMenu").classList.add("hidden");
 });
+applyResin();
 // the space panoramas come from the game files: a saved one is put back once the catalogue is ready (pollStatus)
 const savedBackdrop = backdrop.kind;
 backdrop.set(["pyro", "stanton", "workbench"].includes(savedBackdrop) ? "plain" : savedBackdrop);
@@ -875,6 +960,7 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
     setLighting(state.light);
   }
   if (a === "bg") $("#bgMenu").classList.toggle("hidden");
+  if (a === "resin") $("#resinMenu").classList.toggle("hidden");
   if (a === "shot") {
     const link = document.createElement("a");
     link.download = `${(state.current?.path.split("/").pop() || "model").replace(/\.\w+$/, "")}.png`;
