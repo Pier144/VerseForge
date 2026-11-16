@@ -43,6 +43,21 @@ const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: t
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
 try { state.light = localStorage.getItem("vf.light") === "studio" ? "studio" : "hangar"; } catch { /* storage unavailable */ }
 
+// On/off switches and the viewer's pills are drawn from an "is-on" class kept in step with their checkbox, not from
+// `:checked`: the Chromium of the Windows desktop window sometimes kept the old `:checked` style after a click ("Main
+// models" stayed drawn on while the list already showed every file). Code that sets `.checked` directly is covered too.
+const checkedProp = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked");
+document.querySelectorAll(".switch input[type=checkbox], .pill input[type=checkbox]").forEach((box) => {
+  const sync = () => box.closest(".switch, .pill").classList.toggle("is-on", checkedProp.get.call(box));
+  Object.defineProperty(box, "checked", {
+    configurable: true,
+    get() { return checkedProp.get.call(box); },
+    set(v) { checkedProp.set.call(box, v); sync(); },
+  });
+  box.addEventListener("change", sync);
+  sync();
+});
+
 // ---------------------------------------------------------------- dropdown
 // Drawn by the page instead of the native <select> popup: Chromium (and Qt WebEngine) left the rows the mouse
 // had passed over highlighted. The <select> stays underneath, invisible, so its value and "change" event work as before.
