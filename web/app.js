@@ -231,6 +231,12 @@ document.querySelector('[data-act="light"]')?.classList.toggle("on", state.light
 // render on demand (see the render loop below): frames are drawn until `renderUntil`
 let renderUntil = 0;           // keep drawing until this time (ms)
 let lastRender = 0;
+// After anything changed, frames go on for a while before the loop goes idle. In the desktop app (Qt WebEngine) a
+// frame composed while the GPU is busy can reach the window half drawn (3D view without the panels, which Chromium
+// draws last); it stays on screen until the next frame, i.e. up to the 1 s safety frame when nothing else draws.
+// Drawing on for 2 s replaces it within a frame (tools/flash_check.py: 9 flashes in 2 Perseus rounds -> 0).
+const RENDER_TAIL = 2000;
+let tailUntil = 0;
 const stats = { frames: 0 };   // frames actually drawn (for checks: __verseforge.stats)
 function invalidate(ms = 0) { renderUntil = Math.max(renderUntil, performance.now() + ms); }
 
@@ -278,7 +284,7 @@ function tick() {
   const dt = clock.getDelta();
   const now = performance.now();
   if (holdRender) return;
-  let draw = now <= renderUntil || now - lastRender > 1000;
+  let draw = now <= renderUntil;
   if (anim.mixer) {
     const running = anim.dragging || anim.mixer._actions.some((a) => a.isRunning());
     if (running || now <= renderUntil) {
@@ -292,7 +298,8 @@ function tick() {
   }
   if (controls.update()) draw = true;          // true while the camera moves (dragging, damping, auto-rotate)
   if (controls.autoRotate || renderer.shadowMap.needsUpdate) draw = true;
-  if (!draw) return;
+  if (draw) tailUntil = now + RENDER_TAIL;     // something changed: keep drawing for a while after it
+  else if (now > tailUntil && now - lastRender <= 1000) return;
   renderer.render(scene, camera);
   lastRender = now;
   stats.frames++;

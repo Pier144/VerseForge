@@ -13,3 +13,5 @@ build_log.txt
 .claude/
 # demo videos (~75 MB): attached to the GitHub Release instead of the repository
 docs/video/
+# flash checks (tools/flash_check.py): reports and frames, local only
+docs/flash-check/
