@@ -38,9 +38,20 @@ a = Analysis(["verseforge_app.py"], pathex=["."], binaries=binaries, datas=datas
              excludes=excludes, noarchive=False)
 
 
+# Linux: libraries every desktop already has, which must come from the system. The graphics drivers (Mesa, Nvidia)
+# are loaded from the system and need its own C++ runtime, GBM, DRM and X11/Wayland libraries: older copies from the
+# build machine (Ubuntu 22.04) made the GPU fail to start on newer systems (no 3D view).
+LINUX_SYSTEM_LIBS = ("libstdc++.so", "libgcc_s.so", "libgbm.so", "libdrm.so", "libdrm_", "libgl.so", "libglx",
+                     "libegl", "libgldispatch", "libopengl", "libglapi", "libwayland-", "libx11.so", "libx11-xcb.so",
+                     "libxcb.so", "libxext.so", "libxau.so", "libxdmcp.so", "libxshmfence", "libfontconfig.so",
+                     "libfreetype.so", "libexpat.so", "libasound.so", "libvulkan.so")
+
+
 def _keep(dest):
     """Drop Qt files VerseForge never uses (~170 MB): debug paks, devtools, QML, translations (English only)."""
     d = dest.replace("\\", "/").lower()
+    if not WINDOWS and "/" not in d and d.startswith(LINUX_SYSTEM_LIBS):
+        return False
     if "pyside6/" not in d:
         return True
     name = d.rsplit("/", 1)[-1]
