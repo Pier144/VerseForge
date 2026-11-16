@@ -126,3 +126,96 @@ def test_diagnostics_with_log(tmp_path):
 def test_diagnostics_without_log(tmp_path):
     d = reports.diagnostics("1.14.0", log_path=str(tmp_path / "missing.log"))
     assert "log lines" not in d and "Model:" not in d and "GPU:" not in d
+
+
+@pytest.fixture
+def fake():
+    """Local HTTP server answering with the status and JSON set by the test; it records every request."""
+    box = {"status": 201, "body": {"number": 42, "url": "x"}, "seen": []}
+
+    class Handler(BaseHTTPRequestHandler):
+        def _answer(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            box["seen"].append({"path": self.path, "headers": dict(self.headers), "body": self.rfile.read(n)})
+            status, body = box["status"], box["body"]
+            if callable(status):
+                status, body = status(self.path)
+            data = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        do_GET = do_POST = _answer
+
+        def log_message(self, *args):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    box["url"] = f"http://127.0.0.1:{srv.server_address[1]}"
+    yield box
+    srv.shutdown()
+
+
+def _short():
+    return reports.compose("bug", "Title here", "Some text here", "", False, "1.0.0")
+
+
+def test_send_ok(fake):
+    c = reports.compose("bug", "Title here", "Some text here", "", True, "1.14.0")
+    out = reports.send(c, "bug", "/9j/AAAA", version="1.14.0", url=fake["url"] + "/api/report")
+    assert out == {"number": 42, "url": "https://github.com/Pier144/VerseForge/issues/42"}
+    req = fake["seen"][0]
+    assert req["path"] == "/api/report" and req["headers"]["User-Agent"] == "VerseForge/1.14.0"
+    assert json.loads(req["body"]) == {"kind": "bug", "title": c["title"], "body": c["body"], "version": "1.14.0",
+                                       "screenshot": "/9j/AAAA"}
+
+
+@pytest.mark.parametrize("status,kind", [(400, "invalid"), (403, "unavailable"), (429, "rate"), (503, "unavailable"),
+                                         (500, "unavailable")])
+def test_send_errors(fake, status, kind):
+    fake["status"], fake["body"] = status, {"error": "Title must be 5 to 130 characters"}
+    with pytest.raises(reports.ReportError) as e:
+        reports.send(_short(), "bug", url=fake["url"])
+    assert e.value.kind == kind
+    if status == 400:
+        assert e.value.message == "Title must be 5 to 130 characters"
+
+
+def test_send_network_down():
+    with pytest.raises(reports.ReportError) as e:
+        reports.send(_short(), "bug", url="http://127.0.0.1:9/", timeout=3)
+    assert e.value.kind == "network"
+
+
+def test_remember_newest_first_and_capped():
+    cfg = {}
+    for n in range(1, 60):
+        reports.remember(cfg, n, f"t{n}")
+    reports.remember(cfg, 5, "again")
+    items = reports.mine(cfg)
+    assert len(items) == reports.KEEP
+    assert items[0]["number"] == 5 and items[0]["title"] == "again" and items[1]["number"] == 59
+    assert len(items[0]["date"]) == 10                       # YYYY-MM-DD
+
+
+def test_statuses(fake):
+    answers = {1: (200, {"state": "open", "comments": 3}), 2: (200, {"state": "closed", "comments": 0}),
+               3: (404, {}), 4: (410, {})}
+    fake["status"] = lambda path: answers[int(path.rsplit("/", 1)[1])]
+    reports._status_cache.clear()
+    api = fake["url"] + "/issues/"
+    assert reports.statuses([1, 2, 3, 4], api=api) == {
+        1: {"state": "open", "comments": 3}, 2: {"state": "closed", "comments": 0},
+        3: {"state": "removed", "comments": 0}, 4: {"state": "removed", "comments": 0}}
+    reports.statuses([1], api=api)
+    assert len(fake["seen"]) == 4                            # the second time it comes from memory
+
+
+def test_statuses_stop_when_the_public_limit_is_used_up(fake):
+    fake["status"], fake["body"] = 403, {"message": "API rate limit exceeded"}
+    reports._status_cache.clear()
+    assert reports.statuses([7, 8], api=fake["url"] + "/issues/") == {}
+    assert len(fake["seen"]) == 1

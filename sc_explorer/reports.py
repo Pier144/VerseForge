@@ -6,13 +6,17 @@ GitHub's own form all use it, so what the user sees is what is sent. Personal da
 game, export and Blender folders) is removed before that (anonymize)."""
 
 import getpass
+import json
 import ntpath
 import os
 import platform
 import posixpath
 import re
 import sys
+import time
+import urllib.error
 import urllib.parse
+import urllib.request
 
 from . import __version__
 from .updates import REPO
@@ -23,6 +27,12 @@ PICTURE = "<!-- screenshot -->"          # replaced by the service with the uplo
 KINDS = {"bug": "[Bug] ", "idea": "[Idea] "}
 ZWSP = "\u200b"                          # zero-width space: breaks @mentions and ``` fences without showing
 MAX_URL = 7000                           # GitHub refuses longer "new issue" links
+SERVICE_URL = os.environ.get("VERSEFORGE_REPORTS_URL", "https://verseforge-reports.vercel.app/api/report")
+ISSUES_API = f"https://api.github.com/repos/{REPO}/issues/"
+KEEP = 50                                # reports remembered in config.json
+STATUS_MAX = 20                          # statuses asked to GitHub at a time (public limit: 60 requests/hour)
+STATUS_TTL = 300                         # seconds a status stays in memory
+_status_cache = {}                       # issue number -> (time, {"state", "comments"})
 
 
 def _dirname(path):
@@ -149,3 +159,74 @@ def diagnostics(version=__version__, model=None, variant=None, gpu=None, log_pat
     if tail:
         lines += ["", f"Last {len(tail)} log lines:", *tail]
     return "\n".join(lines)
+
+
+class ReportError(Exception):
+    """kind: "network" (no connection), "rate" (too many reports from this connection), "invalid" (the service
+    refused the content, message says why) or "unavailable" (service off, hourly cap, GitHub down)."""
+
+    def __init__(self, kind, message=""):
+        super().__init__(message or kind)
+        self.kind, self.message = kind, message
+
+
+def send(composed, kind, screenshot_b64=None, version=__version__, url=None, timeout=25):
+    """Post a composed report to the service; returns {"number", "url"} of the new issue."""
+    payload = {"kind": kind, "title": composed["title"], "body": composed["body"], "version": version}
+    if screenshot_b64:
+        payload["screenshot"] = screenshot_b64
+    req = urllib.request.Request(url or SERVICE_URL, data=json.dumps(payload).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": f"VerseForge/{version}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            number = int(json.load(r)["number"])
+    except urllib.error.HTTPError as e:
+        try:
+            message = str(json.load(e).get("error") or "")
+        except (ValueError, AttributeError, OSError):
+            message = ""
+        raise ReportError({400: "invalid", 413: "invalid", 429: "rate"}.get(e.code, "unavailable"), message) from None
+    except (urllib.error.URLError, OSError) as e:
+        raise ReportError("network", str(getattr(e, "reason", e))) from None
+    except (ValueError, KeyError, TypeError):
+        raise ReportError("unavailable", "unexpected answer from the service") from None
+    return {"number": number, "url": ISSUE_PAGE + str(number)}
+
+
+def remember(cfg, number, title, now=None):
+    """Keep a sent report in the settings (newest first) so "My reports" can list it."""
+    items = [r for r in cfg.get("reports", []) if r.get("number") != number]
+    items.insert(0, {"number": int(number), "title": title, "date": time.strftime("%Y-%m-%d", time.localtime(now))})
+    cfg["reports"] = items[:KEEP]
+
+
+def mine(cfg):
+    return [dict(r) for r in cfg.get("reports", [])]
+
+
+def statuses(numbers, api=ISSUES_API, timeout=8):
+    """State and number of comments of the most recent reports, from GitHub's public API (no token). Deleted or
+    hidden issues (404, 410) are "removed"; once GitHub refuses (public limit used up) the rest is left out.
+    A transferred issue answers 301, which urllib follows: the moved issue's state is used."""
+    out = {}
+    for n in list(numbers)[:STATUS_MAX]:
+        hit = _status_cache.get(n)
+        if hit and time.time() - hit[0] < STATUS_TTL:
+            out[n] = hit[1]
+            continue
+        req = urllib.request.Request(api + str(int(n)), headers={"Accept": "application/vnd.github+json",
+                                                                  "User-Agent": f"VerseForge/{__version__}"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                issue = json.load(r)
+            info = {"state": "closed" if issue.get("state") == "closed" else "open",
+                    "comments": int(issue.get("comments") or 0)}
+        except urllib.error.HTTPError as e:
+            if e.code not in (404, 410):
+                break
+            info = {"state": "removed", "comments": 0}
+        except (urllib.error.URLError, OSError, ValueError):
+            break
+        _status_cache[n] = (time.time(), info)
+        out[n] = info
+    return out
