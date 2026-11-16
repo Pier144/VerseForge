@@ -98,7 +98,7 @@ Choose from several backdrops, with hangar lighting and shadows or a plain studi
    startup and updates itself when you agree.
 
 Windows SmartScreen may warn about an unrecognised app because the installer is not code-signed, just choose
-*More info → Run anyway*. Demo videos are attached to the [latest release](../../releases/latest).
+*More info → Run anyway*.
 
 ## Documentation
 
