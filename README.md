@@ -8,10 +8,10 @@
 and export them for Blender, your renders or your 3D printer.**
 
 [![Latest release](https://img.shields.io/github/v/release/Pier144/VerseForge?label=latest&color=2f81f7)](../../releases/latest)
-[![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)](../../releases/latest)
+[![Windows and Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078d4)](../../releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-8250df)](LICENSE)
 
-### [⬇&nbsp; Download for Windows](../../releases/latest)
+### [⬇&nbsp; Download for Windows](../../releases/latest) &nbsp;·&nbsp; [⬇&nbsp; Download for Linux](../../releases/latest)
 
 <br>
 
@@ -100,6 +100,22 @@ Choose from several backdrops, with hangar lighting and shadows or a plain studi
 Windows SmartScreen may warn about an unrecognised app because the installer is not code-signed, just choose
 *More info → Run anyway*.
 
+### On Linux
+
+Star Citizen runs on Linux through Wine (Lutris, the LUG helper, Bottles…); VerseForge runs natively.
+
+1. **Download** `VerseForge-<version>-x86_64.AppImage` from the [latest release](../../releases/latest), make it
+   executable (`chmod +x VerseForge-*.AppImage`, or *Properties → Allow executing as program*) and open it. It works on
+   distributions from 2022 onwards (Ubuntu 22.04, Debian 12, Fedora 36 or newer); nothing else to install.
+2. **The game is found by itself** in the usual Wine prefixes (`~/Games/star-citizen` of Lutris and the LUG helper,
+   Bottles, Heroic, `~/.wine`). If yours is elsewhere, set the path to `Data.p4k` in **Settings**, for example
+   `~/Games/star-citizen/drive_c/Program Files/Roberts Space Industries/StarCitizen/LIVE/Data.p4k`.
+3. **New versions** are announced at startup; the button opens the release page to download the new AppImage.
+
+If the 3D view stays black or the window closes at startup (old or broken graphics drivers), start it with
+`VERSEFORGE_GPU=off ./VerseForge-<version>-x86_64.AppImage` (slower software drawing). If the AppImage does not start
+at all, add `--appimage-extract-and-run` at the end of the command.
+
 ## Documentation
 
 <details>
@@ -145,6 +161,9 @@ Windows SmartScreen may warn about an unrecognised app because the installer is 
   model horizontally to look inside (it starts at 100%, the whole ship); next to it, the ship's decks are found
   automatically (the levels where the interior's floors are) and each deck button takes away everything above that
   deck. Exports include the interior while the switch is on (`_interior` suffix).
+- **Resin** (toolbar, drop icon): shows the model as a resin 3D print, in grey, white, black or clear resin, without
+  paint, decals or screens. Up close the 0.05 mm print layers show; items up to 2.5 m (weapons, armour, props) are
+  taken as printed life size, larger ones as scaled down to 200 mm on their longest side (the menu tells the scale).
 - **Game look**: materials follow the game's spec/gloss model (coloured reflectance, gloss maps, ambient occlusion,
   detail normals), paints with camo patterns are drawn with their stencil masks, and parallax decals shade the paint
   under them instead of printing over it. The *Hangar* button in the toolbar switches to a dark hangar light with
@@ -153,12 +172,13 @@ Windows SmartScreen may warn about an unrecognised app because the installer is 
   (a ship with its interior: about 5-8 s the first time, under a second afterwards). Up to 10 GB, least recently
   used files are removed first; a new game patch or program version starts a fresh cache. The switch turns it off,
   *Clear* empties it.
-- **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows Windows
+- **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows the system
   (also selectable in **Settings → Appearance**).
 - **Updates**: at startup VerseForge checks the [Releases](../../releases) page. When a newer version exists it shows
   what is new and asks whether to update: **Update now** downloads the installer (checking its SHA-256), installs it
   and reopens the program; **Later** keeps an "Update" button in the top bar; **Skip this version** stops asking until
   the next one. The check can be turned off, or run by hand, in **Settings → Updates**. Nothing else is sent anywhere.
+  On Linux the AppImage does not replace itself: **Update now** opens the release page with the new AppImage.
 - Item names are the in-game (English) names.
 
 </details>
@@ -174,7 +194,8 @@ Windows SmartScreen may warn about an unrecognised app because the installer is 
 | **STL for printing** | Closed, filled solid in mm, ready for the slicer (Blender in the background: solidify + voxel remesh, then the interior is filled). Large objects can take minutes |
 
 Textures can be left out by turning off "Textures in GLB / OBJ" (much smaller files).
-Every export is also saved in `Documents\VerseForge` (can be changed in the settings).
+Every export is also saved in `Documents\VerseForge` (`~/Documents/VerseForge` on Linux; can be changed in the
+settings).
 For a large print, splitting into pegged pieces has to be done separately (e.g. in Blender or in the slicer).
 The "STL for printing" export needs Blender (detected automatically, or set its path in the settings).
 
@@ -183,12 +204,12 @@ The "STL for printing" export needs Blender (detected automatically, or set its 
 <details>
 <summary><b>Where data is stored</b></summary>
 
-| What | Where |
-|---|---|
-| Settings | `%APPDATA%\VerseForge\config.json` |
-| Cache (Data.p4k index, names, opened models) | `%LOCALAPPDATA%\VerseForge` (rebuilt automatically after every patch) |
-| Exports | `Documents\VerseForge` (can be changed in the settings) |
-| Log of the .exe version | `%LOCALAPPDATA%\VerseForge\verseforge.log` |
+| What | Windows | Linux |
+|---|---|---|
+| Settings | `%APPDATA%\VerseForge\config.json` | `~/.config/VerseForge/config.json` |
+| Cache (Data.p4k index, names, opened models; rebuilt after every patch) | `%LOCALAPPDATA%\VerseForge` | `~/.cache/VerseForge` |
+| Exports (can be changed in the settings) | `Documents\VerseForge` | `~/Documents/VerseForge` |
+| Log of the desktop app | `%LOCALAPPDATA%\VerseForge\verseforge.log` | `~/.cache/VerseForge/verseforge.log` |
 
 VerseForge never modifies the game files and downloads nothing from them: `Data.p4k` is opened read-only.
 
@@ -230,6 +251,12 @@ PySide6: `python -m pip install -r requirements-build.txt`, which installs PySid
 **Rebuilding the .exe**: `build_exe.bat` rebuilds `dist\VerseForge\` (PyInstaller, `VerseForge.spec`) and the
 installer (Inno Setup, `installer\VerseForge.iss`). The version number lives in `sc_explorer/__init__.py`,
 `version_info.txt` and the .iss script.
+
+**Linux**: from source, `python3 -m pip install -r requirements-build.txt` then `python3 verseforge_app.py` (Qt needs
+the usual desktop libraries: `libnss3`, `libxcb-cursor0`, `libxkbfile1`). `packaging/linux/build_appimage.sh` builds
+`dist/VerseForge-<version>-x86_64.AppImage` with the same `VerseForge.spec`. When a release is published on GitHub,
+the *Linux AppImage* workflow (`.github/workflows/linux-appimage.yml`) builds the AppImage on Ubuntu 22.04 and
+attaches it to the release.
 
 **Tools** (`tools/`):
 - `record_video.py` records the demo videos in `docs/video/` while the app is running (headless Edge/Chrome, H.264
