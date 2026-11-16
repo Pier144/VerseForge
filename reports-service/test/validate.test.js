@@ -24,6 +24,12 @@ test("rejects bad fields", () => {
   for (const b of bad) assert.ok(validate(b).error, JSON.stringify(b)?.slice(0, 80));
 });
 
+test("the title minimum counts only the words after [Bug] or [Idea]", () => {
+  for (const title of ["[Bug] ", "[Bug] ab", "[Idea]    a b  "]) assert.ok(validate({ ...good, title }).error, title);
+  for (const title of ["[Bug] abcd", "[Idea] a b c d", "abcd"]) assert.equal(validate({ ...good, title }).error, undefined, title);
+  assert.ok(validate({ ...good, title: "[Bug] " + "x".repeat(125) }).error);
+});
+
 test("rejects pictures over 2 MB", () => {
   const big = Buffer.alloc(2 * 1024 * 1024 + 1);
   big[0] = 0xff; big[1] = 0xd8; big[2] = 0xff;
