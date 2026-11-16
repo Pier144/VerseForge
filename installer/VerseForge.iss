@@ -22,7 +22,6 @@ SetupIconFile=..\assets\verseforge.ico
 UninstallDisplayIcon={app}\{#AppExe}
 Compression=lzma2/ultra64
 SolidCompression=yes
-WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; in-app updates run this installer with /SILENT /CLOSEAPPLICATIONS: close a VerseForge that is still open,
@@ -32,6 +31,9 @@ RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+; dark look with the app's floor grid and logo (images: tools/installer_art.py)
+#include "style.iss"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
