@@ -56,3 +56,56 @@ def test_user_folders():
     assert reports.user_folders(cfg, r"D:\Programmi\Blender 4.4\blender.exe") == [
         (r"C:\Games\RSI\StarCitizen", "<game>"), (r"D:\Exports", "<exports>"), (r"D:\Programmi\Blender 4.4", "<blender>")]
     assert reports.user_folders({}, "/usr/bin/blender") == []      # a system folder is not personal
+
+
+def test_compose_bug_with_picture_and_details():
+    c = reports.compose("bug", "  Carrack   textures  ", "It is grey.", "VerseForge 1.14.0", True, "1.14.0")
+    assert c["title"] == "[Bug] Carrack textures"
+    body = c["body"]
+    assert body.startswith("It is grey.")
+    assert body.count(reports.PICTURE) == 1
+    assert "<details><summary>Technical details</summary>" in body
+    assert "```text\nVerseForge 1.14.0\n```" in body
+    assert body.endswith("<sub>Sent from VerseForge 1.14.0</sub>")
+
+
+def test_compose_idea_without_extras():
+    c = reports.compose("idea", "More backdrops", "Please add a Pyro station.", "", False, "1.14.0")
+    assert c["title"] == "[Idea] More backdrops"
+    assert reports.PICTURE not in c["body"] and "<details>" not in c["body"]
+
+
+def test_compose_neutralises_user_markup():
+    c = reports.compose("bug", "@octocat look", "x </details> y <details> z <!-- screenshot --> w @someone",
+                        "a ``` b", False, "1.0.0")
+    assert c["title"] == "[Bug] @\u200boctocat look"
+    body = c["body"]
+    assert "</details> y" not in body and "<details> z" not in body
+    assert reports.PICTURE not in body
+    assert "@\u200bsomeone" in body
+    assert "a `\u200b`` b" in body
+
+
+def test_compose_breaks_mentions_once():
+    body = reports.compose("bug", "Title", "hi @bob", "", False, "1.0.0")["body"]
+    assert "@\u200bbob" in body and "\u200b\u200b" not in body
+
+
+def test_compose_unknown_kind_is_a_bug():
+    assert reports.compose("spam", "Title", "Some text here", "", False, "1.0.0")["title"].startswith("[Bug] ")
+
+
+def test_fallback_url_short():
+    c = reports.compose("bug", "Title here", "Some text here", "", True, "1.0.0")
+    u = reports.fallback_url(c)
+    assert u.startswith("https://github.com/Pier144/VerseForge/issues/new?")
+    q = urllib.parse.parse_qs(urllib.parse.urlsplit(u).query)
+    assert q["title"] == ["[Bug] Title here"]
+    assert reports.PICTURE not in q["body"][0] and "attach a screenshot" in q["body"][0]
+
+
+def test_fallback_url_long_text_is_cut():
+    c = reports.compose("bug", "Title here", "è" * 9000, "log line\n" * 500, False, "1.0.0")
+    u = reports.fallback_url(c)
+    assert len(u) <= reports.MAX_URL
+    assert "did not fit" in urllib.parse.parse_qs(urllib.parse.urlsplit(u).query)["body"][0]
