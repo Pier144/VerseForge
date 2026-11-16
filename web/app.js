@@ -1444,6 +1444,151 @@ $("#btnClearCache").addEventListener("click", async () => {
   } catch (e) { toast(e.message, true); }
 });
 
+// ---------------------------------------------------------------- feedback: reports become public GitHub issues
+// The server builds the text (and removes personal data); here: the form, the picture of the view, the list.
+const rep = { kind: "bug", timer: 0 };
+const JSON_POST = (body) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+function gpuName() {
+  try {
+    const gl = renderer.getContext();
+    const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    return String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+  } catch { return ""; }
+}
+
+function reportFields() {
+  return { kind: rep.kind, title: $("#repTitle").value.trim(), description: $("#repText").value.trim(),
+    picture: $("#repPicture").checked, details: $("#repDetails").checked,
+    model: state.current?.path || null, variant: state.variant ?? null, gpu: gpuName() };
+}
+
+// the 3D view as a JPEG in base64 (no "data:" prefix), at most 2 MB; transparent parts get the page background
+function viewPicture() {
+  const src = renderer.domElement;
+  const bg = getComputedStyle(document.body).backgroundColor || "#10141b";
+  for (const [side, quality] of [[1600, 0.85], [1200, 0.75], [900, 0.7]]) {
+    const k = Math.min(1, side / Math.max(src.width, src.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(src.width * k));
+    c.height = Math.max(1, Math.round(src.height * k));
+    const g = c.getContext("2d");
+    g.fillStyle = bg;
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(src, 0, 0, c.width, c.height);
+    const b64 = c.toDataURL("image/jpeg", quality).split(",")[1];
+    if (b64.length * 0.75 <= 2_000_000) return b64;
+  }
+  return null;
+}
+
+function reportReady() {
+  const f = reportFields();
+  $("#repSend").disabled = f.title.length < 4 || f.description.length < 10;
+}
+
+async function refreshPreview() {
+  if (!$("#repPreviewBox").open) return;
+  try {
+    const c = await (await api("/api/report/preview", JSON_POST(reportFields()))).json();
+    $("#repPreview").textContent = `${c.title}\n\n${c.body.replace("<!-- screenshot -->", "[picture of the 3D view]")}`;
+  } catch (e) { $("#repPreview").textContent = e.message; }
+}
+
+function reportChanged() {
+  reportReady();
+  clearTimeout(rep.timer);
+  rep.timer = setTimeout(refreshPreview, 400);
+}
+
+function showReportError(text, offerGitHub = false) {
+  $("#repError").textContent = text;
+  $("#repError").classList.toggle("hidden", !text);
+  $("#repFallback").classList.toggle("hidden", !offerGitHub);
+}
+
+const REPORT_ERRORS = {
+  rate: () => "Too many reports from this connection, try again in a few minutes.",
+  invalid: (detail) => detail || "The report was not accepted.",
+  unavailable: () => "The report service is not available right now.",
+  network: () => "No connection to the report service.",
+};
+
+async function loadMyReports() {
+  const list = $("#repList");
+  list.replaceChildren();
+  $("#repMineNote").textContent = "Loading…";
+  try {
+    const { reports } = await (await api("/api/report/mine")).json();
+    const STATES = { open: "Open", closed: "Closed", removed: "Removed" };
+    for (const r of reports) {
+      const comments = r.comments ? `${r.comments} comment${r.comments === 1 ? "" : "s"} · ` : "";
+      const btn = el("button", "rep-item");
+      btn.type = "button";
+      btn.append(el("span", "rep-num", `#${r.number}`), el("span", "rep-title", r.title),
+        el("span", `rep-state ${r.state || ""}`, STATES[r.state] || ""), el("span", "rep-meta", comments + r.date));
+      btn.addEventListener("click", () => api("/api/report/open", JSON_POST({ number: r.number })).catch((e) => toast(e.message, true)));
+      const li = el("li");
+      li.append(btn);
+      list.append(li);
+    }
+    $("#repMineNote").textContent = !reports.length ? "No reports sent from this computer yet."
+      : reports.some((r) => r.state == null) ? "Status unavailable right now: GitHub limits how often it can be checked."
+        : "Click a report to open it on GitHub.";
+  } catch (e) { $("#repMineNote").textContent = e.message; }
+}
+
+function showReportTab(tab) {
+  document.querySelectorAll("#reportDlg .tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === tab));
+  $("#repNew").classList.toggle("hidden", tab !== "new");
+  $("#repMine").classList.toggle("hidden", tab !== "mine");
+  if (tab === "mine") loadMyReports();
+}
+
+$("#btnReport").addEventListener("click", () => {
+  showReportTab("new");
+  reportReady();
+  $("#reportDlg").showModal();
+});
+document.querySelectorAll("#reportDlg .tab").forEach((b) => b.addEventListener("click", () => showReportTab(b.dataset.tab)));
+document.querySelectorAll("#reportDlg .kind").forEach((b) => b.addEventListener("click", () => {
+  rep.kind = b.dataset.kind;
+  document.querySelectorAll("#reportDlg .kind").forEach((k) => k.classList.toggle("is-on", k === b));
+  reportChanged();
+}));
+for (const id of ["#repTitle", "#repText"]) $(id).addEventListener("input", reportChanged);
+for (const id of ["#repPicture", "#repDetails"]) $(id).addEventListener("change", reportChanged);
+$("#repPreviewBox").addEventListener("toggle", refreshPreview);
+// Enter in the title would submit the dialog's form and close it
+$("#repTitle").addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
+
+$("#repSend").addEventListener("click", async () => {
+  const f = reportFields();
+  if (f.picture) f.screenshot = viewPicture();
+  const btn = $("#repSend");
+  showReportError("");
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+  try {
+    const r = await fetch("/api/report", JSON_POST(f));
+    const out = await r.json().catch(() => ({ kind: "unavailable" }));
+    if (!r.ok) throw out;
+    toast(`Report #${out.number} sent, thank you`);
+    $("#repTitle").value = "";
+    $("#repText").value = "";
+    showReportTab("mine");
+  } catch (e) {
+    const kind = REPORT_ERRORS[e?.kind] ? e.kind : "network";
+    showReportError(REPORT_ERRORS[kind](e?.detail), kind === "network" || kind === "unavailable");
+  } finally {
+    btn.textContent = "Send";
+    reportReady();
+  }
+});
+
+$("#repFallback").addEventListener("click", () =>
+  api("/api/report/open", JSON_POST({ fallback: reportFields() })).catch((e) => toast(e.message, true)));
+
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
