@@ -1,4 +1,4 @@
-# Ottimizzazione 5 — geometria compressa per il visualizzatore
+# Ottimizzazione 5: geometria compressa per il visualizzatore
 
 **Esito: la compressione della geometria va scartata. Va invece tenuto il nuovo calcolo delle normali**, nato
 durante la prova: dà lo stesso identico risultato ed è 3 volte più veloce.

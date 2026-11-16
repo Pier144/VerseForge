@@ -1,4 +1,4 @@
-# Ottimizzazione 7 — texture progressive
+# Ottimizzazione 7: texture progressive
 
 **Raccomandazione: TENERE.** Il modello si vede con tutte le texture 3,5–4 volte prima e il blocco dello schermo
 all'arrivo delle texture si riduce di 2–3 volte. Il prezzo: la risoluzione piena arriva un po' più tardi (0,3–0,8 s
@@ -49,10 +49,10 @@ Il server non cambia: `/api/texture` accettava già `size=256` (usa un livello m
 | Modello a risoluzione piena, dall'inizio delle texture | 5,5 s | 6,3 s (+0,8) | 9,0 s | 9,3 s (+0,3) |
 | Stessi tempi dall'apertura del modello (basse / piena) | 18,7 s | 15,8 s / 20,3 s | 25,6 s | 16,7 s / 23,7 s |
 | Blocco del primo fotogramma con le texture | 1,79 s | **0,77 s** | 2,17 s | **0,69 s** |
-| Fotogramma più lungo durante gli scambi | — | 92 ms | — | 78 ms |
+| Fotogramma più lungo durante gli scambi | - | 92 ms | - | 78 ms |
 | Richieste di texture | 204 | 406 | 432 | 849 |
 | Byte delle texture | 172,4 MB | 180,5 MB (+4,7 %) | 211,7 MB | 229,6 MB (+8,5 %) |
-| di cui texture piccole | — | 9,3 MB | — | 18,1 MB |
+| di cui texture piccole | - | 9,3 MB | - | 18,1 MB |
 | Picco `renderer.info.memory.textures` | 160 | 160 | 336 | 335 |
 | Picco memoria immagini (stima) | 1547 MB | 1542 MB | 2163 MB | 2147 MB |
 
@@ -61,7 +61,7 @@ Perseus prima 5,49 · 5,36 · 6,17 s; dopo 1,79/6,29 · 1,58/6,25 · 0,99/5,31 s
 Carrack prima 10,54 · 8,61 · 8,99 s; dopo 2,48/10,49 · 2,31/9,31 · 2,31/9,00 s.
 
 A server caldo (texture già decodificate in memoria, simile alla cache su disco accesa), Perseus, 2 giri:
-prima 6,0 e 5,4 s; dopo basse 1,19 e 1,23 s, piena 4,84 e 4,86 s — qui anche la piena arriva prima, perché il
+prima 6,0 e 5,4 s; dopo basse 1,19 e 1,23 s, piena 4,84 e 4,86 s; qui anche la piena arriva prima, perché il
 lavoro del browser (decodifica JPEG/PNG e caricamento sulla scheda video) viene distribuito invece di
 accumularsi in un unico fotogramma.
 

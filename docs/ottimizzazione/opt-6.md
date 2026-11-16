@@ -1,4 +1,4 @@
-# Ottimizzazione 6 — meno chiamate di disegno per le parti ripetute
+# Ottimizzazione 6: meno chiamate di disegno per le parti ripetute
 
 **Consiglio: TENERE** la modifica al server (ramo `opt-6-istanze`). **Scartata** la seconda prova (unire nel browser
 le parti che si muovono).

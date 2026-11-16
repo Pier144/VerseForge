@@ -732,7 +732,7 @@ function showAnimations(list) {
     const buttons = el("span", "acts");
     acts.forEach((a) => {
       const b = el("button", "anim-act", a.label);
-      b.title = `${a.group} · ${a.label} — ${a.duration.toFixed(1)} s` + (a.speed < 0 ? " (reversed)" : "");
+      b.title = `${a.group} · ${a.label} (${a.duration.toFixed(1)} s` + (a.speed < 0 ? ", reversed)" : ")");
       b.dataset.id = a.id;
       b.onclick = () => playAnimation(a);
       buttons.appendChild(b);
@@ -1281,7 +1281,7 @@ async function pollStatus() {
     el.classList.toggle("err", !!s.error);
     el.classList.toggle("ready", !!s.ready && !s.error);
     // once the catalogue is ready the status line has nothing useful to say: it only shows progress and errors
-    el.textContent = s.error ? `${s.error} — ${T("openSettings")}` : s.ready ? "" : `${s.message} (${Math.round(s.progress * 100)}%)`;
+    el.textContent = s.error ? `${s.error}: ${T("openSettings")}` : s.ready ? "" : `${s.message} (${Math.round(s.progress * 100)}%)`;
     el.title = s.p4k_path;
     window.__status = s;
     if (s.ready) {

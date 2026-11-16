@@ -1,4 +1,4 @@
-# Ottimizzazione 10 — budget di memoria del server
+# Ottimizzazione 10: budget di memoria del server
 
 **Consiglio: TENERE.** Con le impostazioni normali (cache su disco accesa) il server usa 200–750 MB in meno e il
 primo caricamento delle navi grandi è più veloce del 30–55 %. Le riaperture restano veloci come prima.

@@ -1,4 +1,4 @@
-# Ottimizzazione 9 — livelli di dettaglio (LOD)
+# Ottimizzazione 9: livelli di dettaglio (LOD)
 
 **Raccomandazione: SCARTARE.** Nessuna modifica al codice su questo ramo, solo questo resoconto.
 
@@ -69,10 +69,10 @@ Fotogramma con i modelli veri (valori indicativi per il rumore):
 
 | Nave (con interni) | Oggi (LOD1) | LOD2 | LOD3 |
 |---|---:|---:|---:|
-| Perseus | 4,05 ms | — | 4,0 ms (4,0–4,7) |
+| Perseus | 4,05 ms | - | 4,0 ms (4,0–4,7) |
 | Polaris | 7,3–8,3 ms | 7,0–8,5 ms | 6,3 ms (prima misura) |
-| Carrack | 8,5 ms | — | 7,5–9,2 ms |
-| Polaris completa | 20–23 ms | — | 14–22 ms (stesse 2.690 chiamate) |
+| Carrack | 8,5 ms | - | 7,5–9,2 ms |
+| Polaris completa | 20–23 ms | - | 14–22 ms (stesse 2.690 chiamate) |
 
 Il tempo di caricamento nel browser non è confrontabile (da 4 a 37 s per la stessa nave a seconda del carico delle
 altre sessioni); lato server la costruzione cambia di 0–2 s, il file invece cala molto.
@@ -86,7 +86,7 @@ altre sessioni); lato server la costruzione cambia di 0–2 s, il file invece ca
 - **B (LOD2 sempre):** file molto più piccolo (−31 % Perseus, −52 % Carrack, −34 % Polaris) ma fluidità invariata
   entro il rumore, e a ~6 m si vedono già dettagli persi (griglie dei pavimenti, ringhiere, piccoli arredi). Chi apre
   gli interni li vuole guardare da vicino: non lo metterei come scelta predefinita. Al massimo potrebbe diventare
-  un'opzione "interni leggeri" per PC deboli — ma non l'ho potuta misurare su una scheda debole.
+  un'opzione "interni leggeri" per PC deboli, ma non l'ho potuta misurare su una scheda debole.
 - **C (oggetti montati al LOD1):** le navi complete sono limitate dalle chiamate di disegno; meno triangoli non
   cambiano il fotogramma. Inoltre molti file LOD non hanno la tabella dei nodi, e torrette e carrelli animati si
   romperebbero.
@@ -102,7 +102,7 @@ nota per le sessioni che ci lavorano.
 
 ## Come ripetere
 
-- Livello degli interni: parametro `lod` di `load_interior` (oggi fisso a 1) — la prova ha usato una funzione
+- Livello degli interni: parametro `lod` di `load_interior` (oggi fisso a 1); la prova ha usato una funzione
   `lod_model(archive, path, level)` che sceglie `_lod<level>` o il più dettagliato disponibile sotto, con la `.mtl`
   del LOD0.
 - Prova "un quarto dei triangoli" nel browser: per ogni mesh `geometry.setDrawRange(0, indici/4)`, alternata con

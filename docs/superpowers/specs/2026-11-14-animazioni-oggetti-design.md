@@ -1,4 +1,4 @@
-# Animazioni degli oggetti e "Nave completa" — disegno
+# Animazioni degli oggetti e "Nave completa": disegno
 
 Data: 14/11/2026 · Stato: approvato a voce, rivisto dopo la rilettura, da approvare per iscritto
 
@@ -47,7 +47,7 @@ I passi di ricerca 1 (`.dba`, snodi `.cga`) e 2 (`.adb`) sono riusciti. Il detta
 - Il campo dell'`.adb` è `SAnimationControllerParams.AnimationDatabase`, un percorso relativo a
   `Animations/Mannequin/ADB/`.
 
-## Fase A — Animazioni
+## Fase A: Animazioni
 
 ### A1. Lettura delle clip: `sc_explorer/caf.py` e `sc_explorer/dba.py`
 
@@ -188,7 +188,7 @@ Oggi `load_geometry` porta ogni vertice nello spazio dell'oggetto, quindi niente
 - Nelle impostazioni di export compare la casella "Include animations", attiva di default.
 - Lo stile è quello attuale (glass UI), in inglese.
 
-## Fase B — Interruttore "Full ship"
+## Fase B: Interruttore "Full ship"
 
 > **Come è stata fatta (14/11):** il piano è in `docs/superpowers/plans/2026-11-14-animazioni-fase-b.md`.
 > Rispetto a quanto scritto sotto ci sono cinque differenze:
