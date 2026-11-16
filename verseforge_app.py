@@ -1,6 +1,7 @@
 """VerseForge desktop app: the same interface in its own window (Qt WebEngine), no browser, no console.
 
-This is the entry point of VerseForge.exe; `python verseforge_app.py` runs it from source.
+This is the entry point of VerseForge.exe (Windows) and of the Linux AppImage; `python verseforge_app.py` runs it
+from source.
 """
 import os
 import socket
@@ -13,10 +14,25 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from sc_explorer import APP_NAME, __version__  # noqa: E402
+from sc_explorer import APP_NAME, __version__, paths  # noqa: E402
 
-LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", HERE), APP_NAME)
+LOG_DIR = paths.cache_dir()             # Windows %LOCALAPPDATA%\VerseForge, Linux ~/.cache/VerseForge
 RES_DIR = getattr(sys, "_MEIPASS", HERE)
+
+
+def _linux_gpu_setup():
+    """Qt WebEngine on Linux: WebGL needs the GPU process, which Chromium turns off on drivers it does not trust.
+
+    VERSEFORGE_GPU=off forces software drawing (slow, but works on any machine: last resort for broken drivers)."""
+    flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "").split()
+    if os.environ.get("VERSEFORGE_GPU", "").lower() in ("off", "0", "software"):
+        flags += ["--disable-gpu", "--enable-unsafe-swiftshader"]
+        os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+    else:
+        flags += ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader"]
+        if os.path.exists("/dev/dxg") and "GALLIUM_DRIVER" not in os.environ:
+            os.environ["GALLIUM_DRIVER"] = "d3d12"    # WSL: Mesa picks the CPU renderer unless told to use the GPU
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(dict.fromkeys(flags))
 
 
 def _redirect_output():
@@ -47,12 +63,31 @@ def _start_server(port):
     raise RuntimeError("the internal server did not start")
 
 
+def _self_test():
+    """`VerseForge --self-test`: start the internal server and load Qt WebEngine without opening a window, then quit.
+    Used by the Linux build (CI) to check that the packaged app has everything it needs. Exit code 0 = fine."""
+    os.environ.setdefault("VERSEFORGE_DISK_CACHE", "0")
+    port = _free_port()
+    _start_server(port)
+    status = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=5).read()
+    page = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5).read()
+    from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401  (loads the Chromium libraries)
+    from PySide6.QtWidgets import QApplication
+    QApplication(sys.argv[:1])
+    print(f"self-test ok: {APP_NAME} {__version__}, status {len(status)} bytes, page {len(page)} bytes")
+    return 0
+
+
 def main():
+    if "--self-test" in sys.argv:
+        return _self_test()
     _redirect_output()
     # Windows: own taskbar icon instead of python's
     if sys.platform == "win32":
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"VerseForge.App.{__version__}")
+    else:
+        _linux_gpu_setup()
 
     from PySide6.QtCore import QUrl
     from PySide6.QtGui import QIcon
@@ -63,7 +98,9 @@ def main():
     qt = QApplication(sys.argv)
     qt.setApplicationName(APP_NAME)
     qt.setApplicationVersion(__version__)
-    icon = QIcon(os.path.join(RES_DIR, "assets", "verseforge.ico"))
+    if sys.platform != "win32":
+        qt.setDesktopFileName("verseforge")      # Wayland/GNOME/KDE: window icon and name from verseforge.desktop
+    icon = QIcon(os.path.join(RES_DIR, "assets", "verseforge.ico" if sys.platform == "win32" else "verseforge.png"))
     qt.setWindowIcon(icon)
 
     try:

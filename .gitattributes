@@ -1,0 +1,4 @@
+# Linux build files must keep Unix line endings even when checked out on Windows
+*.sh text eol=lf
+packaging/linux/AppRun text eol=lf
+*.desktop text eol=lf

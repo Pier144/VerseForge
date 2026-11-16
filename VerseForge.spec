@@ -1,12 +1,28 @@
 # PyInstaller spec for VerseForge.exe  ->  python -m PyInstaller VerseForge.spec --noconfirm
 # Output: dist/VerseForge/VerseForge.exe (one folder: starts fast, Qt WebEngine needs its resource files next to it)
+# Linux: same spec, run by packaging/linux/build_appimage.sh (folder in build/linux, then dist/VerseForge-<v>-x86_64.AppImage)
+import glob
+import os
+import sys
+
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
+WINDOWS = sys.platform == "win32"
 datas = [("web", "web"), ("assets", "assets")]
 datas += collect_data_files("trimesh")            # trimesh/resources (templates, schemas)
 binaries = collect_dynamic_libs("embreex") + collect_dynamic_libs("manifold3d")
 hiddenimports = (collect_submodules("uvicorn") + collect_submodules("embreex") +
                  ["manifold3d", "skimage.measure", "scipy.ndimage", "zstandard", "Crypto.Cipher.AES"])
+if not WINDOWS:
+    # Qt WebEngine needs NSS; NSS opens its crypto modules by name at run time (no link PyInstaller can follow):
+    # ship them next to libnss3 so the AppImage also starts on systems without NSS installed
+    for d in [p for p in os.environ.get("LD_LIBRARY_PATH", "").split(":") if p] + ["/usr/lib/x86_64-linux-gnu",
+                                                                                 "/usr/lib64", "/usr/lib"]:
+        mods = [f for n in ("libsoftokn3.so", "libfreebl3.so", "libfreeblpriv3.so", "libnssckbi.so", "libnssdbm3.so")
+                for f in glob.glob(os.path.join(d, n)) + glob.glob(os.path.join(d, "nss", n))]
+        if mods and os.path.exists(os.path.join(d, "libnss3.so")):
+            binaries += [(f, ".") for f in mods]
+            break
 
 # big packages installed on this PC that VerseForge never uses
 excludes = ["torch", "torchvision", "transformers", "tokenizers", "safetensors", "timm", "onnxruntime", "cv2",
@@ -42,6 +58,9 @@ def _keep(dest):
 a.datas = [x for x in a.datas if _keep(x[0])]
 a.binaries = [x for x in a.binaries if _keep(x[0])]
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="VerseForge", icon="assets/verseforge.ico",
-          console=False, upx=False, version="version_info.txt")
+if WINDOWS:
+    exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="VerseForge", icon="assets/verseforge.ico",
+              console=False, upx=False, version="version_info.txt")
+else:
+    exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="VerseForge", console=False, upx=False, strip=False)
 coll = COLLECT(exe, a.binaries, a.datas, name="VerseForge", upx=False)

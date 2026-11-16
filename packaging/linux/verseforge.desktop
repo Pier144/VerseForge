@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=VerseForge
+GenericName=Star Citizen model viewer
+Comment=Search, view in 3D and export Star Citizen models (unofficial fan project)
+Exec=VerseForge %U
+Icon=verseforge
+Terminal=false
+Categories=Graphics;3DGraphics;Viewer;
+Keywords=Star Citizen;3D;GLB;STL;Blender;p4k;
+StartupWMClass=VerseForge

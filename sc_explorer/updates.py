@@ -1,6 +1,7 @@
 """New versions: GitHub releases of VerseForge, download of the installer and hand-over to it.
 
-Only the Windows app (VerseForge.exe) installs updates; the source version just links to the release page."""
+Only the Windows app (VerseForge.exe) installs updates by itself. On Linux the release's AppImage is reported (name and
+size) and the app opens the release page, where the user downloads it; the source version just links to that page."""
 import hashlib
 import json
 import os
@@ -34,15 +35,22 @@ def can_install():
     return bool(getattr(sys, "frozen", False)) and sys.platform == "win32"
 
 
-def check(current, timeout=8):
-    """Latest release on GitHub compared with the running version."""
+def asset_suffix(platform=None):
+    """End of the release file name meant for this system: the Windows installer or the Linux AppImage."""
+    platform = platform or sys.platform
+    return "-setup.exe" if platform == "win32" else "-x86_64.appimage" if platform.startswith("linux") else None
+
+
+def check(current, timeout=8, platform=None):
+    """Latest release on GitHub compared with the running version ("installer" = the download for this system)."""
     req = urllib.request.Request(LATEST_API, headers={"Accept": "application/vnd.github+json",
                                                       "User-Agent": f"VerseForge/{current}"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         rel = json.load(r)
     latest = (rel.get("tag_name") or "").lstrip("vV")
+    suffix = asset_suffix(platform)
     setup = next((a for a in rel.get("assets", [])
-                  if a.get("name", "").lower().endswith("-setup.exe")
+                  if suffix and a.get("name", "").lower().endswith(suffix)
                   and a.get("browser_download_url", "").startswith(DOWNLOAD_PREFIX)), None)
     page = rel.get("html_url") or ""
     return {

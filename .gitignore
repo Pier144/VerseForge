@@ -15,3 +15,5 @@ build_log.txt
 docs/video/
 # flash checks (tools/flash_check.py): reports and frames, local only
 docs/flash-check/
+# Linux port checks (screenshots from WSL), local only
+docs/linux-check/

@@ -4,15 +4,17 @@ Game meshes are open shells made of overlapping pieces. Pipeline (same one used 
   1. Blender (background): solidify every surface and voxel-remesh -> one closed shell
   2. Python: voxelise the shell, close small openings, fill the hollow interior with an inset core, union.
 """
+import glob
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 
 import numpy as np
 import trimesh
 
-from . import i18n
+from . import i18n, paths
 
 BLENDER_SCRIPT = r'''
 import bpy, sys
@@ -37,6 +39,22 @@ BLENDER_CANDIDATES = [
     r"C:\Program Files",
     r"D:\Program Files",
 ]
+# Linux: distro package, snap, flatpak (its exported launcher), Steam, and the official .tar.xz unpacked somewhere
+BLENDER_LINUX = [
+    "/usr/bin/blender", "/usr/local/bin/blender", "/snap/bin/blender",
+    "/var/lib/flatpak/exports/bin/org.blender.Blender", "~/.local/share/flatpak/exports/bin/org.blender.Blender",
+    "~/.steam/steam/steamapps/common/Blender/blender", "~/.local/share/Steam/steamapps/common/Blender/blender",
+    "/opt/blender*/blender", "~/blender*/blender", "~/Applications/blender*/blender", "~/.local/opt/blender*/blender",
+    "~/Downloads/blender*/blender", "~/Applications/[Bb]lender*.AppImage",
+]
+
+
+def _find_blender_linux():
+    for pattern in BLENDER_LINUX:
+        for cand in sorted(glob.glob(os.path.expanduser(pattern)), reverse=True):   # newest version first
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
+    return None
 
 
 def find_blender(configured=None):
@@ -45,6 +63,8 @@ def find_blender(configured=None):
     exe = shutil.which("blender")
     if exe:
         return exe
+    if sys.platform != "win32":
+        return _find_blender_linux()
     for root in BLENDER_CANDIDATES:
         if not os.path.isdir(root):
             continue
@@ -125,13 +145,17 @@ def make_printable(stl_mm: bytes, blender, voxel_mm=None, fill=True, progress=la
     size = float(max(mesh.extents))
     voxel = voxel_mm or float(np.clip(size / 1600.0, 0.2, 2.0))
     progress(("print_solidify", {"voxel": f"{voxel:.2f}"}), 0.1)
-    with tempfile.TemporaryDirectory() as tmp:
+    # Linux: not /tmp, which a flatpak Blender does not share with the rest of the system
+    tmp_root = None if sys.platform == "win32" else paths.cache_dir()
+    if tmp_root:
+        os.makedirs(tmp_root, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="print-", dir=tmp_root) as tmp:
         src, dst, script = (os.path.join(tmp, n) for n in ("in.stl", "out.stl", "solid.py"))
         open(src, "wb").write(stl_mm)
         open(script, "w").write(BLENDER_SCRIPT)
         proc = subprocess.run([blender, "-b", "--factory-startup", "-P", script, "--", src, dst, str(voxel),
                                str(max(0.8, voxel * 3)), "2000000"], capture_output=True, text=True, timeout=3600,
-                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=paths.child_env())
         if not os.path.exists(dst):
             raise i18n.LocalizedError("blender_no_output", log=proc.stdout[-800:] + proc.stderr[-800:])
         shell = trimesh.load(dst)

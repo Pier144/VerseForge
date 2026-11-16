@@ -15,22 +15,21 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, diskcache, entities, export, i18n, materials, model, modelcache, printing, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, diskcache, entities, export, i18n, materials, model, modelcache, paths, printing, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # PyInstaller unpacks resources into sys._MEIPASS; user data never goes next to the program
 RES_DIR = getattr(sys, "_MEIPASS", APP_DIR)
 WEB_DIR = os.path.join(RES_DIR, "web")
-DATA_DIR = os.path.join(os.environ.get("APPDATA", APP_DIR), APP_NAME)
+DATA_DIR = paths.data_dir()                 # Windows %APPDATA%\VerseForge, Linux ~/.config/VerseForge
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
-CACHE_DIR = os.path.join(os.environ.get("LOCALAPPDATA", APP_DIR), APP_NAME)
-DEFAULT_EXPORTS = os.path.join(os.path.expanduser("~"), "Documents", APP_NAME)
-DEFAULT_P4K = r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE\Data.p4k"
+CACHE_DIR = paths.cache_dir()               # Windows %LOCALAPPDATA%\VerseForge, Linux ~/.cache/VerseForge
+DEFAULT_EXPORTS = paths.documents_dir()
 
 
 def load_config():
-    cfg = {"p4k_path": DEFAULT_P4K, "export_dir": DEFAULT_EXPORTS, "blender": "", "language": "english",
+    cfg = {"p4k_path": "", "export_dir": DEFAULT_EXPORTS, "blender": "", "language": "english",
            "appearance": "system", "check_updates": True, "skip_version": "", "disk_cache": True}
     if os.path.exists(CONFIG_FILE):
         try:
@@ -38,6 +37,8 @@ def load_config():
         except (OSError, ValueError):
             pass
     cfg.pop("ui_lang", None)          # setting of older versions (the interface is English only now)
+    if not cfg["p4k_path"]:
+        cfg["p4k_path"] = paths.find_p4k()   # first start: the usual install folder (Linux: Wine/Lutris prefixes)
     return cfg
 
 
@@ -545,8 +546,7 @@ def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", appe
 @app.post("/api/open-exports")
 def open_exports():
     os.makedirs(state.cfg["export_dir"], exist_ok=True)
-    if hasattr(os, "startfile"):
-        os.startfile(state.cfg["export_dir"])
+    paths.open_path(state.cfg["export_dir"])
     return {"ok": True, "dir": state.cfg["export_dir"]}
 
 
@@ -611,9 +611,8 @@ def update_progress():
 @app.post("/api/open-release")
 def open_release():
     """Open the release page in the default browser (only GitHub pages of this project)."""
-    import webbrowser
     page = (state.update or {}).get("page") or updates.RELEASES_PAGE
-    webbrowser.open(page if page.startswith(updates.RELEASES_PAGE) else updates.RELEASES_PAGE)
+    paths.open_path(page if page.startswith(updates.RELEASES_PAGE) else updates.RELEASES_PAGE)
     return {"ok": True}
 
 

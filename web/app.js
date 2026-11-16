@@ -280,6 +280,10 @@ for (const proto of [THREE.Texture.prototype, THREE.Material.prototype]) {
   if (d?.set) Object.defineProperty(proto, "needsUpdate", { ...d, set(v) { d.set.call(this, v); if (v) invalidate(); } });
 }
 let holdRender = false;        // true while a model is being sent to the GPU piece by piece (warmUp)
+// Linux (Qt WebEngine / Chrome: ANGLE on OpenGL, seen with Mesa): after the window is resized at start-up the GL
+// state three.js keeps in its cache stops matching the driver's, and the depth test no longer works: inner parts and
+// the floor grid showed through the hull. Re-sending the state before each frame costs a few dozen calls and fixes it.
+const RESYNC_GL = /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
 function tick() {
   const dt = clock.getDelta();
   const now = performance.now();
@@ -300,6 +304,7 @@ function tick() {
   if (controls.autoRotate || renderer.shadowMap.needsUpdate) draw = true;
   if (draw) tailUntil = now + RENDER_TAIL;     // something changed: keep drawing for a while after it
   else if (now > tailUntil && now - lastRender <= 1000) return;
+  if (RESYNC_GL) renderer.resetState();
   renderer.render(scene, camera);
   lastRender = now;
   stats.frames++;
@@ -1139,7 +1144,7 @@ $("#q").addEventListener("input", scheduleSearch);
 $("#mainOnly").addEventListener("change", runSearch);
 
 // ---------------------------------------------------------------- appearance (light / dark)
-// "system" follows Windows; the choice is kept in config.json so the .exe remembers it too
+// "system" follows the OS theme; the choice is kept in config.json so the .exe remembers it too
 let appearance = document.documentElement.dataset.mode === "dark" ? "dark" : "light";
 try { appearance = localStorage.getItem("vf.appearance") || "system"; } catch { /* storage unavailable */ }
 const systemDark = matchMedia("(prefers-color-scheme: dark)");
