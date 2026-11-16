@@ -2,9 +2,9 @@
 
     python tools/installer_art.py
 
-Dark navy like the app's dark mode, the cyan diamond of the logo drawn as vectors (sharp at every size) and the
-viewer's floor grid in perspective at the bottom. Several sizes of each image: Inno Setup picks the one for the
-screen's DPI.
+Dark navy like the app's dark mode with the viewer's floor grid in perspective at the bottom, and the logo
+(assets/verseforge.png, made from assets/verseforge.svg by tools/make_icons.py). Several sizes of each image: Inno
+Setup picks the one for the screen's DPI.
 """
 import math
 import os
@@ -14,27 +14,12 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(HERE, "installer", "style")
 BG_TOP, BG_BOTTOM = (10, 16, 23), (13, 27, 40)
-FACETS = [(64, 195, 255), (144, 224, 255), (22, 95, 134), (32, 138, 184)]   # top-left, top-right, bottom-left, bottom-right
-EDGE = (220, 245, 255)
 GRID = (40, 130, 180)
 
 
-def diamond(size, glow=True):
-    """The logo's diamond on a transparent square of `size` px (4 facets, bright edge, soft glow)."""
-    s = size * 4                                           # drawn large, then reduced: smooth edges
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    c, r = s / 2, s * 0.36
-    top, right, bottom, left, mid = (c, c - r * 1.07), (c + r, c), (c, c + r * 1.07), (c - r, c), (c, c)
-    d = ImageDraw.Draw(img)
-    for pts, col in zip(([left, top, mid], [top, right, mid], [left, mid, bottom], [mid, right, bottom]), FACETS):
-        d.polygon(pts, fill=col + (255,))
-    d.line([top, right, bottom, left, top], fill=EDGE + (255,), width=max(2, s // 90), joint="curve")
-    if glow:
-        halo = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-        ImageDraw.Draw(halo).polygon([top, right, bottom, left], fill=(80, 200, 255, 150))
-        halo = halo.filter(ImageFilter.GaussianBlur(s * 0.06))
-        img = Image.alpha_composite(halo, img)
-    return img.resize((size, size), Image.LANCZOS)
+def logo(size):
+    """The app logo (rounded tile included) at `size` px."""
+    return Image.open(os.path.join(HERE, "assets", "verseforge.png")).convert("RGBA").resize((size, size), Image.LANCZOS)
 
 
 def background(w, h):
@@ -71,10 +56,10 @@ def background(w, h):
 
 
 def side_panel(w, h):
-    """Left panel of the first and last page: the diamond, the name and a thin line, on transparency."""
+    """Left panel of the first and last page: the logo, the name and a thin line, on transparency."""
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    dsize = int(w * 0.78)
-    dm = diamond(dsize)
+    dsize = int(w * 0.66)
+    dm = logo(dsize)
     img.alpha_composite(dm, ((w - dsize) // 2, int(h * 0.20)))
     d = ImageDraw.Draw(img)
     try:
@@ -97,7 +82,7 @@ def main():
         tag = int(scale * 100)
         background(round(600 * scale), round(460 * scale)).save(os.path.join(OUT, f"back-{tag}.png"))
         side_panel(round(202 * scale), round(386 * scale)).save(os.path.join(OUT, f"side-{tag}.png"))
-        diamond(round(58 * scale)).save(os.path.join(OUT, f"logo-{tag}.png"))
+        logo(round(58 * scale)).save(os.path.join(OUT, f"logo-{tag}.png"))
     print("images in", OUT)
 
 

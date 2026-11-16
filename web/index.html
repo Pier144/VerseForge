@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VerseForge</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 2 30 16 16 30 2 16z' fill='%230a84ff'/></svg>">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
   <script>
     // light/dark is set before the stylesheet paints; the saved setting arrives later from /api/status
     (() => {
@@ -25,7 +25,6 @@
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
-      <symbol id="i-logo" viewBox="0 0 24 24"><path d="M12 2.5 21.5 12 12 21.5 2.5 12z" fill="currentColor" opacity=".25"/><path d="M12 6.5 17.5 12 12 17.5 6.5 12z" fill="currentColor"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
       <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.6-2-3.4-2.4.9a7.6 7.6 0 0 0-2.6-1.5L14 2.4h-4l-.4 2.5A7.6 7.6 0 0 0 7 6.4l-2.4-.9-2 3.4 2 1.6a7.6 7.6 0 0 0 0 3l-2 1.6 2 3.4 2.4-.9a7.6 7.6 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 2.6-1.5l2.4.9 2-3.4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
       <symbol id="i-frame" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></symbol>
@@ -62,7 +61,7 @@
 
   <div class="app">
     <header class="topbar">
-      <div class="brand"><svg class="logo"><use href="#i-logo"/></svg><span>VerseForge</span></div>
+      <div class="brand"><img class="logo" src="logo.svg" alt=""><span>VerseForge</span></div>
       <div id="status" class="status">Starting…</div>
       <button id="btnUpdate" class="update-pill hidden" title="A new version of VerseForge is available"><svg class="i"><use href="#i-download"/></svg><span></span></button>
       <button id="btnMode" class="icon-btn" title="Switch light / dark" aria-label="Switch light / dark"><svg class="i"><use href="#i-moon"/></svg></button>
