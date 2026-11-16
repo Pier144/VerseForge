@@ -1,0 +1,9 @@
+{
+  "name": "verseforge-reports",
+  "private": true,
+  "type": "module",
+  "description": "Receives reports from VerseForge and opens them as GitHub issues (VerseForge Reports app).",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test" },
+  "dependencies": { "@vercel/blob": "^2.9.0" }
+}
