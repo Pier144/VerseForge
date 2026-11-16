@@ -11,6 +11,7 @@ import os
 import platform
 import posixpath
 import re
+import sys
 import urllib.parse
 
 from . import __version__
@@ -114,3 +115,37 @@ def fallback_url(composed):
         text = text[: max(0, len(text) - max(100, (len(url) - MAX_URL) // 3))]
         url = link(text + note)
     return url
+
+
+def system_name():
+    """Operating system in one line, e.g. "Windows-11-10.0.26300-SP0" or "Ubuntu 24.04.1 LTS (Linux 6.8.0)"."""
+    if sys.platform.startswith("linux"):
+        try:
+            pretty = platform.freedesktop_os_release().get("PRETTY_NAME", "Linux")
+        except OSError:
+            pretty = "Linux"
+        return f"{pretty} (Linux {platform.release()})"
+    return platform.platform()
+
+
+def _log_tail(log_path, n):
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except (OSError, TypeError):
+        return []
+    return [line[:300] for line in lines[-n:]]
+
+
+def diagnostics(version=__version__, model=None, variant=None, gpu=None, log_path=None, log_lines=80):
+    """Technical details attached to a report. The log is rewritten at every start of the app, so it only holds
+    the session in progress; it does not exist when VerseForge runs from source."""
+    lines = [f"VerseForge {version}", f"System: {system_name()}"]
+    if gpu:
+        lines.append(f"GPU: {gpu}")
+    if model:
+        lines.append(f"Model: {model}" + (f" (variant {variant})" if variant else ""))
+    tail = _log_tail(log_path, log_lines)
+    if tail:
+        lines += ["", f"Last {len(tail)} log lines:", *tail]
+    return "\n".join(lines)

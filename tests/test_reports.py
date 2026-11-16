@@ -109,3 +109,20 @@ def test_fallback_url_long_text_is_cut():
     u = reports.fallback_url(c)
     assert len(u) <= reports.MAX_URL
     assert "did not fit" in urllib.parse.parse_qs(urllib.parse.urlsplit(u).query)["body"][0]
+
+
+def test_diagnostics_with_log(tmp_path):
+    log = tmp_path / "verseforge.log"
+    log.write_text("\n".join(f"line {i}" for i in range(200)), encoding="utf-8")
+    d = reports.diagnostics("1.14.0", model="Data/Objects/ships/carrack.cgf", variant="pirate", gpu="RTX 4080",
+                            log_path=str(log), log_lines=5)
+    lines = d.splitlines()
+    assert lines[0] == "VerseForge 1.14.0"
+    assert lines[1].startswith("System: ")
+    assert "GPU: RTX 4080" in lines and "Model: Data/Objects/ships/carrack.cgf (variant pirate)" in lines
+    assert lines[-5:] == [f"line {i}" for i in range(195, 200)]
+
+
+def test_diagnostics_without_log(tmp_path):
+    d = reports.diagnostics("1.14.0", log_path=str(tmp_path / "missing.log"))
+    assert "log lines" not in d and "Model:" not in d and "GPU:" not in d
