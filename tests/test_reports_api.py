@@ -83,3 +83,23 @@ def test_open_only_builds_github_addresses(client, monkeypatch):
     assert opened[1].startswith("https://github.com/Pier144/VerseForge/issues/new?")
     assert client.post("/api/report/open", json={}).status_code == 400
     assert client.post("/api/report/open", json={"number": -1}).status_code == 400
+
+
+def test_posts_from_other_pages_are_refused(client):
+    url = "/api/report/preview"
+    assert client.post(url, json=FIELDS, headers={"Origin": "https://evil.example"}).status_code == 403
+    # DNS rebinding: a foreign name that points at 127.0.0.1 sends a matching Origin and Host
+    assert client.post(url, json=FIELDS, headers={"Origin": "http://evil.example:8767",
+                                                  "Host": "evil.example:8767"}).status_code == 403
+    assert client.post(url, json=FIELDS, headers={"Origin": "http://127.0.0.1:8767",
+                                                  "Host": "127.0.0.1:8767"}).status_code == 200
+    assert client.post(url, json=FIELDS).status_code == 200          # no Origin: not a web page
+
+
+def test_issue_number_kept_even_if_settings_cannot_be_saved(client, monkeypatch):
+    def broken(cfg):
+        raise PermissionError("config.json is read-only")
+
+    monkeypatch.setattr(server, "save_config", broken)
+    monkeypatch.setattr(reports, "send", lambda composed, kind, shot=None, **kw: {"number": 9, "url": reports.ISSUE_PAGE + "9"})
+    assert client.post("/api/report", json=FIELDS).json()["number"] == 9

@@ -1484,7 +1484,8 @@ function viewPicture() {
 
 function reportReady() {
   const f = reportFields();
-  $("#repSend").disabled = f.title.length < 4 || f.description.length < 10;
+  // same rule as the service: at least 4 characters that are not spaces
+  $("#repSend").disabled = f.title.replace(/\s/g, "").length < 4 || f.description.length < 10;
 }
 
 async function refreshPreview() {
@@ -1512,6 +1513,7 @@ const REPORT_ERRORS = {
   invalid: (detail) => detail || "The report was not accepted.",
   unavailable: () => "The report service is not available right now.",
   network: () => "No connection to the report service.",
+  local: (detail) => `VerseForge could not prepare the report${detail ? `: ${detail}` : "."}`,
 };
 
 async function loadMyReports() {
@@ -1547,6 +1549,7 @@ function showReportTab(tab) {
 
 $("#btnReport").addEventListener("click", () => {
   showReportTab("new");
+  showReportError("");
   reportReady();
   $("#reportDlg").showModal();
 });
@@ -1571,8 +1574,9 @@ $("#repSend").addEventListener("click", async () => {
   btn.textContent = "Sending…";
   try {
     const r = await fetch("/api/report", JSON_POST(f));
-    const out = await r.json().catch(() => ({ kind: "unavailable" }));
-    if (!r.ok) throw out;
+    const out = await r.json().catch(() => ({}));
+    // 502 = the service answered with an error kind; anything else failed here, in the local server
+    if (!r.ok) throw r.status === 502 ? out : { kind: "local", detail: out.detail };
     toast(`Report #${out.number} sent, thank you`);
     $("#repTitle").value = "";
     $("#repText").value = "";

@@ -670,7 +670,10 @@ def report_send(r: ReportIn):
     except reports.ReportError as e:
         return JSONResponse({"kind": e.kind, "detail": e.message}, status_code=502)
     reports.remember(state.cfg, out["number"], composed["title"])
-    save_config(state.cfg)
+    try:
+        save_config(state.cfg)
+    except OSError:                         # the issue exists anyway: say so, or the user would send it twice
+        traceback.print_exc()
     return out
 
 
@@ -697,6 +700,22 @@ def report_open(o: OpenIn):
 def _errors(_request, exc):
     traceback.print_exc()
     return JSONResponse({"detail": i18n.error_text(exc)}, status_code=500)
+
+
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+
+
+@app.middleware("http")
+async def _same_page_only(request, call_next):
+    """POSTs to the API only from VerseForge's own page. A web page open in the user's browser could otherwise
+    reach the local server (it only has to guess the port) and, e.g., send a public report with their details.
+    Browsers always add Origin to such requests; DNS rebinding is stopped by requiring a local Host."""
+    origin = request.headers.get("origin")
+    if request.method == "POST" and request.url.path.startswith("/api/") and origin is not None:
+        host = request.headers.get("host", "")
+        if origin != f"http://{host}" or host.rsplit(":", 1)[0] not in LOCAL_HOSTS:
+            return JSONResponse({"detail": "Requests from other pages are not allowed"}, status_code=403)
+    return await call_next(request)
 
 
 @app.middleware("http")
