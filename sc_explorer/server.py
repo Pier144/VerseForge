@@ -14,8 +14,9 @@ import zstandard
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, diskcache, entities, export, i18n, materials, model, modelcache, paths, printing, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, diskcache, entities, export, i18n, materials, model, modelcache, paths, printing, reports, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -614,6 +615,81 @@ def open_release():
     """Open the release page in the default browser (only GitHub pages of this project)."""
     page = (state.update or {}).get("page") or updates.RELEASES_PAGE
     paths.open_path(page if page.startswith(updates.RELEASES_PAGE) else updates.RELEASES_PAGE)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ reports (public GitHub issues, see reports.py)
+LOG_FILE = os.path.join(CACHE_DIR, "verseforge.log")     # written by verseforge_app.py in the packaged app only
+
+
+class ReportIn(BaseModel):
+    kind: str = "bug"
+    title: str = ""
+    description: str = ""
+    picture: bool = True
+    details: bool = True
+    model: str | None = None
+    variant: str | None = None
+    gpu: str | None = None
+    screenshot: str | None = None          # JPEG in base64 (only for sending)
+
+
+class OpenIn(BaseModel):
+    number: int | None = None
+    fallback: ReportIn | None = None
+
+
+def _compose_report(r, with_picture):
+    """Anonymized issue text for a report from the interface: the same text for the preview, the real report and
+    the fallback link."""
+    folders = reports.user_folders(state.cfg, printing.find_blender(state.cfg.get("blender")))
+    ident = reports.local_identity()
+
+    def clean(text):
+        return reports.anonymize(text, folders=folders, **ident)
+
+    details = ""
+    if r.details:
+        log = LOG_FILE if getattr(sys, "frozen", False) else None
+        details = clean(reports.diagnostics(__version__, model=r.model, variant=r.variant, gpu=r.gpu, log_path=log))
+    kind = r.kind if r.kind in reports.KINDS else "bug"
+    return kind, reports.compose(kind, clean(r.title), clean(r.description), details, with_picture, __version__)
+
+
+@app.post("/api/report/preview")
+def report_preview(r: ReportIn):
+    return _compose_report(r, r.picture)[1]
+
+
+@app.post("/api/report")
+def report_send(r: ReportIn):
+    shot = r.screenshot if r.picture and r.screenshot else None
+    kind, composed = _compose_report(r, bool(shot))
+    try:
+        out = reports.send(composed, kind, shot)
+    except reports.ReportError as e:
+        return JSONResponse({"kind": e.kind, "detail": e.message}, status_code=502)
+    reports.remember(state.cfg, out["number"], composed["title"])
+    save_config(state.cfg)
+    return out
+
+
+@app.get("/api/report/mine")
+def report_mine():
+    items = reports.mine(state.cfg)
+    known = reports.statuses([it["number"] for it in items])
+    return {"reports": [{**it, **known.get(it["number"], {"state": None, "comments": None})} for it in items]}
+
+
+@app.post("/api/report/open")
+def report_open(o: OpenIn):
+    """Open a sent report, or GitHub's own form filled in. The address is always built here."""
+    if o.number is not None and o.number > 0:
+        paths.open_path(reports.ISSUE_PAGE + str(int(o.number)))
+    elif o.fallback is not None:
+        paths.open_path(reports.fallback_url(_compose_report(o.fallback, o.fallback.picture)[1]))
+    else:
+        raise HTTPException(400, "Nothing to open")
     return {"ok": True}
 
 
