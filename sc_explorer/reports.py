@@ -6,6 +6,7 @@ GitHub's own form all use it, so what the user sees is what is sent. Personal da
 game, export and Blender folders) is removed before that (anonymize)."""
 
 import getpass
+import http.client
 import json
 import ntpath
 import os
@@ -13,6 +14,7 @@ import platform
 import posixpath
 import re
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -27,6 +29,7 @@ PICTURE = "<!-- screenshot -->"          # replaced by the service with the uplo
 KINDS = {"bug": "[Bug] ", "idea": "[Idea] "}
 ZWSP = "\u200b"                          # zero-width space: breaks @mentions and ``` fences without showing
 MAX_URL = 7000                           # GitHub refuses longer "new issue" links
+MAX_BODY = 19000                         # the service refuses bodies over 20000 characters
 SERVICE_URL = os.environ.get("VERSEFORGE_REPORTS_URL", "https://verseforge-reports.vercel.app/api/report")
 ISSUES_API = f"https://api.github.com/repos/{REPO}/issues/"
 KEEP = 50                                # reports remembered in config.json
@@ -54,13 +57,42 @@ def user_folders(cfg, blender=None):
     out = []
     p4k = cfg.get("p4k_path") or ""
     if p4k:
-        out.append((_dirname(_dirname(p4k)), "<game>"))            # ...\StarCitizen, above LIVE / PTU
+        game = _dirname(_dirname(p4k))                              # ...\StarCitizen, above LIVE / PTU
+        if _too_short(game):                                        # e.g. D:\Mario\Data.p4k: not the whole drive
+            game = _dirname(p4k)
+        if not _too_short(game):
+            out.append((game, "<game>"))
     if cfg.get("export_dir"):
         out.append((cfg["export_dir"], "<exports>"))
     folder = _dirname(blender or "")
     if "blender" in folder.lower():                                 # not /usr/bin and the like
         out.append((folder, "<blender>"))
     return out
+
+
+def _too_short(folder):
+    """A drive root, the file system root or a folder too short to be replaced safely."""
+    return len(folder) < 4 or ntpath.splitdrive(folder)[1] in ("", "\\", "/")
+
+
+def system_folders():
+    """Windows forms of the home folder that anonymize() would miss: the 8.3 short name (C:\\Users\\MARIOR~1)
+    and the temp folder. Nothing elsewhere."""
+    if sys.platform != "win32":
+        return []
+    home = os.path.expanduser("~")
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(32768)
+        n = ctypes.windll.kernel32.GetShortPathNameW(home, buf, len(buf))
+        short = buf.value if 0 < n < len(buf) else ""
+    except Exception:  # no ctypes or the call failed: the long form is still replaced
+        short = ""
+    try:
+        temp = tempfile.gettempdir()
+    except Exception:
+        temp = ""
+    return [(f, tag) for f, tag in ((short, "<home>"), (temp, "<temp>")) if f and f.lower() != home.lower()]
 
 
 def _folder_pattern(folder):
@@ -82,33 +114,63 @@ def anonymize(text, *, home="", user="", machine="", folders=()):
     pairs = [(f.rstrip("\\/"), tag) for f, tag in [*folders, (home, "<home>")] if f]
     for folder, tag in sorted(pairs, key=lambda p: -len(p[0])):
         if len(folder) >= 3:
+            text = _encoded(text, folder, tag)
             text = _folder_pattern(folder).sub(tag, text)
     for word, tag in ((machine, "<pc>"), (user, "<user>")):
         if word and len(word) >= 3:
+            text = _encoded(text, word, tag)
             text = _word_pattern(word).sub(tag, text)
+    # OneDrive for Business adds the company name to the folder: "OneDrive - Contoso Ltd"
+    return re.sub(r"OneDrive - [^\\/\r\n]+", "OneDrive", text, flags=re.IGNORECASE)
+
+
+def _encoded(text, value, tag):
+    """Replace the URL-encoded forms of a folder or name (as in file:// links), in any letter case."""
+    for form in {urllib.parse.quote(value, safe=""), urllib.parse.quote(value)} - {value}:
+        text = re.sub(re.escape(form), tag, text, flags=re.IGNORECASE)
     return text
 
 
-def _neutral(text):
-    """User text that cannot break the issue layout or ping people: no <details> tags, no picture marker,
-    no HTML comments, @mentions broken (once: an already broken mention is left as it is)."""
+def _neutral(text, block=True):
+    """User text that cannot break the issue layout or ping people: no <details>, <pre>, <textarea>, <style> or
+    <script> tags, no picture marker, no HTML comments, @mentions broken (once: an already broken mention is left
+    as it is). In a block of text (not the title) a ``` fence left open is closed, or it would swallow the rest."""
     text = (text or "").replace("\r\n", "\n").strip()
-    text = re.sub(r"<(/?)details", r"&lt;\1details", text, flags=re.IGNORECASE)
+    text = re.sub(r"<(/?)(details|pre|textarea|style|script)", r"&lt;\1\2", text, flags=re.IGNORECASE)
     text = text.replace("<!--", "&lt;!--")
+    if block and len(re.findall(r"^ *```", text, flags=re.MULTILINE)) % 2:
+        text += "\n```"
     return re.sub(r"@(?=[A-Za-z0-9])", "@" + ZWSP, text)
 
 
 def compose(kind, title, description, details="", has_picture=False, version=__version__):
     """Title and Markdown body of the issue. The texts must already be anonymized."""
-    title = KINDS.get(kind, KINDS["bug"]) + " ".join(_neutral(title).split())
-    parts = [_neutral(description)]
-    if has_picture:
-        parts.append(PICTURE)
-    if details:
-        fenced = details.strip().replace("```", "`" + ZWSP + "``")
-        parts.append(f"<details><summary>Technical details</summary>\n\n```text\n{fenced}\n```\n\n</details>")
-    parts.append(f"<sub>Sent from VerseForge {version}</sub>")
-    return {"title": title[:130], "body": "\n\n".join(parts)}
+    title = KINDS.get(kind, KINDS["bug"]) + " ".join(_neutral(title, block=False).split())
+    head = [_neutral(description)] + ([PICTURE] if has_picture else [])
+    tail = f"<sub>Sent from VerseForge {version}</sub>"
+
+    def body(details):
+        parts = list(head)
+        if details:
+            # a log line cannot close the fence, nor pass for the picture marker
+            fenced = details.replace("```", "`" + ZWSP + "``").replace("<!--", "<!" + ZWSP + "--")
+            parts.append(f"<details><summary>Technical details</summary>\n\n```text\n{fenced}\n```\n\n</details>")
+        return "\n\n".join(parts + [tail])
+
+    details = (details or "").strip()
+    text = body(details)
+    if len(text) > MAX_BODY:                       # too long for the service: the oldest log lines go first
+        lines = details.split("\n")
+        start = next((i + 1 for i, line in enumerate(lines) if re.fullmatch(r"Last \d+ log lines:", line)), None)
+        while start is not None and start < len(lines) and len(text) > MAX_BODY:
+            del lines[start]
+            lines[start - 1] = f"Last {len(lines) - start} log lines:"
+            text = body("\n".join(lines))
+        details = "\n".join(lines)
+        while len(text) > MAX_BODY and details:   # last resort: cut the details themselves
+            details = details[: max(0, len(details) - (len(text) - MAX_BODY))]
+            text = body(details)
+    return {"title": title[:130], "body": text}
 
 
 def fallback_url(composed):
@@ -116,15 +178,27 @@ def fallback_url(composed):
     can paste one there. Labels in the link are ignored by GitHub for people without rights on the repository."""
     body = composed["body"].replace(PICTURE, "_(please attach a screenshot here)_")
 
-    def link(text):
-        return NEW_ISSUE + "?" + urllib.parse.urlencode({"title": composed["title"], "body": text})
+    title = composed["title"][:130]
 
+    def link(text):
+        return NEW_ISSUE + "?" + urllib.parse.urlencode({"title": title, "body": text})
+
+    if len(link(body)) <= MAX_URL:
+        return link(body)
+    # the technical details go first, the user's own words last
+    body = re.sub(r"<details>.*?</details>", "_(technical details left out: too long for a link)_", body,
+                  flags=re.DOTALL)
+    if len(link(body)) <= MAX_URL:
+        return link(body)
     note = "\n\n_(cut: the full text did not fit in the link)_"
-    text, url = body, link(body)
-    while len(url) > MAX_URL:
-        text = text[: max(0, len(text) - max(100, (len(url) - MAX_URL) // 3))]
-        url = link(text + note)
-    return url
+    lo, hi = 0, len(body)                          # longest start of the text that fits, found by halving
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if len(link(body[:mid] + note)) <= MAX_URL:
+            lo = mid
+        else:
+            hi = mid - 1
+    return link(body[:lo] + note)
 
 
 def system_name():
@@ -183,25 +257,36 @@ def send(composed, kind, screenshot_b64=None, version=__version__, url=None, tim
     except urllib.error.HTTPError as e:
         try:
             message = str(json.load(e).get("error") or "")
-        except (ValueError, AttributeError, OSError):
+        except (ValueError, AttributeError, OSError, http.client.HTTPException):
             message = ""
-        raise ReportError({400: "invalid", 413: "invalid", 429: "rate"}.get(e.code, "unavailable"), message) from None
-    except (urllib.error.URLError, OSError) as e:
+        kind = {400: "invalid", 413: "invalid", 429: "rate"}.get(e.code, "unavailable")
+        raise ReportError(kind, message or ("The report was not accepted" if kind == "invalid" else "")) from None
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as e:   # also a cut or garbled answer
         raise ReportError("network", str(getattr(e, "reason", e))) from None
     except (ValueError, KeyError, TypeError):
         raise ReportError("unavailable", "unexpected answer from the service") from None
     return {"number": number, "url": ISSUE_PAGE + str(number)}
 
 
+def _number(n):
+    return isinstance(n, int) and not isinstance(n, bool) and n > 0
+
+
+def _saved(cfg):
+    """Reports kept in the settings; entries spoiled by hand editing are skipped."""
+    items = cfg.get("reports")
+    return [r for r in items if isinstance(r, dict) and _number(r.get("number"))] if isinstance(items, list) else []
+
+
 def remember(cfg, number, title, now=None):
     """Keep a sent report in the settings (newest first) so "My reports" can list it."""
-    items = [r for r in cfg.get("reports", []) if r.get("number") != number]
+    items = [r for r in _saved(cfg) if r["number"] != number]
     items.insert(0, {"number": int(number), "title": title, "date": time.strftime("%Y-%m-%d", time.localtime(now))})
     cfg["reports"] = items[:KEEP]
 
 
 def mine(cfg):
-    return [dict(r) for r in cfg.get("reports", [])]
+    return [dict(r) for r in _saved(cfg)]
 
 
 def statuses(numbers, api=ISSUES_API, timeout=8):
@@ -209,12 +294,12 @@ def statuses(numbers, api=ISSUES_API, timeout=8):
     hidden issues (404, 410) are "removed"; once GitHub refuses (public limit used up) the rest is left out.
     A transferred issue answers 301, which urllib follows: the moved issue's state is used."""
     out = {}
-    for n in list(numbers)[:STATUS_MAX]:
+    for n in [n for n in numbers if _number(n)][:STATUS_MAX]:    # skip numbers spoiled by hand editing
         hit = _status_cache.get(n)
         if hit and time.time() - hit[0] < STATUS_TTL:
             out[n] = hit[1]
             continue
-        req = urllib.request.Request(api + str(int(n)), headers={"Accept": "application/vnd.github+json",
+        req = urllib.request.Request(api + str(n), headers={"Accept": "application/vnd.github+json",
                                                                   "User-Agent": f"VerseForge/{__version__}"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:

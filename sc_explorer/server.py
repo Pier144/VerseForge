@@ -642,7 +642,7 @@ class OpenIn(BaseModel):
 def _compose_report(r, with_picture):
     """Anonymized issue text for a report from the interface: the same text for the preview, the real report and
     the fallback link."""
-    folders = reports.user_folders(state.cfg, printing.find_blender(state.cfg.get("blender")))
+    folders = reports.user_folders(state.cfg, printing.find_blender(state.cfg.get("blender"))) + reports.system_folders()
     ident = reports.local_identity()
 
     def clean(text):

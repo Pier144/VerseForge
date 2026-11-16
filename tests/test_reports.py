@@ -176,12 +176,12 @@ def test_send_ok(fake):
 @pytest.mark.parametrize("status,kind", [(400, "invalid"), (403, "unavailable"), (429, "rate"), (503, "unavailable"),
                                          (500, "unavailable")])
 def test_send_errors(fake, status, kind):
-    fake["status"], fake["body"] = status, {"error": "Title must be 5 to 130 characters"}
+    fake["status"], fake["body"] = status, {"error": "The title must be 4 to 130 characters"}
     with pytest.raises(reports.ReportError) as e:
         reports.send(_short(), "bug", url=fake["url"])
     assert e.value.kind == kind
     if status == 400:
-        assert e.value.message == "Title must be 5 to 130 characters"
+        assert e.value.message == "The title must be 4 to 130 characters"
 
 
 def test_send_network_down():
@@ -218,4 +218,138 @@ def test_statuses_stop_when_the_public_limit_is_used_up(fake):
     fake["status"], fake["body"] = 403, {"message": "API rate limit exceeded"}
     reports._status_cache.clear()
     assert reports.statuses([7, 8], api=fake["url"] + "/issues/") == {}
+    assert len(fake["seen"]) == 1
+
+
+def _link_parts(url):
+    q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+    return q["title"][0], q["body"][0]
+
+
+def test_fallback_url_non_ascii_text_keeps_a_body():
+    c = reports.compose("bug", "Title here", "漢" * 5000, "", False, "1.0.0")
+    u = reports.fallback_url(c)
+    assert len(u) <= reports.MAX_URL
+    body = _link_parts(u)[1]
+    assert body.startswith("漢" * 100) and "did not fit" in body
+
+
+def test_fallback_url_huge_title_ends():
+    out = []
+    t = threading.Thread(target=lambda: out.append(reports.fallback_url({"title": "x" * 10000, "body": "y" * 9000})),
+                         daemon=True)
+    t.start()
+    t.join(10)
+    assert out, "fallback_url did not end"
+    assert len(out[0]) <= reports.MAX_URL
+    title, body = _link_parts(out[0])
+    assert title == "x" * 130 and body.startswith("y")
+
+
+def test_fallback_url_drops_details_before_cutting_the_description():
+    c = reports.compose("bug", "Title here", "a" * 2000, "log line\n" * 500, False, "1.0.0")
+    body = _link_parts(reports.fallback_url(c))[1]
+    assert "a" * 2000 in body
+    assert "technical details left out" in body and "log line" not in body and "did not fit" not in body
+
+
+def test_compose_drops_the_oldest_log_lines_when_too_long():
+    log = [f"{i:03d} " + "x" * 296 for i in range(80)]
+    details = "\n".join(["VerseForge 1.14.0", "System: Windows", "", "Last 80 log lines:", *log])
+    body = reports.compose("bug", "Title here", "d" * 8000, details, False, "1.0.0")["body"]
+    assert len(body) <= reports.MAX_BODY < 20000
+    assert body.startswith("d" * 8000) and "System: Windows" in body
+    assert log[-1] in body and log[0] not in body
+    kept = sum(1 for line in log if line in body)
+    assert f"Last {kept} log lines:" in body                 # the count follows the lines that are left
+    assert body.endswith("<sub>Sent from VerseForge 1.0.0</sub>")
+
+
+def test_compose_cuts_details_without_log_lines_when_too_long():
+    body = reports.compose("bug", "Title here", "d" * 8000, "z" * 30000, False, "1.0.0")["body"]
+    assert len(body) <= reports.MAX_BODY
+    assert body.startswith("d" * 8000) and "zzz" in body and body.endswith("</sub>")
+
+
+def test_compose_closes_an_unclosed_fence():
+    body = reports.compose("bug", "Title here", "look:\n  ```\ncode here", "", False, "1.0.0")["body"]
+    assert "code here\n```" in body
+    even = reports.compose("bug", "Title here", "```\ncode\n```", "", False, "1.0.0")["body"]
+    assert even.startswith("```\ncode\n```\n\n")
+
+
+def test_compose_neutralises_raw_html_blocks():
+    text = "a <pre> b </PRE> c <textarea> d <style> e </script> f <script>"
+    body = reports.compose("bug", "Title here", text, "", False, "1.0.0")["body"]
+    for tag in ("<pre>", "</PRE>", "<textarea>", "<style>", "</script>", "<script>"):
+        assert tag not in body
+    assert "&lt;pre>" in body and "&lt;/PRE>" in body and "&lt;/script>" in body
+
+
+def test_compose_breaks_html_comments_in_details():
+    body = reports.compose("bug", "Title here", "Some text here", "log <!-- screenshot --> end", True, "1.0.0")["body"]
+    assert body.count(reports.PICTURE) == 1
+    assert body.index(reports.PICTURE) < body.index("<details>")
+    assert "<!\u200b-- screenshot -->" in body
+
+
+def test_anonymize_url_encoded_paths_and_names():
+    text = "file:///C%3A%5CUsers%5CMario%20Rossi%5Cx.glb c%3a%5cusers%5cmario%20rossi by Mario%20Rossi"
+    out = reports.anonymize(text, home=r"C:\Users\Mario Rossi", user="Mario Rossi", machine="")
+    assert out == "file:///<home>%5Cx.glb <home> by <user>"
+
+
+def test_anonymize_onedrive_for_business():
+    text = r"saved <home>\OneDrive - Contoso Ltd\Documents\a.glb and /OneDrive - Acme S.p.A./b and OneDrive - Org"
+    assert reports.anonymize(text) == r"saved <home>\OneDrive\Documents\a.glb and /OneDrive/b and OneDrive"
+
+
+def test_system_folders_elsewhere(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert reports.system_folders() == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
+def test_system_folders_on_windows():
+    out = reports.system_folders()
+    assert isinstance(out, list)
+    for folder, tag in out:
+        assert isinstance(folder, str) and folder and tag in ("<home>", "<temp>")
+        assert folder != os.path.expanduser("~")
+
+
+def test_user_folders_game_at_the_drive_root():
+    assert reports.user_folders({"p4k_path": r"D:\Mario\Data.p4k"}) == [(r"D:\Mario", "<game>")]
+    assert reports.user_folders({"p4k_path": "/games/Data.p4k"}) == [("/games", "<game>")]
+    assert reports.user_folders({"p4k_path": r"D:\Data.p4k"}) == []
+
+
+def test_send_broken_answer_is_network(monkeypatch):
+    import http.client
+
+    def broken(*a, **k):
+        raise http.client.IncompleteRead(b"")
+    monkeypatch.setattr(reports.urllib.request, "urlopen", broken)
+    with pytest.raises(reports.ReportError) as e:
+        reports.send(_short(), "bug", url="http://127.0.0.1:9/")
+    assert e.value.kind == "network"
+
+
+@pytest.mark.parametrize("status", [400, 413])
+def test_send_refused_without_reason(fake, status):
+    fake["status"], fake["body"] = status, {}
+    with pytest.raises(reports.ReportError) as e:
+        reports.send(_short(), "bug", url=fake["url"])
+    assert e.value.kind == "invalid" and e.value.message == "The report was not accepted"
+
+
+def test_hand_edited_reports_in_config(fake):
+    cfg = {"reports": [{"number": None}, "junk", {"number": 3, "title": "x", "date": "2026-11-16"}]}
+    assert reports.mine(cfg) == [{"number": 3, "title": "x", "date": "2026-11-16"}]
+    reports.remember(cfg, 4, "y")
+    assert [r["number"] for r in cfg["reports"]] == [4, 3]
+    fake["body"] = {"state": "open", "comments": 0}
+    reports._status_cache.clear()
+    out = reports.statuses([None, "junk", -1, 0, True, 3], api=fake["url"] + "/issues/")
+    assert out == {3: {"state": "open", "comments": 0}}
     assert len(fake["seen"]) == 1
