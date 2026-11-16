@@ -1,77 +1,118 @@
+<div align="center">
+
+<img src="assets/verseforge.png" width="104" alt="VerseForge logo">
+
 # VerseForge
 
-A local Windows tool to **search, view in 3D and export** Star Citizen models (weapons, attachments, tools, armor,
-clothing, ships, components, vehicles, props…) straight from the `Data.p4k` of your installed game.
-It never modifies the game files and downloads nothing: the archive is opened read-only.
+**Explore every ship, weapon and armour set of Star Citizen in 3D, straight from your own game files,<br>
+and export them for Blender, your renders or your 3D printer.**
 
-![VerseForge in dark mode](docs/screenshot_dark.png)
+[![Latest release](https://img.shields.io/github/v/release/Pier144/VerseForge?label=latest&color=2f81f7)](../../releases/latest)
+[![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)](../../releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-8250df)](LICENSE)
 
-<details><summary>Light mode</summary>
+### [⬇&nbsp; Download for Windows](../../releases/latest)
 
-![VerseForge in light mode](docs/screenshot_light.png)
+<br>
 
-</details>
+<img src="docs/readme/hero.webp" width="100%" alt="The RSI Perseus with its full loadout, turning in front of the gas giant Crusader">
 
-<details><summary>Settings</summary>
+</div>
 
-![VerseForge settings](docs/screenshot_settings.png)
+<br>
 
-</details>
-
+> [!NOTE]
 > Unofficial fan project, not affiliated with or endorsed by Cloud Imperium Games. The repository **contains no game
-> files, models or textures**: you need your own installed copy of Star Citizen.
+> files, models or textures**: VerseForge reads them from your own installed copy of Star Citizen.
 
-The demo videos (`01_search_and_view.mp4`: search, viewer, ships, materials; `02_export_and_print.mp4`:
-GLB/OBJ/STL export, STL for 3D printing, settings) are attached to the [latest release](../../releases/latest); they
-were recorded with version 1.3, so the interface has changed a little since.
-They are regenerated in `docs/video/` with `python tools/record_video.py` while the app is running: the script drives
-Edge/Chrome in headless mode and compresses to H.264 with the Windows transcoder (`tools/compress_video.ps1`).
+## What you can do
+
+<table>
+<tr>
+<td width="55%"><img src="docs/readme/app.png" alt="The VerseForge window: search on the left, the 3D view in the middle, details, animations and export on the right"></td>
+<td>
+
+### Find anything in the game
+Over **70,000 models**: 113 ships, 550 vehicles, weapons, attachments, armour, clothing, tools, characters and props.
+Search by in-game name (*P4-AR*, *Morozov-SH*, *Gladius*) or file name, then browse by category and manufacturer.
+
+</td>
+</tr>
+<tr>
+<td>
+
+### Look inside the ships
+Turn on **Interiors** and rooms, corridors and props are placed in the hull as the game does. The section slider
+cuts the ship open, and you can also view one deck at a time.
+
+</td>
+<td width="55%"><img src="docs/readme/interiors.webp" alt="The section plane sliding down through the Perseus, showing its decks"></td>
+</tr>
+<tr>
+<td width="55%"><img src="docs/readme/animation.webp" alt="The Gladius canopy opening and closing"></td>
+<td>
+
+### Full ships that move
+**Full ship** mounts the factory loadout: landing gear, guns, missiles, thrusters and seats. The game's own
+animations play and scrub on a timeline: canopies, ramps, doors, landing gear, weapons firing and reloading.
+
+</td>
+</tr>
+<tr>
+<td>
+
+### Every paint and livery
+Skins and liveries come from the game database, colour palette included, with camo patterns and decals drawn like
+in game. Exports use the paint you picked.
+
+</td>
+<td width="55%"><img src="docs/readme/paints.jpg" alt="The Gladius in four liveries: default, Disrupt Camo, IceBreak and Pirate"></td>
+</tr>
+<tr>
+<td width="55%"><img src="docs/readme/backdrops.jpg" alt="The Hornet in four different backdrops"></td>
+<td>
+
+### Backdrops for screenshots
+Choose from several backdrops, with hangar lighting and shadows or a plain studio light.
+
+</td>
+</tr>
+</table>
+
+### Take it out of the game
+
+| Format | What you get |
+|---|---|
+| **GLB** | Binary glTF with materials, textures and animations: opens in Blender, Windows 3D Viewer, game engines |
+| **OBJ** | Zip with `.obj`, `.mtl` and textures |
+| **STL** | Raw surfaces in millimetres, as a reference |
+| **STL for printing** | A closed, solid mesh ready for the slicer (made with Blender in the background) |
 
 ## Getting started
 
-### Windows app (recommended)
+1. **Download** `VerseForge-<version>-Setup.exe` from the [latest release](../../releases/latest) and install it.
+   No administrator rights and no Python needed.
+2. **Open VerseForge.** It finds the game in `C:\Program Files\Roberts Space Industries\StarCitizen\LIVE`; if yours
+   is elsewhere (or you want the PTU), set the path in **Settings** (gear icon, top right).
+3. **Search and explore.** Drag to orbit, scroll to zoom, right-drag to pan. VerseForge checks for new versions at
+   startup and updates itself when you agree.
 
-Download **`VerseForge-<version>-Setup.exe`** from the [Releases](../../releases) page and install it: no administrator
-rights and no Python needed. It adds a Start menu entry (and, if you want, a desktop icon); uninstall it from
-*Settings → Apps*.
+Windows SmartScreen may warn about an unrecognised app because the installer is not code-signed, just choose
+*More info → Run anyway*. Demo videos are attached to the [latest release](../../releases/latest).
 
-VerseForge opens in its own window, without a browser or a console, and also works offline.
+## Documentation
 
-### Browser version (from source)
-
-Double-click **`Start VerseForge (browser).bat`**: it needs Python 3.11+ (the dependencies in `requirements.txt` are
-installed automatically), the browser opens on <http://127.0.0.1:8765>, and closing the black console window stops it.
-`python verseforge_app.py` runs the windowed version from source instead (it also needs PySide6:
-`python -m pip install -r requirements-build.txt`, which installs PySide6 and PyInstaller).
-
-### Where data is stored
-
-| What | Where |
-|---|---|
-| Settings | `%APPDATA%\VerseForge\config.json` |
-| Cache (Data.p4k index, names) | `%LOCALAPPDATA%\VerseForge` (rebuilt automatically after every patch) |
-| Exports | `Documents\VerseForge` (can be changed in the settings) |
-| Log of the .exe version | `%LOCALAPPDATA%\VerseForge\verseforge.log` |
-
-By default the game is looked for in `C:\Program Files\Roberts Space Industries\StarCitizen\LIVE\Data.p4k`;
-if it is somewhere else (or to use the PTU) change it in **Settings** (gear icon, top right). The "3D print" export needs Blender
-(detected automatically, or set its path in the settings).
-
-### Rebuilding the .exe
-
-`build_exe.bat` rebuilds `dist\VerseForge\` (PyInstaller, `VerseForge.spec`) and the installer (Inno Setup,
-`installer\VerseForge.iss`). The build dependencies (PySide6, PyInstaller) are in `requirements-build.txt`.
-The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and the .iss script.
-
-## Usage
+<details>
+<summary><b>Using VerseForge</b>: search, viewer, backdrops, paints, animations, full ship, interiors</summary>
 
 - **Search**: type in the box at the top left. In-game names ("P4-AR", "Morozov-SH", "Arrowhead"), ship names
   ("Gladius", "Cutlass") and file names ("brfl_fps_behr") all work. Dashes and spaces are ignored; with several
   words, all of them must match.
 - **Categories**: the tiles under the search box filter by type, grouped as ships and vehicles, personal gear and the
-  rest (the full name and exact count are in each tile's tooltip). Picking a category shows a second row with its sub-categories (pistols,
-  shotguns, LMGs… for weapons; helmets, light/medium/heavy armor… for armor; manufacturers for ships). The "Main models" switch hides LODs, decals, physics proxies and ship
-  interior parts: turn it off to see every single file.
+  rest (the full name and exact count are in each tile's tooltip). Picking a category shows a second row with its
+  sub-categories (pistols, shotguns, LMGs… for weapons; helmets, light/medium/heavy armor… for armor; manufacturers
+  for ships). The "Main models" switch hides LODs, decals, physics proxies and ship interior parts: turn it off to see
+  every single file.
 - **Viewer**: drag to rotate, wheel to zoom, right button to pan.
   Keys: `F` frame, `W` wireframe, `R` auto-rotate, `G` grid (also in the toolbar at the bottom).
   Textures, decals, glass, screens and proxies are toggled at the top right of the viewer; single materials can be
@@ -81,20 +122,9 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   made from the game's own sky textures (the Pyro skybox, Stanton's nebula layers and the gas giant Crusader); a
   *Modelling workshop*: a lived-in room with a table, a cutting mat with a centimetre grid and props taken from the
   game (desk lamp, toolboxes, drill, tool chest); behind the table a wall of shelves holds paints, spray cans, tools,
-  action figures and ship miniatures, and a window in the side wall looks onto Stanton's sky. The model stands on the mat
-  as a scale model (1:72, 1:144… so a ship is 20-40 cm long; weapons and armour at real size, the scale is printed on
-  the mat); a seamless
-  *Photo studio* floor. Each backdrop sets its own light and shadows, and snapshots include it.
-- **Cache** (Settings → Cache): models and textures already opened are kept on disk, so they open again much faster
-  (a ship with its interior: about 5-8 s the first time, under a second afterwards). Up to 10 GB, least recently
-  used files are removed first; a new game patch or program version starts a fresh cache. The switch turns it off,
-  *Clear* empties it.
-- **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows Windows
-  (also selectable in **Settings → Appearance**).
-- **Updates**: at startup VerseForge checks the [Releases](../../releases) page. When a newer version exists it shows
-  what is new and asks whether to update: **Update now** downloads the installer (checking its SHA-256), installs it
-  and reopens the program; **Later** keeps an "Update" button in the top bar; **Skip this version** stops asking until
-  the next one. The check can be turned off, or run by hand, in **Settings → Updates**. Nothing else is sent anywhere.
+  action figures and ship miniatures, and a window in the side wall looks onto Stanton's sky. The model stands on the
+  mat as a scale model (1:72, 1:144… so a ship is 20-40 cm long; weapons and armour at real size, the scale is printed
+  on the mat); a seamless *Photo studio* floor. Each backdrop sets its own light and shadows, and snapshots include it.
 - **Variant / paint**: for weapons, armor, ships and items that have several skins or liveries in the game, a menu
   appears in the right panel (e.g. Quartz "Jungle Camo", Gladius liveries). Colours and materials come from the
   game database (`Game2.dcb`); the first entry is the default paint. Exports use the selected variant too.
@@ -119,9 +149,22 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
   detail normals), paints with camo patterns are drawn with their stencil masks, and parallax decals shade the paint
   under them instead of printing over it. The *Hangar* button in the toolbar switches to a dark hangar light with
   shadows, close to how ships look in game; the studio light stays available.
+- **Cache** (Settings → Cache): models and textures already opened are kept on disk, so they open again much faster
+  (a ship with its interior: about 5-8 s the first time, under a second afterwards). Up to 10 GB, least recently
+  used files are removed first; a new game patch or program version starts a fresh cache. The switch turns it off,
+  *Clear* empties it.
+- **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows Windows
+  (also selectable in **Settings → Appearance**).
+- **Updates**: at startup VerseForge checks the [Releases](../../releases) page. When a newer version exists it shows
+  what is new and asks whether to update: **Update now** downloads the installer (checking its SHA-256), installs it
+  and reopens the program; **Later** keeps an "Update" button in the top bar; **Skip this version** stops asking until
+  the next one. The check can be turned off, or run by hand, in **Settings → Updates**. Nothing else is sent anywhere.
 - Item names are the in-game (English) names.
 
-## Export
+</details>
+
+<details>
+<summary><b>Export formats</b> in detail</summary>
 
 | Format | Content |
 |---|---|
@@ -133,8 +176,26 @@ The version number lives in `sc_explorer/__init__.py`, `version_info.txt` and th
 Textures can be left out by turning off "Textures in GLB / OBJ" (much smaller files).
 Every export is also saved in `Documents\VerseForge` (can be changed in the settings).
 For a large print, splitting into pegged pieces has to be done separately (e.g. in Blender or in the slicer).
+The "STL for printing" export needs Blender (detected automatically, or set its path in the settings).
 
-## Known limitations
+</details>
+
+<details>
+<summary><b>Where data is stored</b></summary>
+
+| What | Where |
+|---|---|
+| Settings | `%APPDATA%\VerseForge\config.json` |
+| Cache (Data.p4k index, names, opened models) | `%LOCALAPPDATA%\VerseForge` (rebuilt automatically after every patch) |
+| Exports | `Documents\VerseForge` (can be changed in the settings) |
+| Log of the .exe version | `%LOCALAPPDATA%\VerseForge\verseforge.log` |
+
+VerseForge never modifies the game files and downloads nothing from them: `Data.p4k` is opened read-only.
+
+</details>
+
+<details>
+<summary><b>Known limitations</b></summary>
 
 - **Approximate textures**: colour, normal, gloss, specular and ambient-occlusion maps are loaded; for layered
   materials (`LayerBlend`, `HardSurface` on ships and weapons) the first layer is used, repeated according to its
@@ -156,7 +217,31 @@ For a large print, splitting into pegged pieces has to be done separately (e.g. 
 - The models are the property of Cloud Imperium Games / Roberts Space Industries: use them only for personal,
   non-commercial purposes.
 
-## Project structure
+</details>
+
+<details>
+<summary><b>Running from source and building</b></summary>
+
+**Browser version**: double-click **`Start VerseForge (browser).bat`**. It needs Python 3.11+ (the dependencies in
+`requirements.txt` are installed automatically), the browser opens on <http://127.0.0.1:8765>, and closing the black
+console window stops it. `python verseforge_app.py` runs the windowed version from source instead (it also needs
+PySide6: `python -m pip install -r requirements-build.txt`, which installs PySide6 and PyInstaller).
+
+**Rebuilding the .exe**: `build_exe.bat` rebuilds `dist\VerseForge\` (PyInstaller, `VerseForge.spec`) and the
+installer (Inno Setup, `installer\VerseForge.iss`). The version number lives in `sc_explorer/__init__.py`,
+`version_info.txt` and the .iss script.
+
+**Tools** (`tools/`):
+- `record_video.py` records the demo videos in `docs/video/` while the app is running (headless Edge/Chrome, H.264
+  through the Windows transcoder, `compress_video.ps1`).
+- `readme_media.py` makes the images and animations of this page in `docs/readme/`.
+- `flash_check.py` films the desktop app while it drives a repeatable random sample of actions and counts the frames
+  where a panel is missing (the "flashing panels" check).
+
+</details>
+
+<details>
+<summary><b>Project structure and file formats</b></summary>
 
 ```
 start.py                 browser version: server (uvicorn) and opening the browser
@@ -185,7 +270,7 @@ verseforge_app.py        windowed app (Qt WebEngine), entry point of VerseForge.
 VerseForge.spec          PyInstaller configuration; installer/VerseForge.iss for Inno Setup
 tests/test_formats.py    tests against the installed game (python -m pytest tests; skipped if Data.p4k is missing)
 tests/test_updates.py    version comparison and release parsing of the updater (no network needed)
-tools/                   recording and compression of the demo videos
+tools/                   demo videos, README images, flashing-panels check
 ```
 
 Format details discovered during development:
@@ -201,6 +286,8 @@ Format details discovered during development:
 - Node chunk `0x70697FDA`: 208-byte records; the first 3×4 matrix is the transform into object space.
   Indices, material ids and the node name table follow.
 - Bones `0xC2011111`: 68-byte records (id, parent, relative and world quaternion and position), names at the end.
+
+</details>
 
 ## License
 
