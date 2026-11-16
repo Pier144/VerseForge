@@ -20,7 +20,7 @@ applies the limits and creates the issue.
 | `REPORTS_PER_HOUR` | cap on reports per hour from everyone (default 20) |
 | `BLOB_READ_WRITE_TOKEN` | set by Vercel when the Blob store is connected |
 
-Firewall: rate limit rule on `/api/report`, 5 requests per 10 minutes per IP, action deny.
+Firewall: rate limit rule on `/api/report`, 5 requests per 10 minutes per IP, action "rate limit" (answers 429, which the app shows as "too many reports"; "deny" would answer 403 and look like the service being down).
 
 ## Tests
 

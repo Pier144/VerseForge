@@ -31,6 +31,7 @@ export async function handle(req, { env, github, putPicture, log = console.log, 
       pictureName = `reports/${new Date(now()).toISOString().slice(0, 7)}/${randomUUID()}.jpg`;
       try {
         markdown = `![3D view](${await putPicture(pictureName, report.picture)})`;
+        log(`picture uploaded ${pictureName}`);   // logged now: creating the issue may still fail below
       } catch (e) {
         log(`picture upload failed: ${e.message}`);
         markdown = "_(the picture could not be uploaded)_";

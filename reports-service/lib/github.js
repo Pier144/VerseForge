@@ -19,7 +19,7 @@ export function appJwt(appId, privateKey, now = Date.now()) {
   const claims = b64url(JSON.stringify({ iat: t - 60, exp: t + 540, iss: String(appId) }));
   const sign = createSign("RSA-SHA256");
   sign.update(`${head}.${claims}`);
-  return `${head}.${claims}.${sign.sign(privateKey.replace(/\n/g, "\n"), "base64url")}`;
+  return `${head}.${claims}.${sign.sign(privateKey.replace(/\\n/g, "\n"), "base64url")}`;
 }
 
 export class GitHub {

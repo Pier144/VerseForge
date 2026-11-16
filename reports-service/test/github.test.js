@@ -30,7 +30,9 @@ const token = (t = "t1") => [201, { token: t, expires_at: "2026-11-16T13:00:00Z"
 const client = (fetch) => new GitHub({ appId: 123, privateKey, repo: REPO, fetch, now: () => NOW });
 
 test("app JWT is signed, short-lived and accepts a key pasted on one line", () => {
-  const jwt = appJwt(123, privateKey.replace(/\n/g, "\n"), NOW);
+  const oneLine = privateKey.replace(/\n/g, "\\n");      // as pasted in a one-line environment variable
+  assert.ok(!oneLine.includes("\n"));
+  const jwt = appJwt(123, oneLine, NOW);
   const [h, c, s] = jwt.split(".");
   assert.deepEqual(JSON.parse(Buffer.from(c, "base64url")), { iat: NOW / 1000 - 60, exp: NOW / 1000 + 540, iss: "123" });
   const v = createVerify("RSA-SHA256");
