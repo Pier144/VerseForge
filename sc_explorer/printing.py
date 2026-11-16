@@ -57,14 +57,75 @@ def _find_blender_linux():
     return None
 
 
+BLENDER_EXE = "blender.exe" if sys.platform == "win32" else "blender"
+UNINSTALL_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+
+
+def from_setting(configured):
+    """The Blender path typed in the settings: the program itself, its folder, or a folder of Blender versions
+    (newest first). Quotes and spaces around it are ignored (Windows "Copy as path" adds quotes)."""
+    path = os.path.expanduser((configured or "").strip().strip('"\'').strip())
+    if not path:
+        return None
+    if os.path.isfile(path):
+        return path
+    if os.path.isdir(path):
+        inside = [os.path.join(path, BLENDER_EXE)]
+        inside += sorted(glob.glob(os.path.join(glob.escape(path), "*", BLENDER_EXE)), reverse=True)
+        return next((c for c in inside if os.path.isfile(c)), None)
+    return None
+
+
+def _installed_programs():
+    """Windows "installed programs" list: (name, version, folder) for every entry (Blender's installer, Steam…)."""
+    try:
+        import winreg
+    except ImportError:
+        return []
+    out = []
+    for hive, view in ((winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY), (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY),
+                       (winreg.HKEY_CURRENT_USER, 0)):
+        try:
+            root = winreg.OpenKey(hive, UNINSTALL_KEY, 0, winreg.KEY_READ | view)
+        except OSError:
+            continue
+        with root:
+            for i in range(winreg.QueryInfoKey(root)[0]):
+                try:
+                    with winreg.OpenKey(root, winreg.EnumKey(root, i), 0, winreg.KEY_READ | view) as entry:
+                        values = {}
+                        for name in ("DisplayName", "DisplayVersion", "InstallLocation"):
+                            try:
+                                values[name] = str(winreg.QueryValueEx(entry, name)[0])
+                            except OSError:
+                                values[name] = ""
+                except OSError:
+                    continue
+                out.append((values["DisplayName"], values["DisplayVersion"], values["InstallLocation"]))
+    return out
+
+
+def pick_installed(entries):
+    """Newest Blender among the installed programs whose folder really holds blender.exe."""
+    from .updates import parse_version
+    found = []
+    for name, version, folder in entries:
+        if "blender" in (name or "").lower() and folder:
+            exe = os.path.join(folder.strip().strip('"'), BLENDER_EXE)
+            if os.path.isfile(exe):
+                found.append((parse_version(version) or (), os.path.normpath(exe)))
+    return max(found)[1] if found else None
+
+
 def find_blender(configured=None):
-    if configured and os.path.isfile(configured):
-        return configured
-    exe = shutil.which("blender")
+    exe = from_setting(configured) or shutil.which("blender")
     if exe:
         return exe
     if sys.platform != "win32":
         return _find_blender_linux()
+    exe = pick_installed(_installed_programs())   # any drive or folder, e.g. D:\Programmi\Blender 4.4
+    if exe:
+        return exe
     for root in BLENDER_CANDIDATES:
         if not os.path.isdir(root):
             continue

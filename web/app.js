@@ -1399,7 +1399,8 @@ $("#btnSettings").addEventListener("click", async () => {
   const s = await (await api("/api/status")).json();
   $("#cfgP4k").value = s.p4k_path || "";
   $("#cfgExport").value = s.export_dir || "";
-  $("#cfgBlender").value = s.blender || "";
+  $("#cfgBlender").value = s.blender_setting || "";
+  showBlender(s);
   $("#cfgAppearance").value = appearance;
   appearanceDropdown.sync();
   $("#cfgUpdates").checked = s.check_updates !== false;
@@ -1414,11 +1415,21 @@ $("#cfgSave").addEventListener("click", async () => {
     appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked, disk_cache: $("#cfgDiskCache").checked });
   applyAppearance($("#cfgAppearance").value);
   try {
-    await api(`/api/config?${p}`, { method: "POST" });
+    showBlender(await (await api(`/api/config?${p}`, { method: "POST" })).json());
     toast(T("saved"));
     pollStatus();
   } catch (e) { toast(e.message, true); }
 });
+
+// Blender (Settings): the path typed (the program or its folder; empty = automatic) and what it leads to
+function showBlender(s) {
+  const typed = (s.blender_setting || "").trim();
+  $("#cfgBlender").placeholder = !typed && s.blender ? "Detected automatically" : "Path to blender.exe or its folder";
+  $("#blenderLine").textContent = s.blender ? `Using ${s.blender}`
+    : typed ? "Blender not found there: choose blender.exe or the folder that holds it"
+    : "Blender not found: type where blender.exe is (the program or its folder)";
+  $("#blenderLine").classList.toggle("missing", !s.blender);
+}
 
 // disk cache (Settings → Cache): how much it holds, and a button to empty it
 const gb = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : `${Math.round(n / 1048576)} MB`);

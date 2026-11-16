@@ -235,7 +235,8 @@ def _stem(path):
 def status():
     return {**state.status, "message": _msg(state.status["message"]), "error": _msg(state.status["error"]),
             "app": APP_NAME, "version": __version__, "p4k_path": state.cfg["p4k_path"], "export_dir": state.cfg["export_dir"],
-            "blender": printing.find_blender(state.cfg.get("blender")), "appearance": state.cfg.get("appearance", "system"),
+            "blender": printing.find_blender(state.cfg.get("blender")), "blender_setting": state.cfg.get("blender", ""),
+            "appearance": state.cfg.get("appearance", "system"),
             "check_updates": bool(state.cfg.get("check_updates", True)),
             "disk_cache": state.disk.enabled, "disk_cache_bytes": state.disk.size, "disk_cache_limit": state.disk.limit,
             "memory": {"models": len(state.models), "models_bytes": state.models.bytes, "models_budget": state.models.budget,
@@ -521,7 +522,7 @@ def print_file(job_id: str):
 
 # ------------------------------------------------------------------ settings
 @app.post("/api/config")
-def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", appearance: str = "", check_updates: str = "",
+def set_config(p4k_path: str = "", export_dir: str = "", blender: str = None, appearance: str = "", check_updates: str = "",
                disk_cache: str = ""):
     changed_p4k = p4k_path and p4k_path != state.cfg["p4k_path"]
     if check_updates in ("true", "false"):
@@ -533,8 +534,8 @@ def set_config(p4k_path: str = "", export_dir: str = "", blender: str = "", appe
         state.cfg["p4k_path"] = p4k_path
     if export_dir:
         state.cfg["export_dir"] = export_dir
-    if blender:
-        state.cfg["blender"] = blender
+    if blender is not None:                 # empty = find it automatically again
+        state.cfg["blender"] = blender.strip()
     if appearance in ("system", "light", "dark"):
         state.cfg["appearance"] = appearance
     save_config(state.cfg)
