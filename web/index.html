@@ -38,6 +38,7 @@
       <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3.2c3.2 4.1 6 7.6 6 10.9a6 6 0 0 1-12 0c0-3.3 2.8-6.8 6-10.9Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9.2 14.6a3 3 0 0 0 2.6 2.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
       <symbol id="i-moon"viewBox="0 0 24 24"><path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.2 8.2 0 1 0 10.6 10.6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4.5 16.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4.5 6.5A2 2 0 0 1 6.5 4.5h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H11l-4.5 3.5v-3.5h0a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.5 9.5h7M8.5 12.5h4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
       <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 2.8 20.2 7.4v9.2L12 21.2l-8.2-4.6V7.4z M3.8 7.4 12 12l8.2-4.6 M12 12v9.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
       <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
       <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7.5 5.5h3v13h-3zM13.5 5.5h3v13h-3z" fill="currentColor"/></symbol>
@@ -64,6 +65,7 @@
       <div class="brand"><img class="logo" src="logo.svg" alt=""><span>VerseForge</span></div>
       <div id="status" class="status">Starting…</div>
       <button id="btnUpdate" class="update-pill hidden" title="A new version of VerseForge is available"><svg class="i"><use href="#i-download"/></svg><span></span></button>
+      <button id="btnReport" class="icon-btn" title="Report a problem or suggest an idea" aria-label="Report a problem or suggest an idea"><svg class="i"><use href="#i-chat"/></svg></button>
       <button id="btnMode" class="icon-btn" title="Switch light / dark" aria-label="Switch light / dark"><svg class="i"><use href="#i-moon"/></svg></button>
       <button id="btnSettings" class="icon-btn" title="Settings" aria-label="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
     </header>
@@ -256,6 +258,40 @@
         <button id="updSkip" value="skip" class="link-btn skip">Skip this version</button>
         <button value="later" class="ghost">Later</button>
         <button id="updGo" type="button" class="primary">Update now</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="reportDlg">
+    <form method="dialog" class="settings report">
+      <div class="report-head">
+        <h2>Feedback</h2>
+        <div class="tabs">
+          <button type="button" class="tab is-on" data-tab="new">New report</button>
+          <button type="button" class="tab" data-tab="mine">My reports</button>
+        </div>
+      </div>
+      <div id="repNew" class="rep-pane">
+        <div class="kind-row">
+          <button type="button" class="kind is-on" data-kind="bug">Bug</button>
+          <button type="button" class="kind" data-kind="idea">Idea</button>
+        </div>
+        <label class="field-col"><span>Title</span><input id="repTitle" type="text" maxlength="120" spellcheck="true" placeholder="Short summary, e.g. Carrack interior has no textures"></label>
+        <label class="field-col"><span>Details <em>what happened, or what you would like</em></span><textarea id="repText" rows="6" maxlength="8000" placeholder="Steps to reproduce, what you expected, what you saw…"></textarea></label>
+        <label class="switch"><input id="repPicture" type="checkbox" checked><span class="track"></span><span>Attach a picture of the 3D view</span></label>
+        <label class="switch"><input id="repDetails" type="checkbox" checked><span class="track"></span><span>Attach technical details (version, system, graphics card, log)</span></label>
+        <details id="repPreviewBox" class="rep-preview"><summary>What will be sent</summary><pre id="repPreview"></pre></details>
+        <p class="hint">Reports and pictures are public on GitHub. Personal folders and names are removed.</p>
+        <p id="repError" class="rep-error hidden"></p>
+        <div class="dialog-actions">
+          <button id="repFallback" type="button" class="link-btn skip hidden">Open on GitHub instead</button>
+          <button value="cancel" class="ghost">Cancel</button>
+          <button id="repSend" type="button" class="primary" disabled>Send</button>
+        </div>
+      </div>
+      <div id="repMine" class="rep-pane hidden">
+        <ul id="repList" class="rep-list"></ul>
+        <p id="repMineNote" class="hint"></p>
+        <div class="dialog-actions"><button value="close" class="ghost">Close</button></div>
       </div>
     </form>
   </dialog>
