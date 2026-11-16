@@ -71,7 +71,7 @@ def side_panel(w, h):
     ty = int(h * 0.20) + dsize + int(h * 0.02)
     d.text(((w - tw) / 2, ty), text, font=font, fill=(225, 243, 255, 255))
     ly = ty + int(w * 0.21)
-    d.line([(w * 0.28, ly), (w * 0.72, ly)], fill=(64, 195, 255, 200), width=max(1, w // 120))
+    d.line([(w * 0.28, ly), (w * 0.72, ly)], fill=(10, 132, 255, 220), width=max(1, w // 120))
     return img
 
 
