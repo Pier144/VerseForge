@@ -266,7 +266,9 @@ VerseForge never modifies the game files and downloads nothing from them: `Data.
 **Browser version**: double-click **`Start VerseForge (browser).bat`**. It needs Python 3.11+ (the dependencies in
 `requirements.txt` are installed automatically), the browser opens on <http://127.0.0.1:8765>, and closing the black
 console window stops it. `python verseforge_app.py` runs the windowed version from source instead (it also needs
-PySide6: `python -m pip install -r requirements-build.txt`, which installs PySide6 and PyInstaller).
+`python -m pip install -r requirements-build.txt`: pywebview for the Windows window, PySide6 and PyInstaller). On
+Windows the window is WebView2, the Edge engine that ships with Windows; without it, or with `VERSEFORGE_SHELL=qt`,
+VerseForge falls back to Qt WebEngine.
 
 **Rebuilding the .exe**: `build_exe.bat` rebuilds `dist\VerseForge\` (PyInstaller, `VerseForge.spec`) and the
 installer (Inno Setup, `installer\VerseForge.iss`). The version number lives in `sc_explorer/__init__.py`,
@@ -315,7 +317,8 @@ reports-service/         the Vercel function that turns reports into GitHub issu
 web/                     interface (HTML/CSS/JS); three.js 0.160 bundled in web/vendor (MIT license)
 web/gamelook.js          game-look materials (spec/gloss, camo stencils, POM decals); web/hangar.js hangar light
 web/backdrops.js         viewer backdrops: space panoramas, modelling workbench, photo studio
-verseforge_app.py        windowed app (Qt WebEngine), entry point of VerseForge.exe
+web/batching.js          big models: pieces sharing a material drawn as one batch (fewer draw calls)
+verseforge_app.py        windowed app (WebView2 on Windows, Qt WebEngine on Linux), entry point of VerseForge.exe
 VerseForge.spec          PyInstaller configuration; installer/VerseForge.iss for Inno Setup
 tests/test_formats.py    tests against the installed game (python -m pytest tests; skipped if Data.p4k is missing)
 tests/test_updates.py    version comparison and release parsing of the updater (no network needed)

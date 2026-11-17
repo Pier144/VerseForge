@@ -141,9 +141,15 @@ def _pick_shell():
         print("WebView2 runtime not found: using the Qt window")
         return "qt"
     try:
+        # loads .NET and the WebView2 control now, so that a PC where they do not work gets the Qt window instead
+        # of an app that does not start
         import webview  # noqa: F401
-    except Exception:  # not installed (running from source without it) or .NET missing
+        from webview.platforms import winforms
+        if not winforms.is_chromium:
+            raise RuntimeError("pywebview did not find the WebView2 runtime")
+    except Exception:  # not installed (running from source without it), .NET missing or broken
         traceback.print_exc()
+        print("WebView2 window not available: using the Qt window")
         return "qt"
     return "webview2"
 
