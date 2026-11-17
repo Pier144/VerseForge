@@ -369,6 +369,7 @@ class ScreenLost(Exception):
 class Run:
     def __init__(self, cdp, rng, layout, rec):
         self.cdp, self.rng, self.layout, self.rec = cdp, rng, layout, rec
+        self.cut = None           # --cut: section height for the close-up
         self.steps = []           # (label, t0, t1)
         self.lost = None          # label of the step after which the screen was lost
 
@@ -477,6 +478,25 @@ class Run:
         await self.step(f"{name}: backdrop {kind}", self.backdrop(kind))
         await self.step(f"{name}: backdrop plain", self.backdrop("plain"))
 
+    async def closeup(self, item, seconds):
+        """The case the user reported on 17/11: close to a heavy model, turning the view slowly (every frame is drawn
+        while the mouse moves), for a fixed time so runs can be compared."""
+        await self.step(f"{item['name']}: load with interiors + full ship + decals", self.load(item, True))
+        if self.cut is not None:                  # the "Interiors" section slider, e.g. 0.73 = cut at 73% of the height
+            await self.cdp.js(f"(() => {{ const c = document.querySelector('#cut'); c.value = {round(self.cut * 1000)};"
+                              " c.dispatchEvent(new Event('input')); })()")
+            await self.idle(1500)
+        await self.cdp.js("(() => { const v = __verseforge; v.camera.position.lerp(v.controls.target, 0.8);"
+                          " v.controls.update(); v.invalidate(800); })()")
+        await self.idle(1500)
+        t_end = time.time() + seconds
+        n = 0
+        while time.time() < t_end:
+            n += 1
+            await self.step(f"{item['name']}: close-up orbit {n}", self.cdp.drag(
+                self.layout["w"] / 2, self.layout["h"] / 2, self.rng.choice([-1, 1]) * self.rng.uniform(60, 200),
+                self.rng.uniform(-30, 30), steps=self.rng.randint(40, 90)))
+
     async def _twice(self, f):
         await f()
         await f()
@@ -573,8 +593,11 @@ def report(out_dir, rec, run, page, args, ships):
 
 def screen_ok():
     """Desktop Duplication works only on an unlocked desktop that is being drawn (remote desktop not minimised)."""
-    r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "ddagrab=framerate=10",
-                        "-frames:v", "1", "-f", "null", "-"], capture_output=True, text=True, timeout=20)
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "ddagrab=framerate=10",
+                            "-frames:v", "1", "-f", "null", "-"], capture_output=True, text=True, timeout=20)
+    except subprocess.TimeoutExpired:          # no new desktop frame at all: the display is off or asleep
+        return False, ["no frame in 20 s (display off?)"]
     return r.returncode == 0, r.stderr.strip().splitlines()[:1]
 
 
@@ -596,8 +619,10 @@ async def main_async(args):
     try:
         cdp = await CDP.connect(port)
         await wait_ready(cdp)
-        js = (PAGE_JS.replace("%PANES%", json.dumps(PANES)).replace("%MARK%", str(MARK)).replace("%HALF%", str(MARK // 2)))
+        js =(PAGE_JS.replace("%PANES%", json.dumps(PANES)).replace("%MARK%", str(MARK)).replace("%HALF%", str(MARK // 2)))
         await cdp.js(js)
+        for code in args.js:                      # experiments, e.g. "__verseforge.renderer.setPixelRatio(1)"
+            print("page js:", await cdp.js(code))
         await cdp.js("document.querySelector('#bgMenu [data-bg=\"plain\"]').click()")
         await asyncio.sleep(2.5)                  # window fully drawn
         layout = await cdp.js("__fc.placeMarks()")
@@ -631,7 +656,11 @@ async def main_async(args):
             for item in ships * args.rounds:
                 if args.continuous:               # draw every frame instead of on demand (comparison)
                     await cdp.js("__verseforge.invalidate(1e9)")
-                await run.ship(item)
+                if args.closeup:
+                    run.cut = args.cut
+                    await run.closeup(item, args.closeup)
+                else:
+                    await run.ship(item)
         except ScreenLost as e:
             run.lost = str(e)
             print(f"screen lost after: {e} (PC locked or remote desktop minimised?); partial report")
@@ -664,8 +693,15 @@ def main():
                     help="wait up to MIN minutes for the screen to become filmable (PC unlocked)")
     ap.add_argument("--rounds", type=int, default=1, help="repeat the whole sample this many times")
     ap.add_argument("--continuous", action="store_true", help="draw every frame (turns off render on demand)")
+    ap.add_argument("--closeup", type=float, default=0, metavar="SEC",
+                    help="instead of the random sample: load the ship with everything on, go close and orbit slowly "
+                         "for SEC seconds (heavy close-up case); use with --only")
+    ap.add_argument("--cut", type=float, default=None, metavar="FRACTION",
+                    help="with --closeup: cut the ship with the Interiors section first, e.g. 0.73")
     ap.add_argument("--env", action="append", default=[], metavar="KEY=VALUE",
                     help="environment variable for the app (repeatable), e.g. QSG_RHI_BACKEND=opengl")
+    ap.add_argument("--js", action="append", default=[], metavar="CODE",
+                    help="run this in the page before the test (repeatable), e.g. a different pixel ratio")
     ap.add_argument("--source", choices=["screen", "screencast"], default="screen",
                     help="screen = film the monitor (default, what you really see); screencast = Chromium's own frames")
     args = ap.parse_args()

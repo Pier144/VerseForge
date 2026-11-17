@@ -14,6 +14,8 @@
       document.documentElement.dataset.mode = dark ? "dark" : "light";
     })();
   </script>
+  <style>/* background before style.css arrives (same as --app-bg), so the first frame is not white */
+    html { background: #06070b; } html[data-mode="light"] { background: #eef1f6; }</style>
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
     { "imports": {

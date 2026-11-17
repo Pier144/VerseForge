@@ -63,6 +63,25 @@ def _start_server(port):
     raise RuntimeError("the internal server did not start")
 
 
+def _cloak_first_frames(win, ms=300):
+    """Windows: a new window shows one white frame before Qt paints it. Keep it cloaked (DWM hides it without making
+    it a layered window, so the 3D drawing is not slowed down) until the background colour is on screen."""
+    import ctypes
+    from PySide6.QtCore import QTimer
+    DWMWA_CLOAK = 13
+    hwnd = int(win.winId())
+
+    def cloak(on):
+        try:
+            val = ctypes.c_int(1 if on else 0)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, ctypes.byref(val), ctypes.sizeof(val))
+        except OSError:
+            pass
+
+    cloak(True)
+    QTimer.singleShot(ms, lambda: cloak(False))
+
+
 def _self_test():
     """`VerseForge --self-test`: start the internal server and load Qt WebEngine without opening a window, then quit.
     Used by the Linux build (CI) to check that the packaged app has everything it needs. Exit code 0 = fine."""
@@ -89,8 +108,8 @@ def main():
     else:
         _linux_gpu_setup()
 
-    from PySide6.QtCore import QUrl
-    from PySide6.QtGui import QIcon
+    from PySide6.QtCore import Qt, QUrl
+    from PySide6.QtGui import QColor, QIcon
     from PySide6.QtWebEngineCore import QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings
     from PySide6.QtWebEngineWidgets import QWebEngineView
     from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
@@ -113,10 +132,18 @@ def main():
 
     from sc_explorer.server import state
 
+    # until the page paints, Qt WebEngine shows white: use the app's own background (--app-bg in web/style.css),
+    # dark or light as saved in the settings ("system" follows Windows / the desktop)
+    pref = state.cfg.get("appearance", "system")
+    dark = pref == "dark" or (pref != "light" and qt.styleHints().colorScheme() != Qt.ColorScheme.Light)
+    bg = QColor("#06070b" if dark else "#eef1f6")
+
     win = QMainWindow()
     win.setWindowTitle(f"{APP_NAME} {__version__}")
+    win.setStyleSheet(f"QMainWindow {{ background: {bg.name()}; }}")
     win.resize(1500, 920)
     view = QWebEngineView(win)
+    view.page().setBackgroundColor(bg)
     win.setCentralWidget(view)
 
     profile = QWebEngineProfile.defaultProfile()
@@ -137,6 +164,8 @@ def main():
 
     profile.downloadRequested.connect(on_download)
     view.setUrl(QUrl(f"http://127.0.0.1:{port}/"))
+    if sys.platform == "win32":
+        _cloak_first_frames(win)
     win.showMaximized()
     code = qt.exec()
     server.should_exit = True

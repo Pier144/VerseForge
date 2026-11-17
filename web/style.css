@@ -85,6 +85,12 @@
   --grid-major: #a9b5ca; --grid-minor: #cfd6e2;
   color-scheme: light;
 }
+/* While the 3D view moves (orbit, zoom, auto-rotate, animations) the glass blur is switched off and the panels turn
+   more opaque. Chromium has to blur the changing view under every panel on every frame; with heavy scenes (Perseus
+   interior cut open) the Qt window then showed half-composed frames without the panels. Back to glass when still. */
+html.vf-moving *, html.vf-moving *::before, html.vf-moving *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+html.vf-moving { --pane: rgba(18, 21, 32, .86); --float-bg: rgba(22, 25, 36, .88); }
+html.vf-moving[data-mode="light"] { --pane: rgba(246, 248, 252, .9); --float-bg: rgba(250, 251, 253, .92); }
 
 /* ------------------------------------------------------------------ base */
 * { box-sizing: border-box; }

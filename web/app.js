@@ -143,7 +143,10 @@ function toast(msg, isErr = false) {
 
 // ---------------------------------------------------------------- 3D viewer
 const wrap = $("#canvasWrap");
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
+// preserveDrawingBuffer off: keeping the buffer costs a copy every frame, and with the heavy models close up that extra
+// GPU work made the desktop window show half-composed frames (panels missing). Code that reads the canvas (snapshot,
+// report picture) draws a frame first with drawNow(), in the same task, so the buffer is still there.
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -329,32 +332,59 @@ let holdRender = false;        // true while a model is being sent to the GPU pi
 // state three.js keeps in its cache stops matching the driver's, and the depth test no longer works: inner parts and
 // the floor grid showed through the hull. Re-sending the state before each frame costs a few dozen calls and fixes it.
 const RESYNC_GL = /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+// "vf-moving" on <html> (style.css): no glass blur on the panels while the view moves and through the render tail
+// after it, so Chromium does not blur a changing 3D view under every panel on every frame (half-composed frames in the
+// Qt window with heavy scenes). Only real motion counts: a click in a panel also draws a few frames, but the view under
+// the panels stays the same then, and the glass must not blink on every click.
+let motionUntil = 0, moving = false;
+function setMoving(on) {
+  if (on === moving) return;
+  moving = on;
+  document.documentElement.classList.toggle("vf-moving", on);
+}
+// switch the glass off as soon as a move begins (pointer down, wheel, section slider), one frame before the view
+// changes: restyling every panel in the same frame as the first heavy 3D frame was enough to flash
+function markMotion() {
+  motionUntil = Math.max(motionUntil, performance.now() + RENDER_TAIL);
+  setMoving(true);
+}
 function tick() {
   const dt = clock.getDelta();
   const now = performance.now();
   if (holdRender) return;
-  let draw = now <= renderUntil;
+  let draw = now <= renderUntil, motion = false;
   if (anim.mixer) {
     const running = anim.dragging || anim.mixer._actions.some((a) => a.isRunning());
+    motion = running;
     if (running || now <= renderUntil) {
       anim.mixer.update(dt);
       syncTimeline();
     }
     if (running) {
       draw = true;
+      if (renderer.clippingPlanes.length) cullAboveCut();     // moving parts may cross the section plane
       if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
     }
   }
-  if (controls.update()) draw = true;          // true while the camera moves (dragging, damping, auto-rotate)
-  if (controls.autoRotate || renderer.shadowMap.needsUpdate) draw = true;
+  if (controls.update()) draw = motion = true; // true while the camera moves (dragging, damping, auto-rotate)
+  if (controls.autoRotate) motion = true;
+  if (motion || renderer.shadowMap.needsUpdate) draw = true;
   if (draw) tailUntil = now + RENDER_TAIL;     // something changed: keep drawing for a while after it
-  else if (now > tailUntil && now - lastRender <= 1000) return;
+  if (motion) motionUntil = tailUntil;
+  setMoving(now < motionUntil);
+  if (!draw && now > tailUntil && now - lastRender <= 1000) return;
   if (RESYNC_GL) renderer.resetState();
   renderer.render(scene, camera);
   lastRender = now;
   stats.frames++;
 }
 renderer.setAnimationLoop(tick);
+controls.addEventListener("start", markMotion);
+// draw the scene right now: the drawing buffer is not preserved, so read the canvas only after this, in the same task
+function drawNow() {
+  if (RESYNC_GL) renderer.resetState();
+  renderer.render(scene, camera);
+}
 // user input on the canvas: keep drawing a little while (the camera's damping finishes after the pointer stops)
 for (const ev of ["pointerdown", "pointermove", "wheel"]) renderer.domElement.addEventListener(ev, () => invalidate(300), { passive: true });
 // any click or change in the panels (animations, rest pose, layers, menus) may change the scene: a few frames
@@ -1010,6 +1040,7 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
   if (a === "shot") {
     const link = document.createElement("a");
     link.download = `${(state.current?.path.split("/").pop() || "model").replace(/\.\w+$/, "")}.png`;
+    drawNow();
     link.href = renderer.domElement.toDataURL("image/png");
     link.click();
   }
@@ -1044,10 +1075,29 @@ async function compileShaders(root, section) {
   }
   await Promise.all(jobs);
 }
+// Pieces lying wholly above the section plane are not drawn at all (layer 0 off: not drawn, no shadow, not picked).
+// The plane would discard every pixel of them anyway, but only after their vertices and part of their shading had run:
+// with the Perseus interior cut at 73% the frames went past 16 ms and the desktop window flashed half-drawn frames.
+const cullBox = new THREE.Box3();
+function cullAboveCut() {
+  if (!modelRoot) return;
+  const y = renderer.clippingPlanes.length ? sectionPlane.constant : Infinity;
+  modelRoot.updateMatrixWorld();
+  modelRoot.traverse((o) => {
+    if (!o.isMesh) return;
+    let above = false;
+    if (y !== Infinity && !o.isSkinnedMesh) {
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      above = cullBox.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld).min.y > y;
+    }
+    if (above) o.layers.disable(0); else o.layers.enable(0);
+  });
+}
 function applySection() {
   const on = !!sectionBox && state.cut < 0.999;
   if (on) sectionPlane.constant = THREE.MathUtils.lerp(sectionBox.min.y, sectionBox.max.y, state.cut);
   renderer.clippingPlanes = on ? [sectionPlane] : [];
+  cullAboveCut();
   $("#cut").value = Math.round(state.cut * 1000);
   $("#cutVal").textContent = `${Math.round(state.cut * 100)}%`;
   document.querySelectorAll("#decks button").forEach((b) => b.classList.remove("on"));
@@ -1060,7 +1110,7 @@ $("#intOn").addEventListener("change", (e) => {
   try { sessionStorage.setItem("vf.int", state.interior ? "1" : "0"); } catch { /* storage unavailable */ }
   if (state.current) loadModel(state.current, true);
 });
-$("#cut").addEventListener("input", (e) => { state.cut = e.target.value / 1000; applySection(); });
+$("#cut").addEventListener("input", (e) => { markMotion(); state.cut = e.target.value / 1000; applySection(); });
 
 // Decks: the ship's floors, found by the server in the interior (info.decks, floor heights in metres). Each deck
 // button cuts the ship just under that deck's ceiling: everything above is taken away, the deck stays whole.
@@ -1506,6 +1556,7 @@ function viewPicture() {
     const g = c.getContext("2d");
     g.fillStyle = bg;
     g.fillRect(0, 0, c.width, c.height);
+    drawNow();
     g.drawImage(src, 0, 0, c.width, c.height);
     const b64 = c.toDataURL("image/jpeg", quality).split(",")[1];
     if (b64.length * 0.75 <= 2_000_000) return b64;
