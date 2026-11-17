@@ -7,6 +7,7 @@ import { vertexNormals } from "./normals.js";
 import { GameLook } from "./gamelook.js";
 import { hangarTexture } from "./hangar.js";
 import { Backdrops, BACKDROPS } from "./backdrops.js";
+import { Batches } from "./batching.js";
 
 const $ = (s) => document.querySelector(s);
 const api = async (url, opts) => {
@@ -317,7 +318,8 @@ const clock = new THREE.Clock();
 let ammoScreen = null;   // weapon display drawn on its DisplayScreen (screen.js)
 window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; },
   camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting,
-  get backdrop() { return backdrop; }, get look() { return gameLook; }, stats, invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
+  get backdrop() { return backdrop; }, get batches() { return batches; },
+  get batching() { return BATCH_ON; }, set batching(on) { BATCH_ON = !!on; }, get look() { return gameLook; }, stats, invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
 // Render on demand: a frame is drawn only when something changed (camera moving or settling, an animation or the
 // auto-rotate running, a texture/material update, a shadow redraw request, an explicit invalidate()), plus once a
 // second as a safety net. A still model leaves the GPU idle instead of redrawing it 60 times a second.
@@ -327,6 +329,13 @@ for (const proto of [THREE.Texture.prototype, THREE.Material.prototype]) {
   const d = Object.getOwnPropertyDescriptor(proto, "needsUpdate");
   if (d?.set) Object.defineProperty(proto, "needsUpdate", { ...d, set(v) { d.set.call(this, v); if (v) invalidate(); } });
 }
+// Big models: pieces sharing a material are drawn as one batch (batching.js). Off with ?batch=0 in the address or
+// localStorage vf.batch = "0" (every piece its own draw call, as before 1.15).
+let BATCH_ON = !/[?&]batch=0/.test(location.search);
+try { if (localStorage.getItem("vf.batch") === "0") BATCH_ON = false; } catch { /* storage unavailable */ }
+const BATCH_MIN_MESHES = 300;  // smaller models are quick as they are
+let batches = new Batches();
+let poseDirty = false;         // an animation moved the nodes: the batches need their transforms again
 let holdRender = false;        // true while a model is being sent to the GPU piece by piece (warmUp)
 // Linux (Qt WebEngine / Chrome: ANGLE on OpenGL, seen with Mesa): after the window is resized at start-up the GL
 // state three.js keeps in its cache stops matching the driver's, and the depth test no longer works: inner parts and
@@ -356,13 +365,16 @@ function tick() {
   const now = performance.now();
   if (holdRender) return;
   let draw = now <= renderUntil, motion = false;
+  if (poseDirty && !anim.mixer) syncPose();
   if (anim.mixer) {
     const running = anim.dragging || anim.mixer._actions.some((a) => a.isRunning());
     motion = running;
     if (running || now <= renderUntil) {
       anim.mixer.update(dt);
+      poseDirty = true;
       syncTimeline();
     }
+    if (poseDirty) syncPose();
     if (running) {
       draw = true;
       if (renderer.clippingPlanes.length) cullAboveCut();     // moving parts may cross the section plane
@@ -383,8 +395,14 @@ function tick() {
 }
 renderer.setAnimationLoop(tick);
 controls.addEventListener("start", markMotion);
+function syncPose() {
+  poseDirty = false;
+  batches.sync();
+  if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
+}
 // draw the scene right now: the drawing buffer is not preserved, so read the canvas only after this, in the same task
 function drawNow() {
+  if (poseDirty) syncPose();
   if (RESYNC_GL) renderer.resetState();
   renderer.render(scene, camera);
 }
@@ -579,7 +597,12 @@ function resinMaterial(kind) {
     s.uniforms.resinLayer = resinLayer;
     s.vertexShader = s.vertexShader
       .replace("#include <common>", "#include <common>\nvarying float vResinY;")
-      .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvResinY = (modelMatrix * vec4(transformed, 1.0)).y;");
+      .replace("#include <worldpos_vertex>", `#include <worldpos_vertex>
+#ifdef USE_BATCHING
+vResinY = (modelMatrix * batchingMatrix * vec4(transformed, 1.0)).y;   // in a batch: the piece's own transform
+#else
+vResinY = (modelMatrix * vec4(transformed, 1.0)).y;
+#endif`);
     s.fragmentShader = s.fragmentShader
       .replace("#include <common>", "#include <common>\nvarying float vResinY;\nuniform float resinLayer;")
       .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
@@ -705,6 +728,8 @@ async function loadModel(item, keepView = false) {
       scene.remove(modelRoot);
       modelRoot.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); (o.userData.gameMaterial || o.material).dispose(); } });
     }
+    batches.dispose();
+    batches = new Batches();
     modelRoot = gltf.scene;
     gameLook.dispose();
     gameLook = new GameLook(renderer);
@@ -725,6 +750,13 @@ async function loadModel(item, keepView = false) {
         if (meshKind(o) === "glass") { o.userData.glass = true; glassLook(o); }
       }
     });
+    let meshCount = 0;
+    modelRoot.traverse((o) => { if (o.isMesh) meshCount++; });
+    if (BATCH_ON && meshCount >= BATCH_MIN_MESHES) {
+      const mine = batches;
+      await mine.build(modelRoot, () => new Promise((r) => setTimeout(r, 0)));
+      if (state.current !== item || mine !== batches) return;
+    }
     // compile the shaders before the model is shown, in parallel and without blocking the page
     // (KHR_parallel_shader_compile): compiling them all in the first frame froze the view for 1-2 s on big ships
     progress(99, T("loadShaders"));
@@ -860,6 +892,7 @@ function settleLanded() {
   const c = anim.current;
   c.act.time = c.act.timeScale < 0 ? 0 : c.clip.duration;
   anim.mixer.update(0);
+  syncPose();                    // right away: the backdrop and the section box are fitted to this pose
   renderer.shadowMap.needsUpdate = true;
 }
 
@@ -965,6 +998,7 @@ $("#animTime").addEventListener("input", (e) => {
   c.act.enabled = true;
   c.act.time = (e.target.value / 1000) * c.clip.duration;
   anim.mixer.update(0);
+  poseDirty = true;
 });
 $("#animTime").addEventListener("change", () => { anim.dragging = false; });
 $("#animLoop").addEventListener("change", (e) => {
@@ -973,6 +1007,7 @@ $("#animLoop").addEventListener("change", (e) => {
 $("#animReset").addEventListener("click", () => {
   if (!anim.mixer) return;
   anim.mixer.stopAllAction();
+  poseDirty = true;
   anim.actions.clear();
   anim.current = null;
   document.querySelectorAll(".anim-act").forEach((b) => b.classList.remove("on"));
@@ -1085,9 +1120,11 @@ const cullBox = new THREE.Box3();
 function cullAboveCut() {
   if (!modelRoot) return;
   const y = renderer.clippingPlanes.length ? sectionPlane.constant : Infinity;
+  if (poseDirty) syncPose();
   modelRoot.updateMatrixWorld();
+  batches.cullAbove(y);
   modelRoot.traverse((o) => {
-    if (!o.isMesh) return;
+    if (!o.isMesh || o.isBatchedMesh) return;
     let above = false;
     if (y !== Infinity && !o.isSkinnedMesh) {
       if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();

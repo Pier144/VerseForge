@@ -248,13 +248,23 @@ export class GameLook {
         ...(nEnc ? { [nEnc]: "" } : {}) },
       clipping: true,      // the "Interiors" section plane cuts decals too
       vertexShader: `#include <clipping_planes_pars_vertex>
+#include <batching_pars_vertex>
 varying vec2 vUv;
 varying vec3 vNormalV;
 varying vec3 vViewPos;
 void main() {
   vUv = uv;
-  vNormalV = normalize( normalMatrix * normal );
-  vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+  vec3 objNormal = normal;
+  vec4 objPos = vec4( position, 1.0 );
+#ifdef USE_BATCHING
+  // drawn in a batch (batching.js): the piece's own transform comes from the batch's texture
+  mat4 bm = getBatchingMatrix( batchId );
+  mat3 bm3 = mat3( bm );
+  objNormal = bm3 * ( objNormal / vec3( dot( bm3[ 0 ], bm3[ 0 ] ), dot( bm3[ 1 ], bm3[ 1 ] ), dot( bm3[ 2 ], bm3[ 2 ] ) ) );
+  objPos = bm * objPos;
+#endif
+  vNormalV = normalize( normalMatrix * objNormal );
+  vec4 mvPosition = modelViewMatrix * objPos;
   vViewPos = mvPosition.xyz;
   gl_Position = projectionMatrix * mvPosition;
   #include <clipping_planes_vertex>
