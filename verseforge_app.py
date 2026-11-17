@@ -1,4 +1,7 @@
-"""VerseForge desktop app: the same interface in its own window (Qt WebEngine), no browser, no console.
+"""VerseForge desktop app: the same interface in its own window, no browser, no console.
+
+Windows: a WebView2 window (the Edge engine that ships with Windows), Qt WebEngine as the fallback.
+Linux: Qt WebEngine.
 
 This is the entry point of VerseForge.exe (Windows) and of the Linux AppImage; `python verseforge_app.py` runs it
 from source.
@@ -97,6 +100,90 @@ def _self_test():
     return 0
 
 
+def _fail(text):
+    """Start-up error shown in a box (the windowed .exe has no console)."""
+    traceback.print_exc()
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, text, APP_NAME, 0x10)
+    else:
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        _ = QApplication.instance() or QApplication(sys.argv[:1])
+        QMessageBox.critical(None, APP_NAME, text)
+
+
+def _webview2_version():
+    """Version of the installed WebView2 runtime (part of Windows 11, on nearly every Windows 10), or None."""
+    import winreg
+    key = r"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+    for root, path in ((winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\{key}"),
+                       (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\{key}"), (winreg.HKEY_CURRENT_USER, rf"SOFTWARE\{key}")):
+        try:
+            with winreg.OpenKey(root, path) as k:
+                pv = winreg.QueryValueEx(k, "pv")[0]
+            if pv and pv != "0.0.0.0":
+                return pv
+        except OSError:
+            pass
+    return None
+
+
+def _pick_shell():
+    """Which window hosts the page: "webview2" (Windows: the system's Edge engine) or "qt" (Qt WebEngine).
+
+    Qt WebEngine on Windows hands frames to the window before Chromium has finished composing them (QTBUG-123181,
+    QTBUG-129721): with heavy 3D scenes the panels vanished for a frame or more ("flashing"). The same page in a real
+    Chromium window never does (tools/flash_check.py: 134 flashes against 0), so Windows uses WebView2 when it is
+    there. VERSEFORGE_SHELL=qt forces the Qt window; Linux always uses it."""
+    if sys.platform != "win32" or os.environ.get("VERSEFORGE_SHELL", "").lower() == "qt":
+        return "qt"
+    if not _webview2_version():
+        print("WebView2 runtime not found: using the Qt window")
+        return "qt"
+    try:
+        import webview  # noqa: F401
+    except Exception:  # not installed (running from source without it) or .NET missing
+        traceback.print_exc()
+        return "qt"
+    return "webview2"
+
+
+def _dark(pref, system_dark):
+    return pref == "dark" or (pref != "light" and system_dark)
+
+
+def _windows_dark():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
+            return winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
+    except OSError:
+        return True
+
+
+def _debug_port():
+    """DevTools port for the automated checks (tools/flash_check.py); the Qt name is accepted by both windows."""
+    port = os.environ.get("VERSEFORGE_REMOTE_DEBUGGING") or os.environ.get("QTWEBENGINE_REMOTE_DEBUGGING")
+    return int(port) if port and port.isdigit() else None
+
+
+def _run_webview2(url, state):
+    """The page in a WebView2 window (pywebview). Downloads ask where to save, like the Qt window does."""
+    import webview
+    webview.settings["ALLOW_DOWNLOADS"] = True
+    webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = False
+    if _debug_port():
+        webview.settings["REMOTE_DEBUGGING_PORT"] = _debug_port()
+    bg = "#06070b" if _dark(state.cfg.get("appearance", "system"), _windows_dark()) else "#eef1f6"
+    webview.create_window(f"{APP_NAME} {__version__}", url, width=1500, height=920, maximized=True,
+                          background_color=bg, text_select=True)
+    # a profile of its own, kept between runs (Chromium's shader cache makes later starts faster); the page itself is
+    # always revalidated (server: Cache-Control no-cache)
+    webview.start(private_mode=False, storage_path=os.path.join(LOG_DIR, "webview2"),
+                  icon=os.path.join(RES_DIR, "assets", "verseforge.ico"))
+    return 0
+
+
 def main():
     if "--self-test" in sys.argv:
         return _self_test()
@@ -108,11 +195,29 @@ def main():
     else:
         _linux_gpu_setup()
 
+    try:
+        port = _free_port()
+        server = _start_server(port)
+    except Exception as e:
+        _fail(f"Could not start {APP_NAME}:\n{e}")
+        return 1
+
+    from sc_explorer.server import state
+    url = f"http://127.0.0.1:{port}/"
+    shell = _pick_shell()
+    print(f"window: {shell}")
+    try:
+        return _run_webview2(url, state) if shell == "webview2" else _run_qt(url, state)
+    finally:
+        server.should_exit = True
+
+
+def _run_qt(url, state):
     from PySide6.QtCore import Qt, QUrl
     from PySide6.QtGui import QColor, QIcon
     from PySide6.QtWebEngineCore import QWebEngineDownloadRequest, QWebEngineProfile, QWebEngineSettings
     from PySide6.QtWebEngineWidgets import QWebEngineView
-    from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
+    from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow
 
     qt = QApplication(sys.argv)
     qt.setApplicationName(APP_NAME)
@@ -122,20 +227,9 @@ def main():
     icon = QIcon(os.path.join(RES_DIR, "assets", "verseforge.ico" if sys.platform == "win32" else "verseforge.png"))
     qt.setWindowIcon(icon)
 
-    try:
-        port = _free_port()
-        server = _start_server(port)
-    except Exception as e:
-        traceback.print_exc()
-        QMessageBox.critical(None, APP_NAME, f"Could not start {APP_NAME}:\n{e}")
-        return 1
-
-    from sc_explorer.server import state
-
     # until the page paints, Qt WebEngine shows white: use the app's own background (--app-bg in web/style.css),
     # dark or light as saved in the settings ("system" follows Windows / the desktop)
-    pref = state.cfg.get("appearance", "system")
-    dark = pref == "dark" or (pref != "light" and qt.styleHints().colorScheme() != Qt.ColorScheme.Light)
+    dark = _dark(state.cfg.get("appearance", "system"), qt.styleHints().colorScheme() != Qt.ColorScheme.Light)
     bg = QColor("#06070b" if dark else "#eef1f6")
 
     win = QMainWindow()
@@ -163,12 +257,11 @@ def main():
         req.accept()
 
     profile.downloadRequested.connect(on_download)
-    view.setUrl(QUrl(f"http://127.0.0.1:{port}/"))
+    view.setUrl(QUrl(url))
     if sys.platform == "win32":
         _cloak_first_frames(win)
     win.showMaximized()
     code = qt.exec()
-    server.should_exit = True
     return code
 
 

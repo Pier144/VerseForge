@@ -336,9 +336,12 @@ const RESYNC_GL = /Linux/.test(navigator.userAgent) && !/Android/.test(navigator
 // after it, so Chromium does not blur a changing 3D view under every panel on every frame (half-composed frames in the
 // Qt window with heavy scenes). Only real motion counts: a click in a panel also draws a few frames, but the view under
 // the panels stays the same then, and the glass must not blink on every click.
+// Only the Qt window needs it (Linux, and Windows without WebView2): there frames reach the window before Chromium
+// has finished composing them. A real Chromium window (WebView2, a browser) keeps the glass on all the time.
+const QT_WINDOW = /QtWebEngine/.test(navigator.userAgent);
 let motionUntil = 0, moving = false;
 function setMoving(on) {
-  if (on === moving) return;
+  if (on === moving || !QT_WINDOW) return;
   moving = on;
   document.documentElement.classList.toggle("vf-moving", on);
 }

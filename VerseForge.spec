@@ -1,5 +1,5 @@
 # PyInstaller spec for VerseForge.exe  ->  python -m PyInstaller VerseForge.spec --noconfirm
-# Output: dist/VerseForge/VerseForge.exe (one folder: starts fast, Qt WebEngine needs its resource files next to it)
+# Output: dist/VerseForge/VerseForge.exe (one folder: starts fast; Windows uses the WebView2 window, Qt WebEngine is the fallback and needs its resource files next to it)
 # Linux: same spec, run by packaging/linux/build_appimage.sh (folder in build/linux, then dist/VerseForge-<v>-x86_64.AppImage)
 import glob
 import os
@@ -13,6 +13,11 @@ datas += collect_data_files("trimesh")            # trimesh/resources (templates
 binaries = collect_dynamic_libs("embreex") + collect_dynamic_libs("manifold3d")
 hiddenimports = (collect_submodules("uvicorn") + collect_submodules("embreex") +
                  ["manifold3d", "skimage.measure", "scipy.ndimage", "zstandard", "Crypto.Cipher.AES"])
+if WINDOWS:
+    # the WebView2 window (pywebview on .NET): its platform modules are imported by name at run time, and the
+    # WebView2 / Python.Runtime DLLs are data files of the packages
+    hiddenimports += ["webview", "webview.platforms.winforms", "webview.platforms.edgechromium", "clr", "clr_loader"]
+    datas += collect_data_files("webview") + collect_data_files("pythonnet") + collect_data_files("clr_loader")
 if not WINDOWS:
     # Qt WebEngine needs NSS; NSS opens its crypto modules by name at run time (no link PyInstaller can follow):
     # ship them next to libnss3 so the AppImage also starts on systems without NSS installed
