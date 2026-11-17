@@ -27,7 +27,7 @@ def archive():
 @pytest.fixture(scope="module")
 def index(archive):
     dcb = next(n for n in archive.names if n.lower().endswith(".dcb"))
-    return entities.build(archive.read(dcb))
+    return entities.build(archive.read(dcb), entities.archive_reader(archive))
 
 
 def _glb_json(glb):
@@ -113,6 +113,38 @@ def test_invisible_loadout_items_are_skipped(archive, index):
     mats = {p.material.name for p in m.parts}
     assert "vs_panels_a" not in mats and "base_metal" not in mats
     assert any(p.name.startswith("hardpoint_weapon_left") for p in m.parts)    # the rest is still mounted
+
+
+X1 = "Objects/Spaceships/Ships/ORIG/X1/ORIG_X1.cga"
+
+
+def test_ports_flagged_invisible_are_not_drawn(archive, index):
+    # the X1's vehicle XML flags its six GravLev ports "invisible": their items are 10 cm boxes that hung outside
+    # the hull as dark blocks
+    v = entities.vehicle_for(index, X1)
+    grav = [n for n in v["tree"] if n["port"].startswith("hardpoint_gravlev")]
+    assert len(grav) == 6 and all(n.get("hidden") for n in grav)
+    assert not next(n for n in v["tree"] if n["port"] == "hardpoint_pilot_seat").get("hidden")
+    m = assembly.load_full(archive, X1, v)
+    assert not [p for p in m.parts if p.name.startswith("hardpoint_gravlev")]
+    assert any(p.name.startswith("hardpoint_pilot_seat") for p in m.parts)      # the rest is still mounted
+
+
+def test_displacement_mapped_pom_decals_shade_the_paint(archive):
+    # Origin's Decal_POM_B uses %DISPLACEMENT_MAPPING instead of %PARALLAX_OCCLUSION_MAPPING: still a POM decal
+    # (a multiplier over the paint), not a pale slab of its own colour
+    m = model.load_model(archive, X1)
+    pom = {p.material.name: p.material.pom for p in m.parts if p.material.name.startswith("Decal_POM")}
+    assert pom.get("Decal_POM_A") and pom.get("Decal_POM_B")
+
+
+def test_flat_pom_atlas_decals_shade_the_paint(archive):
+    # the M50's Poms_EXT: a near-white "pom" atlas with only a normal map (no height) and MtlFlags bit 0x20000000,
+    # drawn as colour it laid white outlines and logos over the red paint; the colour decals stay colour
+    from sc_explorer import materials
+    mats = {m.name: m for m in materials.load(archive, "Objects/Spaceships/Ships/ORIG/M50/ORIG_M50.mtl")}
+    assert mats["Poms_EXT"].kind == "decal" and mats["Poms_EXT"].pom
+    assert mats["decals"].kind == "decal" and not mats["decals"].pom
 
 
 def test_decks_found_in_the_interior(archive, index):

@@ -73,8 +73,9 @@ def load_full(archive, path, vehicle, adb_path=None):
         if port_i is None or not archive.exists(geo):
             stats["missing"] += 1
             return
-        if invisible(node.get("material")):
-            # an invisible stand-in: nothing to draw, but what hangs from it still does
+        if node.get("hidden") or invisible(node.get("material")):
+            # a port flagged "invisible" (X1 GravLev boxes) or an invisible stand-in: nothing to draw, but what hangs
+            # from it still does
             if depth < 4:
                 for child in node.get("children") or []:
                     mount(child, prefix + node["port"] + "/", depth + 1, port_i)

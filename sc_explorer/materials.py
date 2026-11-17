@@ -66,7 +66,10 @@ DAMAGE_LAYER = re.compile(r"^(ext_)?(damage_)?internals?_(pom|tile|structure|mes
                           r"|^(ext_)?damage_(structure|poms?)(_alpha)?$")
 
 
-def classify(name, shader):
+def classify(name, shader, gen=None):
+    """gen: the material's StringGenMask, when known. "pom" in a name means a decal only with %DECAL: without it the
+    word names a surface with relief (Thruster_POM, engine_nopom, HardSurface internal_pom_new), which was treated as
+    a decal and vanished with the Decals switch off."""
     n, s = name.lower(), shader.lower()
     if s == "nodraw" or "proxy" in n or "nodraw" in n or "physics" in n or DAMAGE_LAYER.match(n):
         return "hidden"
@@ -74,7 +77,12 @@ def classify(name, shader):
     # ($RenderToTexture). Shown switched on, without content; the viewer's "Screens" switch hides them
     if s in ("displayscreen", "uiplane"):
         return "screen"
-    if s in ("meshdecal", "decal") or any(k in n for k in ("decal", "pom", "stencil", "glow", "emissive")):
+    words = [k for k in ("decal", "pom", "stencil", "glow", "emissive") if k in n]
+    # (internal/damage relief keeps the old rule: it may be the damage layer under the skin, see DAMAGE_LAYER)
+    if words == ["pom"] and gen is not None and "%DECAL" not in gen and (
+            s == "hardsurface" or not any(k in n for k in ("internal", "damage"))):
+        words = []
+    if s in ("meshdecal", "decal") or words:
         return "decal"
     if s.startswith("glass") or "glass" in n or "canopy" in n or "visor" in n:
         return "glass"
@@ -159,7 +167,7 @@ def _material(el, archive=None, palette=None):
     shader = el.get("Shader", "")
     color = _floats(el.get("Diffuse"), (0.6, 0.6, 0.6))
     diffuse, normal = _texture_slots(el)
-    mat = Material(name, shader, classify(name, shader), color, diffuse, normal)
+    mat = Material(name, shader, classify(name, shader, el.get("StringGenMask") or ""), color, diffuse, normal)
     mat.shader_name = shader
     mat.spec = _floats(el.get("Specular"), (0.04, 0.04, 0.04))
     mat.gloss = _shininess(el)
@@ -198,7 +206,14 @@ def _material(el, archive=None, palette=None):
         # (Illum decals with a real colour of their own - buttons, stitches - keep it: only the "pom" atlases)
         illum_pom = s.startswith("illum") and "%DECAL" in gen and (
             "pom" in name.lower() or "pom" in (mat.diffuse or "").lower().rsplit("/", 1)[-1])
-        if "%PARALLAX_OCCLUSION_MAPPING" in gen and not mat.stencil_colors and (s == "meshdecal" or illum_pom):
+        # the relief is either parallax (POM) or displacement mapping: Origin's Decal_POM_B uses the latter and was
+        # drawn as pale slabs on the X1's flanks
+        relief = "%PARALLAX_OCCLUSION_MAPPING" in gen or "%DISPLACEMENT_MAPPING" in gen
+        # a "pom" atlas with relief from its normal map only (no height) is still a multiplier: such materials carry
+        # MtlFlags bit 0x20000000 like nearly all POM decals (1,735 of 1,849), unlike colour decals (Origin Poms_EXT
+        # drew white outlines and logos over the M50's red paint)
+        shading_flag = bool(_int(el.get("MtlFlags")) & 0x20000000)
+        if (relief or (illum_pom and shading_flag)) and not mat.stencil_colors and (s == "meshdecal" or illum_pom):
             mat.pom = True
             # MeshDecal keeps the height in TexSlot4; Illum keeps its _spec there
             mat.height_map = _slot(el, "TexSlot4") if s == "meshdecal" else None
@@ -266,6 +281,13 @@ def _material(el, archive=None, palette=None):
                 if not mat.normal and l_norm:
                     mat.normal, mat.layer_normal = l_norm, True
     return mat
+
+
+def _int(text):
+    try:
+        return int(text or 0)
+    except ValueError:
+        return 0
 
 
 def _pp_float(pp, name, default):

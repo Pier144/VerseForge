@@ -1,10 +1,12 @@
 """Index of DataCore entities by geometry.
 
 - "adb": which Mannequin animation database (.adb) gives an object's clips their meaning;
-- "vehicles": for ships and ground vehicles, the factory loadout as a tree of {port, geometry, adb, children}
+- "vehicles": for ships and ground vehicles, the factory loadout as a tree of {port, geometry, adb, children, and
+  hidden: true when the port is flagged "invisible"}
   plus the landing-gear legs ({port: hull bone, geometry}), used by the "Full ship" assembly, and the object
   containers of the interior ({file: .socpak, bone, pos, rot});
 - "classes": entity class GUID -> [geometry, material], for the entities placed inside object containers."""
+from . import cryxml
 from .datacore import DataCore, _guid
 
 ADB_ROOT = "Animations/Mannequin/ADB/"
@@ -57,7 +59,8 @@ class _Index:
                 return lo["entries"] if lo is not None and lo.has("entries") else []
         return []
 
-    def tree(self, entries, depth=0):
+    def tree(self, entries, depth=0, hidden=frozenset()):
+        """hidden: lower-case names of the ports flagged "invisible" (the game does not draw what they carry)."""
         out = []
         if depth >= MAX_DEPTH:
             return out
@@ -79,12 +82,51 @@ class _Index:
                 continue
             nested = e["loadout"]
             sub = nested["entries"] if nested is not None and nested.has("entries") else None
-            children = self.tree(sub if sub else self.entries(comps), depth + 1)
+            children = self.tree(sub if sub else self.entries(comps), depth + 1, _invisible_item_ports(comps))
             # the record's material override: variant paints, and invisible stand-ins (an effects material that the
             # game draws transparent, e.g. the Nox's retro thrusters reuse the Vanduul Scythe's thruster model)
-            out.append({"port": port, "geometry": geo, "adb": adb, "material": _geometry_material(comps),
-                        "children": children})
+            node = {"port": port, "geometry": geo, "adb": adb, "material": _geometry_material(comps),
+                    "children": children}
+            if port.lower() in hidden:
+                node["hidden"] = True
+            out.append(node)
         return out
+
+
+def _flagged_invisible(flags):
+    return "invisible" in (flags or "").lower().split()
+
+
+def _invisible_item_ports(comps):
+    """Ports of an item (DataCore SItemPortContainerComponentParams) whose flags include "invisible"."""
+    out = set()
+    for c in comps:
+        if c.type == "SItemPortContainerComponentParams" and c.has("Ports"):
+            for p in c["Ports"] or []:
+                if p is not None and p.has("Flags") and _flagged_invisible(p["Flags"]):
+                    out.add((p["Name"] or "").lower())
+    return frozenset(out)
+
+
+def _vehicle_definition(comps):
+    for c in comps:
+        if c.type == "VehicleComponentParams" and c.has("vehicleDefinition"):
+            return _data_path(c["vehicleDefinition"] or "")
+    return ""
+
+
+def invisible_vehicle_ports(xml_bytes):
+    """Item ports a vehicle implementation XML flags "invisible" (<Part class="ItemPort"><ItemPort flags=...>): the
+    game does not draw what they carry, e.g. the X1's six GravLev emitters, 10 cm boxes that hang outside the hull."""
+    out = set()
+    root = cryxml.parse(xml_bytes)
+    for part in root.iter("Part"):
+        if (part.get("class") or "").lower() != "itemport":
+            continue
+        ip = part.find("ItemPort")
+        if ip is not None and _flagged_invisible(ip.get("flags")):
+            out.add((part.get("name") or "").lower())
+    return frozenset(out)
 
 
 def _gears(dc, comps):
@@ -156,10 +198,23 @@ def _ammo(idx, comps):
     return got if got and got["max"] > 0 else None
 
 
-def build(data: bytes):
+def build(data: bytes, read=None):
+    """read(path) -> bytes or None: reads the vehicle implementation XMLs (port flags); without it no port is
+    known to be invisible."""
     dc = DataCore(data)
     idx = _Index(dc)
     found, vehicles, ammo, classes = {}, {}, {}, {}
+    defs = {}
+
+    def vehicle_hidden(comps):
+        path = _vehicle_definition(comps)
+        if path and read is not None and path.lower() not in defs:
+            try:
+                xml = read(path)
+                defs[path.lower()] = invisible_vehicle_ports(xml) if xml else frozenset()
+            except Exception:       # a broken XML only means no port is known to be invisible
+                defs[path.lower()] = frozenset()
+        return defs.get(path.lower(), frozenset()) | _invisible_item_ports(comps)
     for ri in dc.records_of("EntityClassDefinition"):
         geo, adb, comps = idx.info(ri)
         if not geo:
@@ -172,7 +227,7 @@ def build(data: bytes):
         if got:
             ammo.setdefault(_norm(geo), got)
         if any(c.type == "VehicleComponentParams" for c in comps):
-            tree = idx.tree(idx.entries(comps))
+            tree = idx.tree(idx.entries(comps), hidden=vehicle_hidden(comps))
             gears = _gears(dc, comps)
             ocs = _containers(comps)
             if tree or gears or ocs:
@@ -205,3 +260,8 @@ def classes_of(index):
 
 def vehicle_for(index, path):
     return (index or {}).get("vehicles", {}).get(_norm(path))
+
+
+def archive_reader(archive):
+    """build()'s read(): a file of the archive, or None when it is missing."""
+    return lambda path: archive.read(path) if archive.exists(path) else None

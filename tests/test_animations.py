@@ -78,7 +78,7 @@ def test_dba_ship_nodes(archive):
 def entity_index(archive):
     from sc_explorer import entities
     dcb = next(n for n in archive.names if n.lower().endswith(".dcb"))
-    return entities.build(archive.read(dcb))
+    return entities.build(archive.read(dcb), entities.archive_reader(archive))
 
 
 P6LR = "Objects/fps_weapons/weapons_v7/behr/sniper/p6lr/bsnp_fps_behr_p6lr.cdf"

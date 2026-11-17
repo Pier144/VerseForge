@@ -145,3 +145,14 @@ def test_hull_damage_layer_is_hidden(archive):
     mats = {m.name: m for m in materials.load(archive, NOX_MTL)}
     assert mats["internal_mesh"].kind == "hidden" and mats["internal_pom"].kind == "hidden"
     assert materials.classify("internal_framework", "Illum") == "solid"     # real framework stays
+
+
+def test_pom_in_a_name_is_a_decal_only_with_the_decal_flag():
+    # "pom" also names surfaces with relief (thruster nozzles, grates, trims, ramps): without %DECAL they are solid
+    # geometry, which vanished with the Decals switch off
+    assert materials.classify("Thruster_POM", "Illum", "%NORMAL_MAP%PARALLAX_OCCLUSION_MAPPING") == "solid"
+    assert materials.classify("trim_greeble_nopom", "HardSurface", "") == "solid"
+    assert materials.classify("internal_pom_new", "HardSurface", "") == "solid"
+    assert materials.classify("Decal_POM_A", "Illum", "%NORMAL_MAP%DECAL%PARALLAX_OCCLUSION_MAPPING") == "decal"
+    assert materials.classify("internal_damage_pom", "Illum", "") == "decal"     # maybe the damage layer: as before
+    assert materials.classify("pom_glow", "Illum", "") == "decal"                # other decal words still count
