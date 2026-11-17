@@ -353,3 +353,24 @@ def test_hand_edited_reports_in_config(fake):
     out = reports.statuses([None, "junk", -1, 0, True, 3], api=fake["url"] + "/issues/")
     assert out == {3: {"state": "open", "comments": 0}}
     assert len(fake["seen"]) == 1
+
+
+def test_with_news_flags_changes_since_last_look():
+    items = [{"number": 1, "title": "a"},                                             # never looked: open, 0 comments
+             {"number": 2, "title": "b", "seen_state": "open", "seen_comments": 2},
+             {"number": 3, "title": "c", "seen_state": "closed", "seen_comments": 1},
+             {"number": 4, "title": "d"}]
+    known = {1: {"state": "open", "comments": 1}, 2: {"state": "open", "comments": 2},
+             3: {"state": "closed", "comments": 1}}                                    # 4: status unknown
+    out = {r["number"]: r for r in reports.with_news(items, known)}
+    assert out[1]["new"] and not out[2]["new"] and not out[3]["new"] and not out[4]["new"]
+    assert out[4]["state"] is None and out[1]["comments"] == 1
+    assert reports.with_news([{"number": 5, "title": "e"}], {5: {"state": "closed", "comments": 0}})[0]["new"]
+
+
+def test_mark_seen_keeps_the_status_in_the_settings():
+    cfg = {"reports": [{"number": 1, "title": "a"}, {"number": 2, "title": "b"}, "junk"]}
+    reports.mark_seen(cfg, {1: {"state": "closed", "comments": 3}})
+    assert cfg["reports"][0] == {"number": 1, "title": "a", "seen_state": "closed", "seen_comments": 3}
+    assert cfg["reports"][1] == {"number": 2, "title": "b"}                           # unknown status: untouched
+    assert not reports.with_news(reports.mine(cfg), {1: {"state": "closed", "comments": 3}})[0]["new"]

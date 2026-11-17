@@ -1521,14 +1521,15 @@ async function loadMyReports() {
   list.replaceChildren();
   $("#repMineNote").textContent = "Loading…";
   try {
-    const { reports } = await (await api("/api/report/mine")).json();
+    const { reports, news } = await (await api("/api/report/mine")).json();
     const STATES = { open: "Open", closed: "Closed", removed: "Removed" };
     for (const r of reports) {
       const comments = r.comments ? `${r.comments} comment${r.comments === 1 ? "" : "s"} · ` : "";
-      const btn = el("button", "rep-item");
+      const btn = el("button", r.new ? "rep-item is-new" : "rep-item");
       btn.type = "button";
       btn.append(el("span", "rep-num", `#${r.number}`), el("span", "rep-title", r.title),
-        el("span", `rep-state ${r.state || ""}`, STATES[r.state] || ""), el("span", "rep-meta", comments + r.date));
+        el("span", `rep-state ${r.state || ""}`, STATES[r.state] || ""),
+        el("span", "rep-meta", (r.new ? "New since you last looked · " : "") + comments + r.date));
       btn.addEventListener("click", () => api("/api/report/open", JSON_POST({ number: r.number })).catch((e) => toast(e.message, true)));
       const li = el("li");
       li.append(btn);
@@ -1537,8 +1538,27 @@ async function loadMyReports() {
     $("#repMineNote").textContent = !reports.length ? "No reports sent from this computer yet."
       : reports.some((r) => r.state == null) ? "Status unavailable right now: GitHub limits how often it can be checked."
         : "Click a report to open it on GitHub.";
+    // shown now, so no longer news (the highlight stays in this list until it is reopened)
+    if (news) api("/api/report/seen", { method: "POST" }).then(() => showReportNews(0)).catch(() => {});
   } catch (e) { $("#repMineNote").textContent = e.message; }
 }
+
+// the Feedback button turns blue when a sent report was closed, reopened or got replies since the user last looked
+function showReportNews(news) {
+  const b = $("#btnReport");
+  b.classList.toggle("has-news", news > 0);
+  b.title = news > 0 ? `News on ${news === 1 ? "one of your reports" : `${news} of your reports`}`
+    : "Report a problem or suggest an idea";
+}
+
+async function checkReportNews() {
+  try {
+    const { news } = await (await api("/api/report/mine")).json();   // no GitHub calls when nothing was sent
+    showReportNews(news);
+  } catch { /* offline: try again later */ }
+}
+setTimeout(checkReportNews, 4000);                       // after the update check, which shares GitHub's public limit
+setInterval(checkReportNews, 30 * 60 * 1000);
 
 function showReportTab(tab) {
   document.querySelectorAll("#reportDlg .tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === tab));
@@ -1548,7 +1568,7 @@ function showReportTab(tab) {
 }
 
 $("#btnReport").addEventListener("click", () => {
-  showReportTab("new");
+  showReportTab($("#btnReport").classList.contains("has-news") ? "mine" : "new");
   showReportError("");
   reportReady();
   $("#reportDlg").showModal();

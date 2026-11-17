@@ -680,8 +680,19 @@ def report_send(r: ReportIn):
 @app.get("/api/report/mine")
 def report_mine():
     items = reports.mine(state.cfg)
-    known = reports.statuses([it["number"] for it in items])
-    return {"reports": [{**it, **known.get(it["number"], {"state": None, "comments": None})} for it in items]}
+    listed = reports.with_news(items, reports.statuses([it["number"] for it in items]))
+    return {"news": sum(r["new"] for r in listed), "reports": listed}
+
+
+@app.post("/api/report/seen")
+def report_seen():
+    """The user opened "My reports": what it shows is no longer news (statuses come from the 5-minute cache)."""
+    reports.mark_seen(state.cfg, reports.statuses([it["number"] for it in reports.mine(state.cfg)]))
+    try:
+        save_config(state.cfg)
+    except OSError:
+        traceback.print_exc()
+    return {"ok": True}
 
 
 @app.post("/api/report/open")

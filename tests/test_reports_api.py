@@ -69,9 +69,18 @@ def test_mine_with_status(client, monkeypatch):
     server.state.cfg["reports"] = [{"number": 7, "title": "[Bug] x", "date": "2026-11-16"},
                                    {"number": 3, "title": "[Idea] y", "date": "2026-11-15"}]
     monkeypatch.setattr(reports, "statuses", lambda numbers: {7: {"state": "closed", "comments": 2}})
-    assert client.get("/api/report/mine").json() == {"reports": [
-        {"number": 7, "title": "[Bug] x", "date": "2026-11-16", "state": "closed", "comments": 2},
-        {"number": 3, "title": "[Idea] y", "date": "2026-11-15", "state": None, "comments": None}]}
+    assert client.get("/api/report/mine").json() == {"news": 1, "reports": [
+        {"number": 7, "title": "[Bug] x", "date": "2026-11-16", "state": "closed", "comments": 2, "new": True},
+        {"number": 3, "title": "[Idea] y", "date": "2026-11-15", "state": None, "comments": None, "new": False}]}
+
+
+def test_seen_clears_the_news(client, monkeypatch):
+    server.state.cfg["reports"] = [{"number": 7, "title": "[Bug] x", "date": "2026-11-16"}]
+    monkeypatch.setattr(reports, "statuses", lambda numbers: {7: {"state": "open", "comments": 4}})
+    assert client.get("/api/report/mine").json()["news"] == 1
+    assert client.post("/api/report/seen").status_code == 200
+    assert client.get("/api/report/mine").json()["news"] == 0
+    assert server.state.cfg["reports"][0]["seen_comments"] == 4
 
 
 def test_open_only_builds_github_addresses(client, monkeypatch):

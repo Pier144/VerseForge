@@ -289,6 +289,27 @@ def mine(cfg):
     return [dict(r) for r in _saved(cfg)]
 
 
+def with_news(items, known):
+    """Each report with its live status (state and comments, None when unknown) and "new": it changed since the
+    user last opened "My reports" (closed or reopened, or more comments). A report never looked at counts as seen
+    open with no comments, so the first reply or the closing is news."""
+    out = []
+    for it in items:
+        live = known.get(it["number"], {"state": None, "comments": None})
+        new = live["state"] is not None and (live["state"] != it.get("seen_state", "open")
+                                             or live["comments"] > it.get("seen_comments", 0))
+        out.append({**{k: v for k, v in it.items() if not k.startswith("seen_")}, **live, "new": new})
+    return out
+
+
+def mark_seen(cfg, known):
+    """Remember the status the user has just seen, so it is no longer news."""
+    for r in _saved(cfg):
+        live = known.get(r["number"])
+        if live:
+            r["seen_state"], r["seen_comments"] = live["state"], live["comments"]
+
+
 def statuses(numbers, api=ISSUES_API, timeout=8):
     """State and number of comments of the most recent reports, from GitHub's public API (no token). Deleted or
     hidden issues (404, 410) are "removed"; once GitHub refuses (public limit used up) the rest is left out.
