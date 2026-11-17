@@ -227,6 +227,10 @@ def _material(el, archive=None, palette=None):
         rgb = accent[0] if accent[0] and max(accent[0]) >= 100 and max(accent[0]) - min(accent[0]) >= 60 else SCREEN_RGB
         mat.emissive = srgb_to_linear(rgb)
         mat.color = (0.01, 0.012, 0.015)
+    if mat.kind == "glass" and "%USE_TINT_PALETTE" in gen and palette and palette.get("glass"):
+        # GlassPBR's Diffuse is the colour of the light the glass lets through; with %USE_TINT_PALETTE the paint's
+        # glass colour takes its place (sRGB: the Gladius' default gold 234,195,136 is exactly its Diffuse 0.82,0.55,0.25)
+        mat.color = srgb_to_linear(palette["glass"])
     try:
         glow = float(el.get("Glow", "0") or 0)
     except ValueError:
@@ -243,7 +247,10 @@ def _material(el, archive=None, palette=None):
             color = tuple(t * b for t, b in zip(tint, base))
             if info:
                 mat.spec = info["spec"]
-                if info["tint_mode"] == 2:      # metal layers: the tint colours the reflection
+                # metal layers: the tint colours the reflection. TintMode 2 (gold, iron: colour in Specular) and
+                # TintMode 1 layers whose reflectance is a _spec map: the Perseus interior frames are a rust-brown
+                # metal map under a 0.03 tint (dark worn metal), drawn untinted they shone copper-brown like rust
+                if info["tint_mode"] == 2 or (info["tint_mode"] == 1 and info["spec_map"]):
                     mat.spec = tuple(t * c for t, c in zip(tint, mat.spec))
                 try:
                     mat.gloss = info["gloss"] * float(layer.get("GlossMult", "1"))
@@ -281,6 +288,16 @@ def _material(el, archive=None, palette=None):
                 if not mat.normal and l_norm:
                     mat.normal, mat.layer_normal = l_norm, True
     return mat
+
+
+def glass_look(mat):
+    """(body colour, linear RGB; opacity) that draw a glass with plain alpha blending. The colour of a glass material
+    is the light it lets through (transmission T): what lies behind keeps about T of its light (alpha = 1 - T) and
+    the glass adds a faint tint of its own. Dark glass (X1 visor, T 0.11) hides the cockpit as in game, the clear
+    inner panes (T ~0.8) barely show. Was a flat 35% veil of the glass colour for every glass."""
+    t = sum(mat.color) / 3.0
+    t = min(0.92, max(0.06, t))
+    return tuple(c * 0.35 for c in mat.color), round(1.0 - t, 3)
 
 
 def _int(text):

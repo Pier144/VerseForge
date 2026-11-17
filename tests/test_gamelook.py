@@ -156,3 +156,29 @@ def test_pom_in_a_name_is_a_decal_only_with_the_decal_flag():
     assert materials.classify("Decal_POM_A", "Illum", "%NORMAL_MAP%DECAL%PARALLAX_OCCLUSION_MAPPING") == "decal"
     assert materials.classify("internal_damage_pom", "Illum", "") == "decal"     # maybe the damage layer: as before
     assert materials.classify("pom_glow", "Illum", "") == "decal"                # other decal words still count
+
+
+def test_glass_takes_the_paints_glass_colour(archive):
+    # GlassPBR %USE_TINT_PALETTE: the paint's glass colour replaces the Diffuse (the Gladius' gold 0.82,0.55,0.25 is
+    # its default paint's 234,195,136 in sRGB); the Frostbite paint has a blue canopy in game
+    path = "Objects/Spaceships/Ships/AEGS/Gladius/AEGS_Gladius.mtl"
+    plain = {m.name: m for m in materials.load(archive, path)}
+    frost = {m.name: m for m in materials.load(archive, path, {"glass": [93, 122, 161]})}
+    assert plain["glass_ext"].color[0] > plain["glass_ext"].color[2]           # gold
+    assert frost["glass_ext"].color == materials.srgb_to_linear((93, 122, 161))  # blue
+    assert frost["glass_int"].color == plain["glass_int"].color                 # no %USE_TINT_PALETTE: unchanged
+
+
+def test_glass_look_hides_behind_dark_glass_and_keeps_clear_glass_clear():
+    from sc_explorer.materials import Material
+    visor = Material("Glass_NoRefract", "GlassPBR", "glass", (0.107, 0.107, 0.107))
+    pane = Material("glass_int", "GlassPBR", "glass", (0.77, 0.84, 0.73))
+    assert materials.glass_look(visor)[1] > 0.85 and materials.glass_look(pane)[1] < 0.3
+
+
+def test_tint_darkens_the_reflection_of_spec_mapped_layers(archive):
+    # the Perseus bridge frames: HardSurface over RSI_panel_primary_a_metal_worn_rusted_a (TintMode 1, a copper-brown
+    # _spec map, TintColor 0.032, GlossMult 0) = dark worn metal; untinted the reflection shone like rust
+    mats = materials.load(archive, "Objects/Spaceships/Ships/RSI/perseus/rsi_perseus_interior_a.mtl")
+    m = next(x for x in mats if x.name == "Panel_Main_LF_Paint_Primary")
+    assert m.spec_map and "rusted" in m.spec_map and max(m.spec) < 0.05

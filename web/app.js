@@ -226,7 +226,7 @@ backdrop.loadProp = (path) => {
         if (!o.geometry.attributes.normal) vertexNormals(o.geometry);
         o.visible = !["hidden", "screen"].includes(meshKind(o));     // collision proxies and dead screens
         o.receiveShadow = true;                                      // as placed in the room: compiled that way
-        if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
+        if (meshKind(o) === "glass" && !o.userData.glass) { o.userData.glass = true; glassLook(o); }
       });
       await propLook.apply(root, info.shading, { sun });
       // shaders compiled in parallel before the prop is shown (each prop used to freeze the view a moment as it arrived),
@@ -277,6 +277,36 @@ function resize() {
 new ResizeObserver(resize).observe(wrap);
 window.addEventListener("resize", resize);
 resize();
+
+// glass, as the game draws it: what lies behind is multiplied by the colour the glass lets through (its transmission,
+// from the paint's glass colour: the GLB body colour is 0.35 x transmission, see materials.glass_look) and the
+// reflections are added on top. Nothing of it is lit, so a bronze bridge window seen from inside stays a tinted view
+// instead of an orange wall, and dark visors (X1) read as glossy black. Front faces only, like the game's glass
+// materials (not two-sided): a pane modelled with its thickness tints once, not twice.
+const GLASS_BODY = 0.35;
+function glassLook(o) {
+  const m = o.material;
+  const t = m.color.clone().multiplyScalar(1 / GLASS_BODY);
+  t.r = Math.min(0.92, Math.max(0.04, t.r)); t.g = Math.min(0.92, Math.max(0.04, t.g)); t.b = Math.min(0.92, Math.max(0.04, t.b));
+  const tint = new THREE.MeshBasicMaterial({
+    name: m.name, color: t, transparent: true, depthWrite: false, side: THREE.FrontSide, toneMapped: false,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcColorFactor,
+  });
+  const layer = new THREE.Mesh(o.geometry, tint);     // no name: kind and material name come from the parent
+  layer.userData.glass = true;                         // (traversals running while it is added skip it)
+  layer.renderOrder = o.renderOrder - 1;               // tint first, reflections over it
+  o.add(layer);
+  m.color.setRGB(0, 0, 0);                             // the reflection layer: specular only, added to the frame
+  m.opacity = 1;
+  m.transparent = true;
+  m.depthWrite = false;
+  m.side = THREE.FrontSide;
+  m.roughness = 0.05;
+  m.metalness = 0;
+  m.envMapIntensity = 1.0;
+  m.blending = THREE.AdditiveBlending;
+  m.userData.swatch = t;                               // material list swatch: the glass colour, not black
+}
 
 // animation state (see "animations" below); declared here because the render loop starts right away
 const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), current: null, dragging: false, landed: null };
@@ -656,9 +686,10 @@ async function loadModel(item, keepView = false) {
         // decals lie on the hull: they neither cast shadows nor need the shadow pass
         o.castShadow = renderer.shadowMap.enabled && meshKind(o) !== "decal" && !o.material.transparent;
         o.receiveShadow = renderer.shadowMap.enabled && !o.material.userData?.pom;
+        if (o.userData.glass) return;                     // a glass tint layer added below: already set up
         o.material.side = THREE.DoubleSide;
         if (!o.material.isMeshPhysicalMaterial) o.material.envMapIntensity = 0.6;   // plain GLB look
-        if (meshKind(o) === "glass") { o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; }
+        if (meshKind(o) === "glass") { o.userData.glass = true; glassLook(o); }
       }
     });
     // compile the shaders before the model is shown, in parallel and without blocking the page
@@ -758,7 +789,7 @@ function showMaterials() {
     const name = meshMat(o);
     // shader materials (POM decal overlays) have no .color: they keep the GLB colour in userData.swatch
     const m0 = o.userData.gameMaterial || o.material;     // the game material, also while the resin look is on
-    const c = m0.color || m0.userData?.swatch;
+    const c = m0.userData?.swatch || m0.color;
     if (!mats.has(name)) mats.set(name, { kind: meshKind(o), color: c ? c.getHexString() : "888888" });
   });
   const ul = $("#mats");

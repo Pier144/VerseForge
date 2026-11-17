@@ -162,14 +162,20 @@ def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True, uv2=None, lite=False
     else:
         base, normal, uv_scale = material_textures(mat, textures, tex_size) if uv is not None else (None, None, 1.0)
     rgb = _srgb(mat.color)
-    alpha = 0.35 if kind == "glass" else 1.0
+    alpha = 1.0
+    metallic, rough = (0.85, 0.45) if mat.metal else (0.3, 0.6)
+    if kind == "glass":
+        # see-through as much as the glass lets light through, smooth and reflective (materials.glass_look)
+        # (the body colour goes in linear, as glTF wants: sRGB-encoded it lit up as a pale grey veil)
+        body, alpha = materials.glass_look(mat)
+        rgb, metallic, rough = np.asarray(body), 0.0, 0.05
     if base is not None and base.mode == "RGBA":
         alpha_mode = "BLEND" if kind == "decal" else "MASK"
     else:
         alpha_mode = "BLEND" if kind == "glass" else "OPAQUE"
     pbr = trimesh.visual.material.PBRMaterial(
         name=f"{kind}|{name}|{_sid(mat)}", baseColorFactor=[*rgb, alpha], baseColorTexture=base, normalTexture=normal,
-        metallicFactor=0.85 if mat.metal else 0.3, roughnessFactor=0.45 if mat.metal else 0.6,
+        metallicFactor=metallic, roughnessFactor=rough,
         alphaMode=alpha_mode, alphaCutoff=(mat.alpha_test or 0.5) if alpha_mode == "MASK" else None,
         emissiveFactor=list(_srgb(mat.emissive)) if mat.emissive else None, doubleSided=True)
     mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T if axis else v, f, process=False)
@@ -307,8 +313,9 @@ def to_obj_zip(model, stem, include_decals=True, textures=None, tex_size=2048):
         if safe in used:
             safe = f"{safe}_{i}"
         used.add(safe)
-        color = mat.color
-        mtl.write(f"newmtl {safe}\nKd {color[0]:.4f} {color[1]:.4f} {color[2]:.4f}\n" + ("d 0.35\n" if mat.kind == "glass" else ""))
+        color, opacity = materials.glass_look(mat) if mat.kind == "glass" else (mat.color, None)
+        mtl.write(f"newmtl {safe}\nKd {color[0]:.4f} {color[1]:.4f} {color[2]:.4f}\n" +
+                  (f"d {opacity:.3f}\n" if opacity is not None else ""))
         base, normal, uv_scale = material_textures(mat, textures, tex_size) if uv is not None else (None, None, 1.0)
         for img, tag in ((base, "map_Kd"), (normal, "map_Bump")):
             if img is None:
