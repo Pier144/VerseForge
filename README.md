@@ -88,6 +88,14 @@ Choose from several backdrops, with hangar lighting and shadows or a plain studi
 | **STL** | Raw surfaces in millimetres, as a reference |
 | **STL for printing** | A closed, solid mesh ready for the slicer (made with Blender in the background) |
 
+### Tell us what to fix, or what to add
+
+The **Feedback** button in the top bar sends a bug report or an idea straight from the app, with no GitHub account:
+it becomes a [public issue](../../issues?q=label%3Afrom-app) on this repository. A picture of the 3D view and the
+technical details can go with it, and you see the exact text before sending; your user name, PC name and personal
+folders are removed first. **My reports** lists what you sent with its status, and the button turns blue, with a
+counter, when one of them gets a reply or is closed.
+
 ## Getting started
 
 1. **Download** `VerseForge-<version>-Setup.exe` from the [latest release](../../releases/latest) and install it.
@@ -119,7 +127,7 @@ at all, add `--appimage-extract-and-run` at the end of the command.
 ## Documentation
 
 <details>
-<summary><b>Using VerseForge</b>: search, viewer, backdrops, paints, animations, full ship, interiors</summary>
+<summary><b>Using VerseForge</b>: search, viewer, backdrops, paints, animations, full ship, interiors, feedback</summary>
 
 - **Search**: type in the box at the top left. In-game names ("P4-AR", "Morozov-SH", "Arrowhead"), ship names
   ("Gladius", "Cutlass") and file names ("brfl_fps_behr") all work. Dashes and spaces are ignored; with several
@@ -177,8 +185,19 @@ at all, add `--appimage-extract-and-run` at the end of the command.
 - **Updates**: at startup VerseForge checks the [Releases](../../releases) page. When a newer version exists it shows
   what is new and asks whether to update: **Update now** downloads the installer (checking its SHA-256), installs it
   and reopens the program; **Later** keeps an "Update" button in the top bar; **Skip this version** stops asking until
-  the next one. The check can be turned off, or run by hand, in **Settings → Updates**. Nothing else is sent anywhere.
+  the next one. The check can be turned off, or run by hand, in **Settings → Updates**.
   On Linux the AppImage does not replace itself: **Update now** opens the release page with the new AppImage.
+- **Feedback** (top bar): *New report* sends a bug or an idea (title, description, and optionally a picture of the 3D
+  view and the technical details: version, system, graphics card, open model, last lines of the log). *What will be
+  sent* shows the exact text; the home folder, user name, PC name and the game, export and Blender folders are
+  replaced by tags such as `<home>` before anything leaves the PC. The report goes to a small service run for
+  VerseForge (`reports-service/`, on Vercel), which opens it as a public issue through the *VerseForge Reports*
+  GitHub app; the picture is stored with Vercel Blob. If the service cannot be reached, *Open on GitHub instead*
+  opens GitHub's own form, filled in. *My reports* lists the reports sent from this PC (kept in the settings) with
+  their status and replies, read from GitHub's public API every few minutes; the button turns blue with a counter of
+  new notifications (one per new comment, one when a report is closed or reopened) until you open the list.
+- **Network**: VerseForge only goes online for the update check, for the reports you choose to send and for the
+  status of your own reports. There is no telemetry and no account.
 - Item names are the in-game (English) names.
 
 </details>
@@ -197,7 +216,8 @@ Textures can be left out by turning off "Textures in GLB / OBJ" (much smaller fi
 Every export is also saved in `Documents\VerseForge` (`~/Documents/VerseForge` on Linux; can be changed in the
 settings).
 For a large print, splitting into pegged pieces has to be done separately (e.g. in Blender or in the slicer).
-The "STL for printing" export needs Blender (detected automatically, or set its path in the settings).
+The "STL for printing" export needs Blender: it is found automatically wherever it was installed (on Windows from
+the list of installed programs), or set in the settings either `blender.exe` or the folder that holds it.
 
 </details>
 
@@ -206,7 +226,7 @@ The "STL for printing" export needs Blender (detected automatically, or set its 
 
 | What | Windows | Linux |
 |---|---|---|
-| Settings | `%APPDATA%\VerseForge\config.json` | `~/.config/VerseForge/config.json` |
+| Settings (and the list of reports you sent) | `%APPDATA%\VerseForge\config.json` | `~/.config/VerseForge/config.json` |
 | Cache (Data.p4k index, names, opened models; rebuilt after every patch) | `%LOCALAPPDATA%\VerseForge` | `~/.cache/VerseForge` |
 | Exports (can be changed in the settings) | `Documents\VerseForge` | `~/Documents/VerseForge` |
 | Log of the desktop app | `%LOCALAPPDATA%\VerseForge\verseforge.log` | `~/.cache/VerseForge/verseforge.log` |
@@ -290,6 +310,8 @@ sc_explorer/export.py    GLB / OBJ / STL
 sc_explorer/printing.py  closed STL for 3D printing (Blender + interior fill)
 sc_explorer/server.py    web API
 sc_explorer/updates.py   new versions: GitHub releases check, installer download and hand-over
+sc_explorer/reports.py   Feedback: anonymised issue text, sending, My reports and their status
+reports-service/         the Vercel function that turns reports into GitHub issues (Node, tested with node --test)
 web/                     interface (HTML/CSS/JS); three.js 0.160 bundled in web/vendor (MIT license)
 web/gamelook.js          game-look materials (spec/gloss, camo stencils, POM decals); web/hangar.js hangar light
 web/backdrops.js         viewer backdrops: space panoramas, modelling workbench, photo studio
@@ -297,6 +319,7 @@ verseforge_app.py        windowed app (Qt WebEngine), entry point of VerseForge.
 VerseForge.spec          PyInstaller configuration; installer/VerseForge.iss for Inno Setup
 tests/test_formats.py    tests against the installed game (python -m pytest tests; skipped if Data.p4k is missing)
 tests/test_updates.py    version comparison and release parsing of the updater (no network needed)
+tests/test_reports*.py   Feedback: personal data removal, issue text, sending and status against local fake servers
 tools/                   demo videos, README images, flashing-panels check
 ```
 
