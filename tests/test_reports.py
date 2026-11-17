@@ -201,17 +201,32 @@ def test_remember_newest_first_and_capped():
     assert len(items[0]["date"]) == 10                       # YYYY-MM-DD
 
 
-def test_statuses(fake):
-    answers = {1: (200, {"state": "open", "comments": 3}), 2: (200, {"state": "closed", "comments": 0}),
-               3: (404, {}), 4: (410, {})}
-    fake["status"] = lambda path: answers[int(path.rsplit("/", 1)[1])]
+def _issue_answers(listed, single):
+    """Fake GitHub: the issue list (one request for all reports) and single issues for the ones not listed."""
+    def answer(path):
+        if "?" in path:
+            page = int(urllib.parse.parse_qs(path.split("?", 1)[1]).get("page", ["1"])[0])
+            return (200, listed if page == 1 else [])
+        return single[int(path.rsplit("/", 1)[1])]
+    return answer
+
+
+def test_statuses_in_one_request(fake):
+    fake["status"] = _issue_answers(
+        [{"number": 1, "state": "open", "comments": 3}, {"number": 2, "state": "closed", "comments": 0},
+         {"number": 9, "state": "open", "comments": 0},                          # someone else's report
+         {"number": 5, "state": "open", "comments": 0, "pull_request": {}}],     # not an issue
+        {3: (404, {}), 4: (410, {})})
     reports._status_cache.clear()
     api = fake["url"] + "/issues/"
     assert reports.statuses([1, 2, 3, 4], api=api) == {
         1: {"state": "open", "comments": 3}, 2: {"state": "closed", "comments": 0},
         3: {"state": "removed", "comments": 0}, 4: {"state": "removed", "comments": 0}}
-    reports.statuses([1], api=api)
-    assert len(fake["seen"]) == 4                            # the second time it comes from memory
+    first = fake["seen"][0]["path"]
+    assert first.startswith("/issues?") and "labels=from-app" in first and "state=all" in first
+    assert len(fake["seen"]) == 3                            # the list, then the two missing ones
+    reports.statuses([1, 2], api=api)
+    assert len(fake["seen"]) == 3                            # the second time it comes from memory
 
 
 def test_statuses_stop_when_the_public_limit_is_used_up(fake):
@@ -348,7 +363,7 @@ def test_hand_edited_reports_in_config(fake):
     assert reports.mine(cfg) == [{"number": 3, "title": "x", "date": "2026-11-16"}]
     reports.remember(cfg, 4, "y")
     assert [r["number"] for r in cfg["reports"]] == [4, 3]
-    fake["body"] = {"state": "open", "comments": 0}
+    fake["status"] = _issue_answers([{"number": 3, "state": "open", "comments": 0}, {"state": "open"}, "junk"], {})
     reports._status_cache.clear()
     out = reports.statuses([None, "junk", -1, 0, True, 3], api=fake["url"] + "/issues/")
     assert out == {3: {"state": "open", "comments": 0}}
@@ -364,6 +379,7 @@ def test_with_news_flags_changes_since_last_look():
              3: {"state": "closed", "comments": 1}}                                    # 4: status unknown
     out = {r["number"]: r for r in reports.with_news(items, known)}
     assert out[1]["new"] and not out[2]["new"] and not out[3]["new"] and not out[4]["new"]
+    assert [out[n]["news"] for n in (1, 2, 3, 4)] == [1, 0, 0, 0]
     assert out[4]["state"] is None and out[1]["comments"] == 1
     assert reports.with_news([{"number": 5, "title": "e"}], {5: {"state": "closed", "comments": 0}})[0]["new"]
 
@@ -374,3 +390,10 @@ def test_mark_seen_keeps_the_status_in_the_settings():
     assert cfg["reports"][0] == {"number": 1, "title": "a", "seen_state": "closed", "seen_comments": 3}
     assert cfg["reports"][1] == {"number": 2, "title": "b"}                           # unknown status: untouched
     assert not reports.with_news(reports.mine(cfg), {1: {"state": "closed", "comments": 3}})[0]["new"]
+
+
+def test_news_counts_each_new_comment_and_the_change_of_state():
+    items = [{"number": 1, "title": "a", "seen_state": "open", "seen_comments": 1}]
+    out = reports.with_news(items, {1: {"state": "closed", "comments": 4}})[0]
+    assert out["new"] and out["news"] == 4                  # 3 new comments + closed
+    assert reports.with_news(items, {1: {"state": "open", "comments": 0}})[0]["news"] == 0   # a comment was deleted

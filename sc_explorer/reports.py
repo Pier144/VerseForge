@@ -33,8 +33,9 @@ MAX_BODY = 19000                         # the service refuses bodies over 20000
 SERVICE_URL = os.environ.get("VERSEFORGE_REPORTS_URL", "https://verseforge-reports.vercel.app/api/report")
 ISSUES_API = f"https://api.github.com/repos/{REPO}/issues/"
 KEEP = 50                                # reports remembered in config.json
-STATUS_MAX = 20                          # statuses asked to GitHub at a time (public limit: 60 requests/hour)
-STATUS_TTL = 300                         # seconds a status stays in memory
+STATUS_PAGES = 3                         # pages of 100 app reports read per check (newest first)
+STATUS_MISSING = 5                       # reports not in that list (deleted, moved, label removed) asked one by one
+STATUS_TTL = 60                          # seconds a status stays in memory (public limit: 60 requests/hour)
 _status_cache = {}                       # issue number -> (time, {"state", "comments"})
 
 
@@ -290,15 +291,16 @@ def mine(cfg):
 
 
 def with_news(items, known):
-    """Each report with its live status (state and comments, None when unknown) and "new": it changed since the
-    user last opened "My reports" (closed or reopened, or more comments). A report never looked at counts as seen
-    open with no comments, so the first reply or the closing is news."""
+    """Each report with its live status (state and comments, None when unknown), "news" (notifications since the
+    user last opened "My reports": one per new comment, one if it was closed or reopened) and "new" (news > 0).
+    A report never looked at counts as seen open with no comments, so the first reply or the closing is news."""
     out = []
     for it in items:
         live = known.get(it["number"], {"state": None, "comments": None})
-        new = live["state"] is not None and (live["state"] != it.get("seen_state", "open")
-                                             or live["comments"] > it.get("seen_comments", 0))
-        out.append({**{k: v for k, v in it.items() if not k.startswith("seen_")}, **live, "new": new})
+        news = 0
+        if live["state"] is not None:
+            news = max(0, live["comments"] - it.get("seen_comments", 0)) + (live["state"] != it.get("seen_state", "open"))
+        out.append({**{k: v for k, v in it.items() if not k.startswith("seen_")}, **live, "new": news > 0, "news": news})
     return out
 
 
@@ -310,29 +312,50 @@ def mark_seen(cfg, known):
             r["seen_state"], r["seen_comments"] = live["state"], live["comments"]
 
 
+def _github_json(url, timeout):
+    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
+                                               "User-Agent": f"VerseForge/{__version__}"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
+def _info(issue):
+    return {"state": "closed" if issue.get("state") == "closed" else "open", "comments": int(issue.get("comments") or 0)}
+
+
 def statuses(numbers, api=ISSUES_API, timeout=8):
-    """State and number of comments of the most recent reports, from GitHub's public API (no token). Deleted or
-    hidden issues (404, 410) are "removed"; once GitHub refuses (public limit used up) the rest is left out.
-    A transferred issue answers 301, which urllib follows: the moved issue's state is used."""
-    out = {}
-    for n in [n for n in numbers if _number(n)][:STATUS_MAX]:    # skip numbers spoiled by hand editing
-        hit = _status_cache.get(n)
-        if hit and time.time() - hit[0] < STATUS_TTL:
-            out[n] = hit[1]
-            continue
-        req = urllib.request.Request(api + str(n), headers={"Accept": "application/vnd.github+json",
-                                                                  "User-Agent": f"VerseForge/{__version__}"})
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                issue = json.load(r)
-            info = {"state": "closed" if issue.get("state") == "closed" else "open",
-                    "comments": int(issue.get("comments") or 0)}
-        except urllib.error.HTTPError as e:
-            if e.code not in (404, 410):
+    """State and number of comments of the user's reports, from GitHub's public API (no token, 60 requests per
+    hour). One request lists every app report (label from-app, newest first), so checking often stays cheap;
+    reports missing from it are asked one by one: deleted or hidden ones (404, 410) are "removed", a transferred
+    one answers 301, which urllib follows. Once GitHub refuses (public limit used up) the rest is left out."""
+    wanted = [n for n in numbers if _number(n)]                 # skip numbers spoiled by hand editing
+    now = time.time()
+    out = {n: _status_cache[n][1] for n in wanted if n in _status_cache and now - _status_cache[n][0] < STATUS_TTL}
+    todo = [n for n in wanted if n not in out]
+    if not todo:
+        return out
+    found = {}
+    try:
+        for page in range(1, STATUS_PAGES + 1):
+            listed = _github_json(f"{api.rstrip('/')}?labels=from-app&state=all&sort=created&direction=desc"
+                                  f"&per_page=100&page={page}", timeout)
+            if not isinstance(listed, list):
                 break
-            info = {"state": "removed", "comments": 0}
-        except (urllib.error.URLError, OSError, ValueError):
-            break
-        _status_cache[n] = (time.time(), info)
-        out[n] = info
+            issues = [i for i in listed if isinstance(i, dict) and "pull_request" not in i and _number(i.get("number"))]
+            found.update({i["number"]: _info(i) for i in issues})
+            if len(listed) < 100 or min(todo) >= min((i["number"] for i in issues), default=0):
+                break                                               # last page, or older than every report wanted
+        for n in [n for n in todo if n not in found][:STATUS_MISSING]:
+            try:
+                found[n] = _info(_github_json(api + str(n), timeout))
+            except urllib.error.HTTPError as e:
+                if e.code not in (404, 410):
+                    raise
+                found[n] = {"state": "removed", "comments": 0}
+    except (urllib.error.URLError, OSError, ValueError):     # HTTPError is a URLError: limit used up, offline...
+        pass
+    for n in todo:
+        if n in found:
+            _status_cache[n] = (now, found[n])
+            out[n] = found[n]
     return out

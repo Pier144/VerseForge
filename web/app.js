@@ -1529,7 +1529,7 @@ async function loadMyReports() {
       btn.type = "button";
       btn.append(el("span", "rep-num", `#${r.number}`), el("span", "rep-title", r.title),
         el("span", `rep-state ${r.state || ""}`, STATES[r.state] || ""),
-        el("span", "rep-meta", (r.new ? "New since you last looked · " : "") + comments + r.date));
+        el("span", "rep-meta", (r.news ? `${r.news} new since you last looked · ` : "") + comments + r.date));
       btn.addEventListener("click", () => api("/api/report/open", JSON_POST({ number: r.number })).catch((e) => toast(e.message, true)));
       const li = el("li");
       li.append(btn);
@@ -1544,21 +1544,31 @@ async function loadMyReports() {
 }
 
 // the Feedback button turns blue when a sent report was closed, reopened or got replies since the user last looked
+// news = notifications: one per new comment, one per report closed or reopened
 function showReportNews(news) {
   const b = $("#btnReport");
   b.classList.toggle("has-news", news > 0);
-  b.title = news > 0 ? `News on ${news === 1 ? "one of your reports" : `${news} of your reports`}`
+  $("#reportCount").textContent = news > 99 ? "99+" : String(news);
+  $("#reportCount").classList.toggle("hidden", !(news > 0));
+  b.title = news > 0 ? `${news} new ${news === 1 ? "notification" : "notifications"} on your reports`
     : "Report a problem or suggest an idea";
 }
 
+// GitHub is asked at most once a minute (the server keeps statuses 60 s) with one request for all reports, and
+// never when nothing was sent: every 5 minutes, and when the window comes back to the front
+let reportCheckedAt = 0;
 async function checkReportNews() {
+  reportCheckedAt = Date.now();
   try {
-    const { news } = await (await api("/api/report/mine")).json();   // no GitHub calls when nothing was sent
+    const { news } = await (await api("/api/report/mine")).json();
     showReportNews(news);
   } catch { /* offline: try again later */ }
 }
 setTimeout(checkReportNews, 4000);                       // after the update check, which shares GitHub's public limit
-setInterval(checkReportNews, 30 * 60 * 1000);
+setInterval(checkReportNews, 5 * 60 * 1000);
+const recheckReports = () => { if (!document.hidden && Date.now() - reportCheckedAt > 60 * 1000) checkReportNews(); };
+window.addEventListener("focus", recheckReports);
+document.addEventListener("visibilitychange", recheckReports);
 
 function showReportTab(tab) {
   document.querySelectorAll("#reportDlg .tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === tab));
@@ -1597,7 +1607,8 @@ $("#repSend").addEventListener("click", async () => {
     const out = await r.json().catch(() => ({}));
     // 502 = the service answered with an error kind; anything else failed here, in the local server
     if (!r.ok) throw r.status === 502 ? out : { kind: "local", detail: out.detail };
-    toast(`Report #${out.number} sent, thank you`);
+    if (out.saved === false) toast(`Report #${out.number} sent, but VerseForge could not save its settings: it will be missing from My reports after a restart`, true);
+    else toast(`Report #${out.number} sent, thank you`);
     $("#repTitle").value = "";
     $("#repText").value = "";
     showReportTab("mine");

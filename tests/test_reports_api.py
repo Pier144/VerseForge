@@ -38,7 +38,7 @@ def test_send_remembers_the_issue(client, monkeypatch):
 
     monkeypatch.setattr(reports, "send", fake_send)
     r = client.post("/api/report", json={**FIELDS, "screenshot": "/9j/AA"})
-    assert r.json() == {"number": 7, "url": "https://github.com/Pier144/VerseForge/issues/7"}
+    assert r.json() == {"number": 7, "url": "https://github.com/Pier144/VerseForge/issues/7", "saved": True}
     assert got["shot"] == "/9j/AA" and got["kind"] == "bug" and reports.PICTURE in got["composed"]["body"]
     assert server.state.cfg["reports"][0]["number"] == 7
 
@@ -69,15 +69,15 @@ def test_mine_with_status(client, monkeypatch):
     server.state.cfg["reports"] = [{"number": 7, "title": "[Bug] x", "date": "2026-11-16"},
                                    {"number": 3, "title": "[Idea] y", "date": "2026-11-15"}]
     monkeypatch.setattr(reports, "statuses", lambda numbers: {7: {"state": "closed", "comments": 2}})
-    assert client.get("/api/report/mine").json() == {"news": 1, "reports": [
-        {"number": 7, "title": "[Bug] x", "date": "2026-11-16", "state": "closed", "comments": 2, "new": True},
-        {"number": 3, "title": "[Idea] y", "date": "2026-11-15", "state": None, "comments": None, "new": False}]}
+    assert client.get("/api/report/mine").json() == {"news": 3, "reports": [
+        {"number": 7, "title": "[Bug] x", "date": "2026-11-16", "state": "closed", "comments": 2, "new": True, "news": 3},
+        {"number": 3, "title": "[Idea] y", "date": "2026-11-15", "state": None, "comments": None, "new": False, "news": 0}]}
 
 
 def test_seen_clears_the_news(client, monkeypatch):
     server.state.cfg["reports"] = [{"number": 7, "title": "[Bug] x", "date": "2026-11-16"}]
     monkeypatch.setattr(reports, "statuses", lambda numbers: {7: {"state": "open", "comments": 4}})
-    assert client.get("/api/report/mine").json()["news"] == 1
+    assert client.get("/api/report/mine").json()["news"] == 4
     assert client.post("/api/report/seen").status_code == 200
     assert client.get("/api/report/mine").json()["news"] == 0
     assert server.state.cfg["reports"][0]["seen_comments"] == 4
@@ -111,4 +111,5 @@ def test_issue_number_kept_even_if_settings_cannot_be_saved(client, monkeypatch)
 
     monkeypatch.setattr(server, "save_config", broken)
     monkeypatch.setattr(reports, "send", lambda composed, kind, shot=None, **kw: {"number": 9, "url": reports.ISSUE_PAGE + "9"})
-    assert client.post("/api/report", json=FIELDS).json()["number"] == 9
+    out = client.post("/api/report", json=FIELDS).json()
+    assert out["number"] == 9 and out["saved"] is False

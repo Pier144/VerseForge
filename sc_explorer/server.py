@@ -672,16 +672,18 @@ def report_send(r: ReportIn):
     reports.remember(state.cfg, out["number"], composed["title"])
     try:
         save_config(state.cfg)
-    except OSError:                         # the issue exists anyway: say so, or the user would send it twice
+        saved = True
+    except Exception:                       # the issue exists anyway: say so, or the user would send it twice
         traceback.print_exc()
-    return out
+        saved = False                       # the interface warns that My reports will forget it after a restart
+    return {**out, "saved": saved}
 
 
 @app.get("/api/report/mine")
 def report_mine():
     items = reports.mine(state.cfg)
     listed = reports.with_news(items, reports.statuses([it["number"] for it in items]))
-    return {"news": sum(r["new"] for r in listed), "reports": listed}
+    return {"news": sum(r["news"] for r in listed), "reports": listed}
 
 
 @app.post("/api/report/seen")
