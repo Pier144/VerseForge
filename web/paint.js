@@ -2,11 +2,16 @@
 // The server gives every paint of a model the same geometry, its parts grouped by paint group: the "g<n>" field of
 // the GLB material names (sc_explorer/paints.py). A paint is then a table of one material per group.
 import * as THREE from "three";
+import { layout } from "./batching.js";
 
-// the paint group written in a GLB material name ("solid|hull|1a2b3c4d|g12", "screen|mfd|g3|rtt"), or null
+// The paint group written in a keyed GLB material name, or null. The group sits at a fixed place: PBR names are
+// "kind|name|sid|g12" (4 fields, plain ones have 3), screens are "screen|name|g3|rtt", "screen|name|g3|holo" or
+// "screen|name|g3" (plain ones: "screen|name|rtt", "screen|name"). Only that exact field counts, so a material
+// that is merely NAMED "g2" is never read as a group.
 export function groupOf(material) {
-  const f = (material?.name || "").split("|").find((x) => /^g\d+$/.test(x));
-  return f ? Number(f.slice(1)) : null;
+  const parts = (material?.name || "").split("|");
+  const field = parts[0] === "screen" ? parts[2] : parts.length === 4 ? parts[3] : null;
+  return field && /^g\d+$/.test(field) ? Number(field.slice(1)) : null;
 }
 
 const KEEP = 3;                                   // paints kept built: the one on screen, stock (Compare), one more
@@ -104,35 +109,43 @@ export class PaintSwap {
 
   async build(tag, paint, stale) {
     const mats = new Map(), tints = new Map(), textures = [], slots = [], made = new Map(), jobs = [];
-    paint.groups.forEach((e, g) => {
-      if (!e) return;
-      const kind = kindOf(e.name);
-      if (kind === "screen") return;              // app.js afterPaint: the screen classes own those materials
-      const sample = this.meshes.get(g)?.[0] || this.batches.byGroup(g)[0];
-      if (!sample) return;                        // not drawn in this GLB (proxies, interior-only groups)
-      if (kind === "glass") { tints.set(g, this.glassTint(e.color)); return; }
-      // groups that look the same share one material (as the game look shares them on load); a group with its own
-      // images keeps its own
-      const key = JSON.stringify({ ...e, name: e.name.replace(/\|g\d+/, "") }) + (e.texture || e.normal_texture ? `#${g}` : "");
-      if (!made.has(key)) made.set(key, this.material(tag, g, e, kind, paint, sample.geometry, slots, textures));
-      jobs.push(made.get(key).then((m) => mats.set(g, m)));
-    });
-    await Promise.all(jobs);
-    await this.precompile(mats);
-    // full sizes follow, as on load (not for a build a newer request already replaced: it is thrown away)
-    if (!stale()) this.gameLook.full = this.gameLook.upgrade([...new Set(mats.values())], slots);
-    return { mats, tints, textures, paint };
+    try {
+      paint.groups.forEach((e, g) => {
+        if (!e) return;
+        const kind = kindOf(e.name);
+        if (kind === "screen") return;            // app.js afterPaint: the screen classes own those materials
+        const sample = this.meshes.get(g)?.[0] || this.batches.byGroup(g)[0];
+        if (!sample) return;                      // not drawn in this GLB (proxies, interior-only groups)
+        if (kind === "glass") { tints.set(g, this.glassTint(e.color)); return; }
+        // groups that look the same share one material (as the game look shares them on load); a group with its own
+        // images keeps its own
+        const key = JSON.stringify({ ...e, name: e.name.replace(/\|g\d+/, "") }) + (e.texture || e.normal_texture ? `#${g}` : "");
+        if (!made.has(key)) made.set(key, this.material(tag, g, e, kind, paint, sample.geometry, slots, textures, stale));
+        jobs.push(made.get(key).then((m) => mats.set(g, m)));
+      });
+      await Promise.all(jobs);
+      if (stale()) return { mats, tints, textures, paint };   // a newer request took over: the caller frees it
+      await this.precompile(mats);
+      // full sizes follow, as on load (not for a build a newer request already replaced: it is thrown away)
+      if (!stale()) this.gameLook.full = this.gameLook.upgrade([...new Set(mats.values())], slots);
+      return { mats, tints, textures, paint };
+    } catch (err) {
+      // free what was made so far (nothing of it is on screen), then let the caller see the failure
+      const done = await Promise.allSettled([...made.values()]);
+      this.free({ mats: new Map(done.filter((r) => r.status === "fulfilled").map((r, i) => [i, r.value])), textures });
+      throw err;
+    }
   }
 
-  async material(tag, g, e, kind, paint, geometry, slots, textures) {
+  async material(tag, g, e, kind, paint, geometry, slots, textures, stale) {
     const [map, normal] = await Promise.all([
       e.texture ? this.image(tag, g, "base", textures) : null,
       e.normal_texture ? this.image(tag, g, "normal", textures) : null]);
     const old = standIn(e, map, normal);
     const sid = e.name.split("|")[2];
-    const sh = sid && paint.shading[sid];
+    const sh = sid && paint.shading?.[sid];
     let m = old;
-    if (sh && (kind === "solid" || kind === "decal")) {
+    if (sh && (kind === "solid" || kind === "decal") && !stale()) {
       const made = await this.gameLook.build(sh, old, kind, this.look, geometry, slots);
       if (made) { m = made; if (made !== old) old.dispose(); }
     }
@@ -157,25 +170,41 @@ export class PaintSwap {
     }
   }
 
-  // compile the new shaders before they are used (one mesh per material, and a tiny BatchedMesh for the materials
-  // of batches, whose shaders differ), so the swap itself does not freeze a frame
+  // Compile the new shaders before they are used, and upload their textures, so the swap frame does not stall. A
+  // shader is compiled per material and geometry attribute layout, so one stand-in is made for each distinct pair: a
+  // Mesh for the pieces drawn alone, a tiny BatchedMesh for the batches (whose shaders differ).
   async precompile(mats) {
-    const stage = new THREE.Group(), batched = new Set();
+    const stage = new THREE.Group(), seen = new Set(), sizes = new Map();
+    const lay = (g) => { if (!sizes.has(g)) sizes.set(g, layout(g)); return sizes.get(g); };
     try {
       for (const [g, m] of mats) {
-        const mesh = this.meshes.get(g)?.[0];
-        if (mesh) stage.add(new THREE.Mesh(mesh.geometry, m));
-        const b = this.batches.byGroup(g)[0];
-        if (b && !batched.has(m)) {
-          batched.add(m);
-          const tiny = new THREE.BatchedMesh(1, 3, 3, m);
-          tiny.addGeometry(tinyLike(b.geometry));
-          stage.add(tiny);
+        for (const o of this.meshes.get(g) || []) {
+          const key = `${m.uuid}|${lay(o.geometry)}`;
+          if (!seen.has(key)) { seen.add(key); stage.add(new THREE.Mesh(o.geometry, m)); }
+        }
+        for (const b of this.batches.byGroup(g)) {
+          const tiny = tinyLike(b.geometry);          // without the batch's own batchId, so its layout is the loose one
+          const key = `${m.uuid}|batch|${layout(tiny)}`;
+          if (seen.has(key)) { tiny.dispose(); continue; }
+          seen.add(key);
+          const mesh = new THREE.BatchedMesh(1, 3, 3, m);
+          mesh.addGeometry(tiny);
+          stage.add(mesh);
         }
       }
       await this.compile(stage, this.section);
     } catch { /* compiled at the first frame instead */ }
     stage.traverse((o) => { if (o.isBatchedMesh) o.dispose(); });
+    try {
+      // every texture the materials use (the same places GameLook.upgrade looks at)
+      const used = new Set();
+      for (const m of new Set(mats.values())) {
+        const refs = [m.map, m.normalMap, m.roughnessMap, m.specularColorMap, m.userData.detailNormal,
+          ...[m.uniforms, m.userData.gameUniforms].flatMap((u) => (u ? Object.values(u).map((v) => v?.value) : []))];
+        for (const t of refs) if (t?.isTexture) used.add(t);
+      }
+      for (const t of used) this.gameLook.renderer.initTexture(t);
+    } catch { /* uploaded at the first frame instead */ }
   }
 
   // castShadow, receiveShadow and the batches (opaque only) were set up for the paint loaded first: the server's
@@ -223,12 +252,15 @@ export class PaintSwap {
     for (const t of built.textures) t.dispose();
   }
 
-  // the model is going away: cancel a swap in progress and free the kept paints that are not on screen (loadModel
-  // frees the ones on screen with the model)
+  // the model is going away: cancel a swap in progress, free the kept paints that are not on screen and the textures
+  // of the one on screen (loadModel frees its materials with the model)
   dispose() {
     this.disposed = true;
     this.seq++;
-    for (const [tag, built] of this.paints) if (tag !== this.current) this.free(built);
+    for (const [tag, built] of this.paints) {
+      if (tag !== this.current) this.free(built);
+      else for (const t of built.textures) t.dispose();   // (re-uploaded if drawn again, so safe if a reload is cancelled)
+    }
     this.paints.clear();
   }
 }

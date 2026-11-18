@@ -16,7 +16,7 @@ const kindOf = (o) => ((o.name || o.parent?.name || "").split("|")[0] || "solid"
 const labelOf = (o) => (o.name || o.parent?.name || "").split("|").slice(0, 2).join("|");
 const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _box = new THREE.Box3();
 
-function layout(g) {
+export function layout(g) {
   const names = Object.keys(g.attributes).sort();
   return names.map((n) => { const a = g.attributes[n]; return `${n}:${a.itemSize}:${a.array.constructor.name}:${a.normalized ? 1 : 0}`; }).join(",")
     + (g.index ? "+i" : "");
@@ -65,6 +65,7 @@ class Batch extends THREE.BatchedMesh {
 
 export class Batches {
   constructor() {
+    this.groups = new Map();     // paint group -> its batches (made at the end of build)
     this.list = [];              // the BatchedMesh objects
     this.nodes = [];             // [node, batch, id] for every piece
     this.root = null;
@@ -127,6 +128,13 @@ export class Batches {
       root.add(batch);
       this.list.push(batch);
     }
+    this.groups.clear();
+    for (const b of this.list) {
+      const g = b.userData.group;
+      if (g == null) continue;
+      if (!this.groups.has(g)) this.groups.set(g, []);
+      this.groups.get(g).push(b);
+    }
     return { pieces, batches: this.list.length };
   }
 
@@ -164,12 +172,13 @@ export class Batches {
 
   // the batches of one paint group (paint.js)
   byGroup(g) {
-    return this.list.filter((b) => b.userData.group === g);
+    return this.groups.get(g) || [];
   }
 
   dispose() {
     for (const b of this.list) b.dispose();
     this.list.length = this.nodes.length = 0;
+    this.groups.clear();
     this.root = null;
   }
 }

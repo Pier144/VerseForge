@@ -110,6 +110,7 @@ export class GameLook {
     this.loader = new THREE.TextureLoader();
     this.gpu = gpuFormats(renderer);    // "s3tc,rgtc,bptc" or "" (decoded images only)
     this.textures = new Map();          // url -> Promise<Texture | null>
+    this.ready = new Map();             // url -> Texture, once loaded (texture() hands out a full size that is already here)
     this.owned = new Set();             // every texture object made here (clones too), freed by dispose()
     this.maxAniso = renderer.capabilities.getMaxAnisotropy();
     this.requested = 0;                 // textures asked for / finished, for the loading bar
@@ -124,7 +125,8 @@ export class GameLook {
   // listed in `slots` for upgrade() to replace
   texture(path, kind, repeat = 1, size = TEX_SIZE, slots = null) {
     if (!path) return Promise.resolve(null);
-    const small = GameLook.progressive && slots && size > SMALL_SIZE;
+    // a full size already loaded (an earlier paint upgraded it, and upgrade() freed the small copy) is used directly
+    const small = GameLook.progressive && slots && size > SMALL_SIZE && !this.ready.has(texUrl(path, kind, size));
     return this.load(path, kind, repeat, small ? SMALL_SIZE : size, true).then((t) => {
       // an image smaller than SMALL_SIZE is already the whole texture
       if (t && small && Math.max(t.image.width, t.image.height) >= SMALL_SIZE) slots.push({ tex: t, path, kind, repeat, size });
@@ -146,6 +148,7 @@ export class GameLook {
         t.anisotropy = Math.min(8, this.maxAniso);
         t.flipY = false;                 // glTF UV convention (the GLB's own textures are not flipped either)
         this.owned.add(t);
+        this.ready.set(url, t);
         return t;
       }).catch(() => null));
     }

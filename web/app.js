@@ -729,9 +729,9 @@ async function loadModel(item, keepView = false) {
     batches.dispose();
     batches = new Batches();
     modelRoot = gltf.scene;
-    // paint group of each piece (keyed GLBs, paint.js): read from the GLB material before the game look replaces it,
-    // since the game look shares one material between groups that look the same
-    modelRoot.traverse((o) => { if (o.isMesh) o.userData.group = groupOf(o.material); });
+    // paint group of each piece (keyed GLBs only, paint.js): read from the GLB material before the game look
+    // replaces it, since the game look shares one material between groups that look the same
+    if (info.keyed_glb) modelRoot.traverse((o) => { if (o.isMesh) o.userData.group = groupOf(o.material); });
     gameLook.dispose();
     gameLook = new GameLook(renderer);
     gameLook.onProgress = (done, total) => {

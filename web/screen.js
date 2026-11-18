@@ -7,11 +7,16 @@ const WARN = "#ff8a3d";
 
 // The screen classes draw on a clone of each screen's material. dispose() puts the mesh's own material back (also
 // where the resin look keeps it, userData.gameMaterial) and frees the clone: a paint change rebuilds the screens with
-// the new paint's glow (app.js afterPaint).
+// the new paint's glow (app.js afterPaint). The clone is made from the material that is drawn (the game material when
+// the resin look holds it) and goes back in the slot it came from.
 function cloneMaterials(meshes) {
-  const originals = meshes.map((m) => m.material);
-  for (const m of meshes) m.material = m.material.clone();
-  return { originals, clones: meshes.map((m) => m.material) };
+  const originals = meshes.map((m) => m.userData.gameMaterial || m.material);
+  const clones = originals.map((o) => o.clone());
+  meshes.forEach((m, i) => {
+    if (m.userData.gameMaterial) m.userData.gameMaterial = clones[i];
+    else m.material = clones[i];
+  });
+  return { originals, clones };
 }
 function restoreMaterials(meshes, { originals, clones }) {
   meshes.forEach((m, i) => {
@@ -56,9 +61,10 @@ export class AmmoScreen {
     this.meshes = meshes;
     this.saved = cloneMaterials(meshes);
     for (const m of meshes) {
-      m.material.emissiveMap = this.texture;
-      m.material.emissive = new THREE.Color(0xffffff);
-      m.material.emissiveIntensity = 1.4;
+      const c = m.userData.gameMaterial || m.material;   // the clone just made
+      c.emissiveMap = this.texture;
+      c.emissive = new THREE.Color(0xffffff);
+      c.emissiveIntensity = 1.4;
     }
     this.draw();
   }
@@ -220,9 +226,10 @@ export class ShipScreens {
     for (const m of meshes) this.place(m);
     this.saved = cloneMaterials(meshes);
     for (const m of meshes) {
-      m.material.emissiveMap = this.texture;
-      m.material.emissive = new THREE.Color(0xffffff);
-      m.material.emissiveIntensity = 1.25;
+      const c = m.userData.gameMaterial || m.material;   // the clone just made
+      c.emissiveMap = this.texture;
+      c.emissive = new THREE.Color(0xffffff);
+      c.emissiveIntensity = 1.25;
     }
     this.draw({});
     this.ready = Promise.all(["bg", "tri_fill", "tri_frame", "panel"].map((k) => loadImage(this.kit[k]))).then((imgs) => {
