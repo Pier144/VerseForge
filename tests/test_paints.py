@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from sc_explorer import export, materials, model  # noqa: E402
+from sc_explorer import export, materials, model, paints  # noqa: E402
 
 STENCIL = '<Material Name="livery" Shader="MeshDecal" StringGenMask="%STENCIL_MAP" Diffuse="0,0,0"><Textures/></Material>'
 
@@ -127,3 +127,61 @@ def test_glb_without_groups_is_unchanged():
     names = [m["name"] for m in _glb_json(export.to_glb(a, lite=True))["materials"]]
     assert not any("|g" in n for n in names)
     assert not any(n.startswith("decal|livery") for n in names)          # a bare sticker stays a hidden proxy
+
+
+def test_groups_follow_the_material_slot():
+    a = _paint([(0.5, 0.5, 0.5), (0.5, 0.5, 0.5), (0.8, 0.8, 0.8)])
+    assert paints.group_keys(a) == [0, 0, 1, 2, 3]                       # equal colours, different slots: apart
+    loose = model.Part("p", _mat("x"), np.zeros((3, 3)), np.arange(3).reshape(1, 3), "x")   # no .mtl: by material
+    m = model.Model("m", parts=a.parts + [loose, loose])
+    assert paints.group_keys(m)[-2:] == [4, 4]
+
+
+def test_check_accepts_a_recoloured_paint():
+    ref = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)], livery=False)
+    other = _paint([(0.9, 0.1, 0.1), (0.1, 0.9, 0.1), (0.3, 0.3, 0.3)], camo=True)  # sticker shows up, camo added
+    assert paints.check(ref, other, paints.group_keys(ref))
+
+
+def _recolour(m, i, **changes):
+    parts = list(m.parts)
+    parts[i] = model.Part(**{**parts[i].__dict__, "material": materials.Material(**{**parts[i].material.__dict__, **changes})})
+    return model.Model(m.path, parts=parts)
+
+
+def test_check_refuses_what_a_swap_cannot_do():
+    ref = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)])
+    g = paints.group_keys(ref)
+    assert not paints.check(ref, _recolour(ref, 2, kind="glass"), g)                       # kind
+    assert not paints.check(ref, _recolour(ref, 2, name="other"), g)                       # name
+    assert not paints.check(ref, _recolour(ref, 2, diffuse="t.dds", tiling=4.0), g)        # UV repeat
+    assert not paints.check(ref, _recolour(ref, 0, color=(1, 0, 0)), g)                    # one part of a group alone
+    assert not paints.check(ref, model.Model(ref.path, parts=ref.parts[:-1]), g)           # part count
+    dec = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)])
+    dec.parts[2] = model.Part(**{**dec.parts[2].__dict__, "material": _mat("trim", "decal", (0.2, 0.2, 0.2))})
+    see = model.Model(dec.path, parts=list(dec.parts))
+    see.parts[2] = model.Part(**{**see.parts[2].__dict__, "material": _mat("trim", "decal", (0.2, 0.2, 0.2), opacity=0.5)})
+    assert not paints.check(dec, see, paints.group_keys(dec))                              # decal turns see-through
+    mon = materials.Material("mfd", "DisplayScreen", "screen", (0.01, 0.01, 0.01), rtt=True)
+    assert paints._look(mon) != paints._look(materials.Material("mfd", "DisplayScreen", "screen", (0.01, 0.01, 0.01)))
+
+
+def test_swatches():
+    assert paints.swatches(None) is None
+    assert paints.swatches({"A": [0, 0, 0], "B": [0, 0, 0], "C": [0, 0, 0]}) is None
+    assert paints.swatches({"A": [100, 100, 100], "B": [150, 150, 150], "C": [174, 121, 31]}) == \
+        [[100, 100, 100], [150, 150, 150], [174, 121, 31]]
+    assert paints.swatches({"A": [1, 2, 3], "B": None, "C": [4, 5, 6]}) is None
+
+
+def test_paint_table():
+    ref = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)], livery=False)
+    g = paints.group_keys(ref)
+    out = paints.paint_table(ref, g, None)
+    groups, shading = out["groups"], out["shading"]
+    assert len(groups) == 4 and groups[0]["name"].startswith("solid|hull|") and groups[0]["name"].endswith("|g0")
+    assert groups[2]["name"] == "glass|pane||g2" and groups[2]["alpha_mode"] == "BLEND"
+    assert groups[3]["name"] == "decal|livery||g3" and not groups[3]["visible"]
+    sid = groups[0]["name"].split("|")[2]
+    assert shading[sid] == materials.shading(ref.parts[0].material)
+    assert paints.paint_table(ref, g, None, fixed_from=2)["groups"][1:] == [None, None, None]
