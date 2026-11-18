@@ -241,5 +241,16 @@ def with_variant(model, archive, material=None, palette=None):
             except Exception:
                 cache[path] = []
         mats = cache[path]
-        parts.append(replace(p, material=mats[p.mat_id]) if p.mat_id < len(mats) else p)
+        mat = mats[p.mat_id] if p.mat_id < len(mats) else None
+        if path == override and (mat is None or not mat.name.strip("- ")):
+            # a livery .mtl marks what it does not repaint with "--" placeholders (or ends early): those parts keep
+            # the main .mtl's own material, with the paint's palette (Perseus landing gear on the full ship)
+            if main not in cache:
+                try:
+                    cache[main] = materials.load(archive, main, palette)
+                except Exception:
+                    cache[main] = []
+            own = cache[main]
+            mat = own[p.mat_id] if p.mat_id < len(own) else None
+        parts.append(replace(p, material=mat) if mat is not None else p)
     return replace(model, parts=parts, warnings=list(model.warnings), cache={})

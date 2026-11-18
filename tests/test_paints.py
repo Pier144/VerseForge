@@ -316,3 +316,15 @@ def test_state_builds_the_interior_once_for_every_paint(monkeypatch):
     assert b.parts[:5] == hulls["m1"].parts and b.parts[5] is room and b.rooms == a.rooms
     assert st.get_model("Objects/ship.cga", None, False, True) is a
     assert st.get_model("Objects/ship.cga", "nope") is st.get_model("Objects/ship.cga", "0")
+
+
+def test_livery_placeholders_keep_the_stock_material(monkeypatch):
+    stock = [_mat("hull"), _mat("gear_metal"), _mat("gear_rubber")]
+    livery = [_mat("hull_red", color=(1, 0, 0)), materials.Material("--", "Illum", "solid", (0.6, 0.6, 0.6))]
+    files = {"a.mtl": stock, "livery.mtl": livery}
+    monkeypatch.setattr(model, "_mtl", lambda archive, name: name)
+    monkeypatch.setattr(model.materials, "load", lambda archive, path, palette=None: files[path])
+    parts = [_part(stock[0], "a.mtl", 0, n=3, seed=1), _part(stock[1], "a.mtl", 1, seed=2),
+             _part(stock[2], "a.mtl", 2, seed=3)]
+    out = model.with_variant(model.Model("ship.cga", parts=parts), None, "livery.mtl", None)
+    assert [p.material.name for p in out.parts] == ["hull_red", "gear_metal", "gear_rubber"]
