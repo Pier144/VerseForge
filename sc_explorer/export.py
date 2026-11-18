@@ -45,24 +45,30 @@ def _lite_key(mat):
             mat.metal, bool(mat.stencil_map))
 
 
-def merged_by_material(parts, uv2=False, lite=False, rooms=False):
+def merged_by_material(parts, uv2=False, lite=False, rooms=False, paint_groups=None):
     """Merge parts sharing a material so the viewer gets few draw calls -> [(material, verts, faces, uvs|None)].
     uv2=True adds a fifth item: the second UV set (stencils) when every part of the group has one, else None.
     rooms=True lets the viewer show one room of an interior alone, and adds a last item. Solid pieces are kept
     apart by room (the viewer batches them back into one draw call per material): the item is the room index, -1 for
     none. See-through pieces (decals, glass, screens) cannot be batched, so they stay one mesh per material with
     their triangles in room order: the item is the list of (room, first face, face count) runs.
-    lite=True also merges materials that only differ in what the game look replaces anyway (_lite_key)."""
+    lite=True also merges materials that only differ in what the game look replaces anyway (_lite_key).
+    paint_groups: list aligned with `parts` (keyed GLB, paints.py): parts merge by group instead of by material, so
+    every paint gets the same meshes; each item then ends with its group number."""
     # grouped by the material's content, not the object: interiors load each prop on its own, so equal materials
     # come as separate copies (3,400 draw calls on the Perseus interior instead of a few hundred)
-    groups, keys = {}, {}
-    for p in parts:
-        k = keys.get(id(p.material))
-        if k is None:
-            k = keys[id(p.material)] = (_lite_key(p.material) if lite else None) or repr(p.material)
-        groups.setdefault((k, p.room) if rooms and p.material.kind == "solid" else k, []).append(p)
+    buckets, keys = {}, {}
+    for i, p in enumerate(parts):
+        if paint_groups is not None:
+            k = ("g", paint_groups[i])
+        else:
+            k = keys.get(id(p.material))
+            if k is None:
+                k = keys[id(p.material)] = (_lite_key(p.material) if lite else None) or repr(p.material)
+        buckets.setdefault((k, p.room) if rooms and p.material.kind == "solid" else k, []).append((i, p))
     out = []
-    for ps in groups.values():
+    for entries in buckets.values():
+        ps = [p for _, p in entries]
         verts, faces, uvs, off = [], [], [], 0
         runs = None
         if rooms and ps[0].material.kind != "solid" and any(p.room >= 0 for p in ps):
@@ -85,6 +91,8 @@ def merged_by_material(parts, uv2=False, lite=False, rooms=False):
             item += (np.vstack([p.uvs2 for p in ps]) if all(p.uvs2 is not None for p in ps) else None,)
         if rooms:
             item += (runs if runs is not None else ps[0].room if ps[0].material.kind == "solid" else -1,)
+        if paint_groups is not None:
+            item += (paint_groups[entries[0][0]],)
         out.append(item)
     return out
 
@@ -276,21 +284,34 @@ def _screen_mesh(mat, v, f, uv, axis, group=None):
     return mesh
 
 
-def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=None, lite=False, merge=None):
+def _selected_groups(model, parts, groups):
+    """The paint groups of the parts select() kept (groups is aligned with model.parts)."""
+    if groups is None:
+        return None
+    keep = {id(p) for p in parts}
+    return [g for g, p in zip(groups, model.parts) if id(p) in keep]
+
+
+def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=None, lite=False, merge=None, groups=None):
     """sources: animations.sources() -> animated GLB for models with a skeleton.
     lite: viewer GLB (see _glb_mesh); also without normals, which the viewer computes (a third of the file).
     merge: fewer meshes for the viewer (default: with lite): parts that never move leave the still nodes of an animated
     model for the root (see _to_glb_animated) and, in a lite GLB, materials the game look draws the same are merged
-    (_lite_key). User exports keep the plain layout."""
+    (_lite_key). User exports keep the plain layout.
+    groups: paint group of every part (paints.group_keys), for the viewer's keyed GLB: see paints.py."""
     merge = lite if merge is None else merge
     parts = select(model, include_hidden=include_hidden)
+    pg = _selected_groups(model, parts, groups)
     if sources and model.skeleton:
-        return _to_glb_animated(model, parts, textures, tex_size, sources, lite, merge)
+        return _to_glb_animated(model, parts, textures, tex_size, sources, lite, merge, pg)
     scene = trimesh.Scene()
-    for i, (mat, v, f, uv, uv2, room) in enumerate(merged_by_material(parts, uv2=True, lite=lite and merge, rooms=True)):
+    for i, item in enumerate(merged_by_material(parts, uv2=True, lite=lite and merge, rooms=True, paint_groups=pg)):
+        mat, v, f, uv, uv2, room = item[:6]
+        g = item[6] if pg is not None else None
+        mat, off = keyed_form(mat) if pg is not None else (mat, False)
         node = _node_name(mat, i, room)
-        scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, uv2=uv2, lite=lite), node_name=node,
-                           geom_name=node)
+        scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, uv2=uv2, lite=lite, group=g, off=off),
+                           node_name=node, geom_name=node)
     return scene.export(file_type="glb", include_normals=not lite)
 
 
@@ -361,7 +382,7 @@ def posed(model, sources, pose):
     return replace(model, parts=parts, cache={})
 
 
-def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False, merge=False):
+def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False, merge=False, groups=None):
     """Node hierarchy for the bones/nodes the clips move (and their ancestors); everything else stays merged by
     material under the root, so a ship does not explode into hundreds of draw calls."""
     from . import anim_glb
@@ -400,20 +421,26 @@ def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False, merg
             home[name] = bones[i].name if i >= 0 else ROOT_NODE
         return home[name]
 
+    pairs = list(zip(parts, groups if groups is not None else [None] * len(parts)))
     buckets = {}
-    for p in parts:
-        buckets.setdefault(nearest(p.node) if p.node else ROOT_NODE, []).append(p)
+    for p, g in pairs:
+        buckets.setdefault(nearest(p.node) if p.node else ROOT_NODE, []).append((p, g))
     n = 0
-    for frame, ps in buckets.items():
+    for frame, items in buckets.items():
+        ps = [p for p, _ in items]
+        gs = [g for _, g in items] if groups is not None else None
         if frame != ROOT_NODE:
             inv = np.linalg.inv(kept[frame].world)
             ps = [replace(p, vertices=p.vertices @ inv[:3, :3].T + inv[:3, 3]) for p in ps]
-        for mat, v, f, uv, uv2, room in merged_by_material(ps, uv2=True, lite=lite and merge, rooms=True):
+        for item in merged_by_material(ps, uv2=True, lite=lite and merge, rooms=True, paint_groups=gs):
+            mat, v, f, uv, uv2, room = item[:6]
+            g = item[6] if gs is not None else None
+            mat, off = keyed_form(mat) if gs is not None else (mat, False)
             node = _node_name(mat, n, room)
             n += 1
-            scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False, uv2=uv2, lite=lite),
-                               node_name=node,
-                               geom_name=node, parent_node_name=frame)
+            scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False, uv2=uv2, lite=lite,
+                                         group=g, off=off),
+                               node_name=node, geom_name=node, parent_node_name=frame)
     glb = scene.export(file_type="glb", include_normals=not lite)
     return anim_glb.add_animations(glb, [(n, c, {h: v for h, v in t.items() if v in kept}) for n, c, t in sources])
 

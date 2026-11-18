@@ -70,3 +70,60 @@ def test_keyed_form_turns_bare_stencil_decals_into_hidden_decals():
     assert export.keyed_form(_mat()) == (_mat(), False)
     painted = _mat("livery", "decal", (1, 1, 1), stencil_decal=True)
     assert export.glb_material(painted, True, None, 1024, lite=True, group=2)[0]["alpha_mode"] == "BLEND"
+
+
+def _part(mat, mtl="a.mtl", mid=0, n=1, seed=0, node="", room=-1):
+    rng = np.random.default_rng(seed)
+    v = rng.random((3 * n, 3))
+    f = np.arange(3 * n).reshape(-1, 3)
+    uv = rng.random((3 * n, 2)).astype(np.float32)
+    uv2 = rng.random((3 * n, 2)).astype(np.float32)
+    return model.Part("p", mat, v, f, "x", uvs=uv, mtl_path=mtl, mat_id=mid, node=node, room=room, uvs2=uv2)
+
+
+def _paint(colors, livery=True, camo=False):
+    """A fake model in one paint: hull (2 parts, a.mtl #0), trim (a.mtl #1), glass (b.mtl #0), a livery sticker.
+    camo: the hull paint has a stencil (camo) mask, as the Perseus camo paints have and its stock paint has not."""
+    stencil = {"stencil_map": "camo.dds", "stencil": {"tiling": 1.0, "uv2": True, "opacity": 1.0,
+                                                       "colors": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}} if camo else {}
+    hull, trim = _mat("hull", color=colors[0], **stencil), _mat("trim", color=colors[1])
+    glass = _mat("pane", "glass", colors[2])
+    sticker = _mat("livery", "decal" if livery else "hidden", (1, 1, 1), stencil_decal=True)
+    parts = [_part(hull, seed=1), _part(hull, seed=2), _part(trim, mid=1, seed=3), _part(glass, "b.mtl", seed=4),
+             _part(sticker, "a.mtl", 2, seed=5)]
+    return model.Model("ship.cga", parts=parts)
+
+
+def test_merged_by_material_with_groups_keeps_paint_independent_meshes():
+    a = _paint([(0.5, 0.5, 0.5), (0.5, 0.5, 0.5), (0.8, 0.8, 0.8)])
+    groups = [0, 0, 1, 2, 3]
+    today = export.merged_by_material(a.parts)
+    keyed = export.merged_by_material(a.parts, paint_groups=groups)
+    assert len(today) == 4 and len(keyed) == 4                          # hull, trim, glass, livery either way
+    assert [item[-1] for item in keyed] == [0, 1, 2, 3]                 # the group comes last
+    assert len(export.merged_by_material(a.parts, paint_groups=[0, 0, 0, 1, 2])) == 3
+
+
+def test_two_paints_give_the_same_geometry():
+    groups = [0, 0, 1, 2, 3]
+    a = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)], livery=False)
+    b = _paint([(0.9, 0.1, 0.1), (0.9, 0.1, 0.1), (0.3, 0.3, 0.3)], camo=True)
+    ga, gb = export.to_glb(a, lite=True, groups=groups), export.to_glb(b, lite=True, groups=groups)
+    ja, jb = _glb_json(ga), _glb_json(gb)
+    assert _glb_bin(ga) == _glb_bin(gb)
+    assert ja["accessors"] == jb["accessors"] and [n["name"] for n in ja["nodes"]] == [n["name"] for n in jb["nodes"]]
+    names = sorted(m["name"] for m in ja["materials"])
+    assert all("|g" in n for n in names)
+    off = next(m for m in ja["materials"] if m["name"].startswith("decal|livery|"))
+    assert off["alphaMode"] == "BLEND" and off["pbrMetallicRoughness"]["baseColorFactor"][3] == 0.0
+    sticker_node = next(n for n in ja["nodes"] if n["name"].startswith("decal|livery|"))
+    assert "TEXCOORD_0" in ja["meshes"][sticker_node["mesh"]]["primitives"][0]["attributes"]
+    hull_node = next(n for n in ja["nodes"] if n["name"].startswith("solid|hull|"))
+    assert "_UV2" in ja["meshes"][hull_node["mesh"]]["primitives"][0]["attributes"]      # also without camo
+
+
+def test_glb_without_groups_is_unchanged():
+    a = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)], livery=False)
+    names = [m["name"] for m in _glb_json(export.to_glb(a, lite=True))["materials"]]
+    assert not any("|g" in n for n in names)
+    assert not any(n.startswith("decal|livery") for n in names)          # a bare sticker stays a hidden proxy
