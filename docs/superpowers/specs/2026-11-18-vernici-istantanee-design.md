@@ -1,7 +1,7 @@
 # Vernici istantanee: progetto
 
-Data: 18/11/2026 · Stato: disegno approvato dall'utente in chat, specifica rivista (2 giri di revisione) e da
-rileggere · Ramo: `vernici-istantanee`
+Data: 18/11/2026 · Stato: disegno approvato dall'utente in chat, specifica rivista (3 giri di revisione, approvata dal
+revisore), da rileggere dall'utente · Ramo: `vernici-istantanee`
 
 ## Scopo
 
@@ -83,9 +83,10 @@ Un MeshDecal con `%STENCIL_MAP` è `decal` solo se la tavolozza ha l'atlante `de
 chiavi i loro gruppi escono **sempre** così:
 - `kind` `decal`, con le UV, `alphaMode` `BLEND`;
 - con l'atlante nella vernice del GLB: come oggi (texture colorata incorporata, voce di shading e `sid`);
-- senza atlante: nessuna texture, `sid` vuoto, colore base con **alpha 0**. Il visualizzatore, al caricamento, non
-  disegna i decal con opacità 0 (`visible = false`), così non compare la lastra nera di cui parla il commento in
-  materials.py:187-188; essendo trasparenti non entrano nei batch.
+- senza atlante: nessuna texture, `sid` vuoto, colore base con **alpha 0**. Il visualizzatore, al caricamento, mette
+  `material.visible = false` ai decal con opacità 0 (sul materiale, non sulla mesh: `applyVisibility` riscrive
+  `o.visible`, app.js:558), così non compare la lastra nera di cui parla il commento in materials.py:187-188 e non
+  costano un disegno; essendo trasparenti non entrano nei batch.
 
 Nella tabella di una vernice questi gruppi hanno `visible` (atlante sì/no) e `texture`. La verifica considera
 `hidden` e `decal` uguali per questi gruppi e li esclude dalla condizione 5 (sono sempre `BLEND`).
@@ -104,9 +105,10 @@ export, stampa): stessi pezzi di oggi, molto più veloce.
 
 ### Verifica di una vernice (rispetto alla vernice di riferimento)
 
-Calcolata alla prima richiesta di quella vernice (`/api/model/paint`) e tenuta in memoria per
-(modello, full, vernice). Solo sui pezzi dello scafo (o della nave completa): i pezzi degli interni sono uguali per
-costruzione. Una vernice è scambiabile se:
+Calcolata alla prima richiesta di quella vernice (`/api/model/glb` o `/api/model/paint`) e tenuta in memoria per
+(modello, full, interior, vernice). Le condizioni 1, 2, 4, 5 guardano i pezzi dello scafo (o della nave completa): i
+pezzi degli interni sono uguali per costruzione; la 3 guarda tutti i pezzi del modello chiesto, interni compresi.
+Una vernice è scambiabile se:
 1. ha lo stesso numero di pezzi, con lo stesso `node` e lo stesso numero di facce, nello stesso ordine;
 2. ogni gruppo ha lo stesso `kind` (con l'eccezione dei decal stencil) e lo stesso nome di materiale: il nome della
    mesh nel GLB è `kind|nome|n` e lo usano batch, interruttori dei materiali, decal, schermi, stanze;
@@ -134,8 +136,8 @@ Un modulo con un compito solo: come si raggruppano i pezzi e com'è fatto ogni g
 
 - `group_keys(ref_model) -> (keys, groups)`: `keys[i]` è la chiave del pezzo `i`, `groups[i]` il numero del suo
   gruppo.
-- `check(ref_model, model, groups) -> bool`: le condizioni 1-5 (solo sui pezzi presenti in entrambi i modelli dello
-  scafo).
+- `check(ref_model, model, groups) -> bool`: le condizioni 1-5; `ref_model` e `model` sono i modelli della vernice
+  di riferimento e di quella chiesta con lo stesso `full` e `interior`.
 - `paint_table(model, groups) -> list`: una voce per gruppo, indice = numero del gruppo, con i dati del materiale in
   quella vernice (sotto). I gruppi che stanno solo negli interni hanno `null` (non cambiano).
 - `swatches(palette) -> [[r,g,b]]*3 | None`: i colori A, B, C in sRGB 0-255; `None` se la tavolozza manca o è tutta
@@ -178,7 +180,9 @@ Si prova da solo, con modelli finti.
   Con `swappable = false` risponde solo `{variant, swappable: false}`. Errori: 404 come le altre rotte.
 - Nuovo `GET /api/model/paint/texture?path&variant&full&group&map=base|normal` → l'immagine che `_glb_mesh`
   incorporerebbe nel GLB per quel gruppo in quella vernice (`material_textures`: per esempio il decal stencil colorato
-  dalla tavolozza), PNG o JPEG come nel GLB, cache su disco come le altre texture; 404 se il gruppo non ne ha.
+  dalla tavolozza), PNG o JPEG come nel GLB, cache su disco come le altre texture; 404 se il gruppo non ne ha. Non
+  serve `interior`: i pezzi dello scafo vengono prima degli interni, quindi i numeri dei gruppi dello scafo sono gli
+  stessi con e senza interni.
 
 ### Dati di un gruppo in una vernice
 
@@ -225,7 +229,8 @@ Classe `PaintSwap` con un compito solo: portare i materiali del modello in scena
   3. in un solo fotogramma assegna: per ogni mesh del gruppo e per ogni batch del gruppo il materiale nuovo va in
      `userData.gameMaterial` quando c'è (resina accesa: `applyResin` ha spostato lì il materiale di gioco di mesh **e**
      batch, app.js:630-639), altrimenti in `material`; aggiorna `batch.hook`; rimette `o.onBeforeRender` dei decal POM;
-     `visible` dei decal stencil; ombre da rifare;
+     `material.visible` dei decal stencil; ombre da rifare. I gruppi degli schermi li salta: li assegna `afterPaint`
+     (sotto), dopo aver spento le classi degli schermi;
   4. chiama `gameLook.upgrade(materiali, slots)` per le texture grandi.
 - Memoria delle ultime 3 vernici (dati e materiali pronti): tornare indietro, e il confronto, non ricostruiscono
   niente. All'inizio contiene già la vernice caricata (materiali presi dalle mesh in scena, per gruppo). Un materiale
@@ -249,8 +254,8 @@ gruppo al posto dell'uuid: tutti i pezzi di un batch hanno lo stesso materiale i
   sono per nome, che non cambia), `applyResin` se attiva, `showMaterials`, riquadro decal (`stickers`), ombre.
   Schermi, in quest'ordine: `dispose()` di `AmmoScreen` / `ShipScreens`, poi il nuovo materiale dello schermo dalla
   tabella, poi li ricrea col nuovo `screen`. Oggi le due classi sostituiscono il materiale della mesh con un clone
-  (screen.js:42 e 204) e `dispose()` libera solo la texture: si aggiunge che `dispose()` rimette il materiale di
-  partenza e libera il clone. Non tocca camera, animazioni, posa, sezione, stanze.
+  (screen.js:42 e 204) e `dispose()` libera solo la texture: si aggiunge che ogni classe ricorda per ogni mesh il
+  materiale di partenza e il proprio clone, e `dispose()` rimette il primo e libera il secondo. Non tocca camera, animazioni, posa, sezione, stanze.
 - Errori (rete, server, materiale): `toast` e ricarica completa come oggi.
 - `state.variant` resta la vernice scelta nel menu; export, stampa, decal sheet e segnalazioni usano quella.
 
