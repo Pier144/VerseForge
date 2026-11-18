@@ -134,13 +134,13 @@ class State:
     def _variants(self, arch):
         st = os.stat(arch.path)
         lang = i18n.game_language()
-        cache = os.path.join(CACHE_DIR, f"variants_v5_{lang}_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"variants_v6_{lang}_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
         out = variants.build(arch.read(dcb), catalog.localization(arch, lang))
         for old in os.listdir(CACHE_DIR):           # one file per language is kept: switching back is quick
-            if old.startswith("variants_") and not old.startswith("variants_v5_") or old.startswith(f"variants_v5_{lang}_"):
+            if old.startswith("variants_") and not old.startswith("variants_v6_") or old.startswith(f"variants_v6_{lang}_"):
                 try:
                     os.remove(os.path.join(CACHE_DIR, old))
                 except OSError:

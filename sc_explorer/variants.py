@@ -120,7 +120,7 @@ def build(data: bytes, loc: dict):
             if key in seen or v["label"].lower() in seen:
                 continue
             seen.update((key, v["label"].lower()))
-            variants.append(v)
+            variants.append({**v, "stock": bool(default) and v is default[0]})
         if not any(v["material"] or v["palette"] for v in variants):
             continue
         for i, v in enumerate(variants):
