@@ -718,6 +718,7 @@ async function loadModel(item, keepView = false, opts = {}) {
   if (!keepView) state.matOff.clear();
   const v = (paintTag != null ? `&variant=${encodeURIComponent(paintTag)}` : "") + `&full=${state.full}` +
     `&interior=${state.interior}`;
+  const swapQuery = paintQuery(item);   // the model this load shows, for its paint requests
   document.querySelectorAll(".results li").forEach((li) => li.classList.toggle("active", li.dataset.path === item.path));
   $("#empty").classList.add("hidden");
   $("#loading").classList.remove("hidden");
@@ -816,11 +817,14 @@ async function loadModel(item, keepView = false, opts = {}) {
     buildGrid(new THREE.Box3().setFromObject(modelRoot));
     renderer.shadowMap.needsUpdate = true;
     if (!keepView) frame();
-    showInfo(item, opts.paint != null ? { ...info, variant: state.variant } : info);
-    currentInfo = info;
+    // Compare on a model that must reload: the panel keeps the chosen paint (menu, decal sheet)
+    const chosen = opts.paint != null && currentInfo?.path === item.path ? currentInfo.stickers : info.stickers;
+    showInfo(item, opts.paint != null ? { ...info, variant: state.variant, stickers: chosen } : info);
+    currentInfo = { ...info, path: item.path, stickers: opts.paint != null ? chosen : info.stickers };
     if (info.keyed_glb && state.tex && state.look) {
       paintSwap = new PaintSwap({ gameLook, batches, root: modelRoot, compile: compileShaders, section: !!info.interior,
-        look: { swapNormalXY: state.swapXY, sun }, query: paintQuery(item), glassTint, tag: info.variant });
+        look: { swapNormalXY: state.swapXY, sun }, query: swapQuery, glassTint, tag: info.variant });
+      paintSwap.path = item.path;                 // the model it paints (a failed load gives it back only to that one)
     }
     showMaterials();
     showAnimations(info.animations || []);
@@ -842,7 +846,10 @@ async function loadModel(item, keepView = false, opts = {}) {
     loadRelated(item);
   } catch (e) {
     // failed before the old model went away (it is still on screen, with its paint): paint changes swap again
-    if (state.current === item && retiredSwap?.root === modelRoot) { paintSwap = retiredSwap; retiredSwap = null; }
+    if (state.current === item && retiredSwap?.root === modelRoot && retiredSwap.path === item.path) {
+      paintSwap = retiredSwap;
+      retiredSwap = null;
+    }
     $("#info").innerHTML = infoHead(item) + `<p class="warn">${esc(e.message)}</p>`;
     toast(T("loadFailed", { error: e.message }), true);
   } finally {
@@ -876,19 +883,24 @@ const paintQuery = (item) => `path=${encodeURIComponent(item.path)}&full=${state
 // keepChoice: Compare with stock, the menu and the exports keep the chosen paint. The last request wins.
 let paintToken = 0;
 async function changePaint(tag, { keepChoice = false } = {}) {
-  const item = state.current, token = ++paintToken;
+  const item = state.current, token = ++paintToken, swap = paintSwap;
   if (!item) return;
   if (!keepChoice) state.variant = tag;
   const reload = () => loadModel(item, true, keepChoice ? { paint: tag } : {});
-  if (!paintSwap) return reload();
+  if (!swap) return reload();
+  // another model or paint was asked meanwhile, or the model was reloaded (Full ship, Interiors, textures): a newer
+  // choice is on its way, so this request neither swaps nor reloads over it
+  const stale = () => state.current !== item || token !== paintToken || paintSwap !== swap;
   try {
-    const paint = paintSwap.answer(tag) ||
-      await api(`/api/model/paint?${paintQuery(item)}&variant=${encodeURIComponent(tag)}`).then((r) => r.json());
-    if (state.current !== item || token !== paintToken) return;      // another model or paint was asked meanwhile
+    // the paint of the model on screen: its own query (state.full and state.interior may have changed since it loaded)
+    const paint = swap.answer(tag) ||
+      await api(`/api/model/paint?${swap.query}&variant=${encodeURIComponent(tag)}`).then((r) => r.json());
+    if (stale()) return;
     if (!paint.swappable) return reload();
-    if (!(await paintSwap.apply(tag, paint)) || state.current !== item || token !== paintToken) return;
-    afterPaint(item, paint);
+    if (!(await swap.apply(tag, paint)) || stale()) return;
+    afterPaint(item, tag, paint);
   } catch (e) {
+    if (stale()) return;
     toast(T("loadFailed", { error: e.message }), true);
     return reload();
   }
@@ -896,7 +908,7 @@ async function changePaint(tag, { keepChoice = false } = {}) {
 
 // What depends on the materials, redone after a paint was swapped in. The resin look can stay on: paint.js and the
 // screen classes both write into userData.gameMaterial while it is on, so the resin material is never touched.
-function afterPaint(item, paint) {
+function afterPaint(item, tag, paint) {
   ammoScreen?.dispose();                          // puts each screen's own material back
   ammoScreen = null;
   shipScreens?.dispose();
@@ -906,12 +918,17 @@ function afterPaint(item, paint) {
     const m = e?.emissive ? o.userData.gameMaterial || o.material : null;   // the glow of this paint's screens
     if (m?.emissive) m.emissive.setRGB(e.emissive[0], e.emissive[1], e.emissive[2]);
   });
-  currentInfo = { ...currentInfo, screen: paint.screen, stickers: paint.stickers };
+  currentInfo = { ...currentInfo, screen: paint.screen };
+  // the decal sheet is of the chosen paint: the panel does not follow the stock paint shown by Compare, and is set
+  // again when Compare goes back
+  if (tag === state.variant) {
+    currentInfo.stickers = paint.stickers;
+    $("#decalBox").classList.toggle("hidden", !paint.stickers);
+  }
   startScreens(item, currentInfo);
   applyWireframe();
   applyVisibility();
   showMaterials();
-  $("#decalBox").classList.toggle("hidden", !paint.stickers);
   renderer.shadowMap.needsUpdate = true;
   invalidate(300);
   stats.paints = (stats.paints || 0) + 1;         // for tools/paint_check.py

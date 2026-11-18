@@ -3,7 +3,7 @@ readme_media.py). Opens the Perseus with Full ship + Interiors and runs the chec
   frames  draw calls and milliseconds per frame (median of 60 frames drawn by hand)
   paint   paint changes: time to the first frame with the new paint (seen and never seen), no loading screen, camera,
           pose and section unchanged, compare with stock and back, resin look on during a change
-  menu    a picture of the paint menu, opened (docs/anteprime/menu-vernici-app.png)
+  menu    picks a livery, then a picture of the panel closed and opened (docs/anteprime/menu-vernici-app.png)
     python tools/paint_check.py frames --save   # before the work: writes the baseline next to the plan
     python tools/paint_check.py frames paint    # after: compares with the baseline
 Starts its own server (start.py, port 8791, disk cache off so the shared cache of the installed app is left alone).
@@ -75,14 +75,36 @@ async def frames(p, save):
 
 
 async def menu(p):
+    """The panel with a livery chosen (so Compare with stock shows), closed and with the menu open, side by side."""
     import cv2
+    import numpy as np
+    before = await p.js("__verseforge.stats.paints || 0")
     await p.js("document.querySelector('#info .dd-btn').click()")
     await asyncio.sleep(0.4)
+    await p.js("(() => { const v = __verseforge.info.variants, i = v.findIndex(x => /adamantine/i.test(x.label));"
+               " document.querySelectorAll('#info .dd-list li')[i >= 0 ? i : v.findIndex(x => !x.stock)].click(); })()")
+    for _ in range(300):                              # the swap, or a reload when the model cannot swap
+        if (await p.js("(__verseforge.stats.paints || 0) > " + str(before) +
+                       " || !document.querySelector('#loading').classList.contains('hidden')")):
+            break
+        await asyncio.sleep(0.1)
+    for _ in range(600):
+        if await p.js("document.querySelector('#loading').classList.contains('hidden')"):
+            break
+        await asyncio.sleep(0.1)
+    await asyncio.sleep(1.0)
     box = await p.js("(() => { const r = document.querySelector('.layout > .panel').getBoundingClientRect();"
                      " return { x: r.x, y: r.y, width: r.width, height: Math.min(r.height, 640) }; })()")
-    out = os.path.join(HERE, "docs", "anteprime", "menu-vernici-app.png")
-    cv2.imwrite(out, await p.shot(box))
+    closed = await p.shot(box)
     await p.js("document.querySelector('#info .dd-btn').click()")
+    await asyncio.sleep(0.4)
+    opened = await p.shot(box)
+    await p.js("document.querySelector('#info .dd-btn').click()")
+    gap = np.full((closed.shape[0], 24, 3), closed[0, 0], np.uint8)
+    out = os.path.join(HERE, "docs", "anteprime", "menu-vernici-app.png")
+    cv2.imwrite(out, np.hstack([closed, gap, opened]))
+    if not await p.js("!!document.querySelector('#cmpStock')"):
+        fail("no Compare with stock button under the paint menu")
     print(f"  saved {out}")
 
 
