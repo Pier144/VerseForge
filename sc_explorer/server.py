@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, diskcache, entities, export, i18n, materials, model, modelcache, paths, printing, reports, screens, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, diskcache, entities, export, i18n, materials, model, modelcache, paints, paths, printing, reports, screens, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -68,6 +68,7 @@ class State:
         # messages are (i18n key, {args}) tuples, turned into text when the interface asks for them
         self.status = {"ready": False, "message": ("starting",), "progress": 0.0, "error": None}
         self.models = modelcache.ModelCache()   # built models, LRU within a memory budget (modelcache.py)
+        self.paint_ok = {}               # (path, tag, full, interior) -> paints.check result
         self.lock = threading.Lock()
         self.jobs = {}
         self.loc = None                   # the game's texts (global.ini), read when a room name needs them
@@ -110,6 +111,7 @@ class State:
             self.by_path = {it.path.lower(): it for it in items}
             self.loc = None
             self.models.clear()
+            self.paint_ok = {}
             self.status = {"ready": True, "message": ("models_ready", {"n": len(items)}), "progress": 1.0, "error": None}
         except Exception as e:
             traceback.print_exc()
@@ -172,6 +174,43 @@ class State:
 
     def can_interior(self, path):
         return bool((entities.vehicle_for(self.entities, path) or {}).get("containers"))
+
+    def ref_tag(self, path):
+        vs = self.variant_list(path)
+        return vs[0]["tag"] if vs else None
+
+    def tag_of(self, path, variant):
+        """The tag get_model() uses for `variant` (None or unknown = the reference paint)."""
+        vs = self.variant_list(path)
+        return variant if any(v["tag"] == variant for v in vs) else (vs[0]["tag"] if vs else None)
+
+    def keyed(self, path):
+        """Models with 2+ paints get the paint-independent GLB layout (paints.py)."""
+        return len(self.variant_list(path)) >= 2
+
+    def paint_groups(self, path, full, interior):
+        # same normalisation as swappable(): the groups are cached on the reference model, which is the same object
+        full = bool(full) and self.can_full(path)
+        interior = bool(interior) and self.can_interior(path)
+        ref = self.get_model(path, None, full, interior)
+        if "paint_groups" not in ref.cache:
+            # interior parts come after the hull's and never share a group with them
+            fixed_from = len(self.get_model(path, None, full).parts) if interior else None
+            ref.cache["paint_groups"] = paints.group_keys(ref, fixed_from)
+        return ref.cache["paint_groups"]
+
+    def swappable(self, path, variant, full, interior):
+        """Can this paint take the reference paint's place by swapping materials (paints.check)? Kept per request."""
+        if not self.keyed(path):
+            return False
+        full = bool(full) and self.can_full(path)
+        interior = bool(interior) and self.can_interior(path)
+        key = (path.lower(), self.tag_of(path, variant), full, interior)
+        if key not in self.paint_ok:
+            ref = self.get_model(path, None, full, interior)
+            self.paint_ok[key] = paints.check(ref, self.get_model(path, variant, full, interior),
+                                              self.paint_groups(path, full, interior))
+        return self.paint_ok[key]
 
     def get_model(self, path, variant=None, full=False, interior=False):
         """Model with a paint variant applied (None or an unknown tag = the reference paint, the first of the list).
@@ -325,7 +364,10 @@ def _model_info(path, variant, full, interior):
     vs = state.variant_list(path)
     return {"path": path, "name": it.name if it else _stem(path), "stats": s, "warnings": [_msg(w) for w in m.warnings],
             "materials": [{"name": n, "kind": k} for n, k in s["materials"]],
-            "variants": [{"tag": v["tag"], "label": v["label"]} for v in vs],
+            "variants": [{"tag": v["tag"], "label": v["label"], "colors": paints.swatches(v.get("palette")),
+                          "stock": bool(v.get("stock"))} for v in vs],
+            "keyed": state.keyed(path),
+            "keyed_glb": state.swappable(path, variant, full, interior),
             "variant": variant if any(v["tag"] == variant for v in vs) else (vs[0]["tag"] if vs else None),
             "can_full": state.can_full(path), "full": bool(full) and state.can_full(path),
             "can_interior": state.can_interior(path), "interior": bool(interior) and state.can_interior(path),
@@ -511,13 +553,72 @@ def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = Tru
     key = ("glb", tex, anim, lite)
     data = m.cache.get(key)
     if data is None:
+        groups = (state.paint_groups(path, full, interior)
+                  if lite and state.swappable(path, variant, full, interior) else None)
         data = export.to_glb(m, textures=state.textures if tex else None, tex_size=1024,
-                             sources=_sources(m) if anim else None, lite=lite)
+                             sources=_sources(m) if anim else None, lite=lite, groups=groups)
         # once on disk the file is read from there (above): a second copy in memory would only take room
         if not state.disk.put("glb", dkey, "glb", data):
             m.cache[key] = data
         state.models.trim()
     return Response(data, media_type="model/gltf-binary")
+
+
+def _hull_parts(path, variant, full, interior):
+    """How many parts of the model are the hull's (or full ship's): the interior's come after them."""
+    if bool(interior) and state.can_interior(path):
+        return len(state.get_model(path, variant, full).parts)
+    return None
+
+
+@app.get("/api/model/paint")
+def model_paint(path: str, variant: str = None, full: bool = False, interior: bool = False):
+    """One paint's materials for the viewer's instant switch (web/paint.js), or {swappable: false}: reload instead."""
+    _require_ready()
+    tag = state.tag_of(path, variant)
+    if not state.swappable(path, variant, full, interior):
+        return {"variant": tag, "swappable": False}
+    m = state.get_model(path, variant, full, interior)
+    table = paints.paint_table(m, state.paint_groups(path, full, interior), state.textures,
+                               fixed_from=_hull_parts(path, variant, full, interior))
+    it = state.by_path.get(path.lower())
+    data = {"variant": tag, "swappable": True, "groups": table["groups"], "shading": table["shading"],
+            "stickers": any(decalsheet.printable(p.material) for p in m.parts), "screen": _screen_info(m, it)}
+    return Response(json.dumps(data, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                    media_type="application/json")
+
+
+@app.get("/api/model/paint/texture")
+def model_paint_texture(path: str, group: int, variant: str = None, full: bool = False,
+                        map: str = Query("base", pattern="^(base|normal)$")):
+    """The image _glb_mesh would embed for one group in one paint (a livery sticker coloured by the palette).
+    Hull groups have the same numbers with and without the interior (hull parts come first), so no `interior`."""
+    _require_ready()
+    key = (path.lower(), state.tag_of(path, variant), bool(full), int(group), map)
+    for ext, media in (("png", "image/png"), ("jpg", "image/jpeg")):
+        cached = state.disk.get("painttex", key, ext)
+        if cached is not None:
+            return Response(cached, media_type=media, headers={"Cache-Control": "max-age=86400"})
+    m = state.get_model(path, variant, full)
+    groups = state.paint_groups(path, full, False)
+    p = next((p for g, p in zip(groups, m.parts) if g == group), None)
+    if p is None:
+        raise HTTPException(404, "no such paint group")
+    mat, off = export.keyed_form(p.material)
+    has_uv = any(q.uvs is not None for g, q in zip(groups, m.parts) if g == group)
+    _, base, normal, _, _ = export.glb_material(mat, has_uv, state.textures, 1024, lite=True, group=group, off=off)
+    img = base if map == "base" else normal
+    if img is None:
+        raise HTTPException(404, "no texture")
+    buf = io.BytesIO()
+    if img.format == "PNG":
+        img.save(buf, "PNG", compress_level=1)
+        ext, media = "png", "image/png"
+    else:
+        img.convert("RGB").save(buf, "JPEG", quality=92)
+        ext, media = "jpg", "image/jpeg"
+    state.disk.put("painttex", key, ext, buf.getvalue())
+    return Response(buf.getvalue(), media_type=media, headers={"Cache-Control": "max-age=86400"})
 
 
 def _save_export(data, filename):
