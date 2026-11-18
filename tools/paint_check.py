@@ -1,6 +1,6 @@
 """Instant paint switching, checked in a headless Edge/Chrome without touching the user's screen (the same way as
 readme_media.py). Opens the Perseus with Full ship + Interiors and runs the checks named on the command line:
-  frames  draw calls and milliseconds per frame (median of 60 frames drawn by hand)
+  frames  draw calls and milliseconds per frame (median of 5 medians, each of 60 frames drawn by hand)
   paint   paint changes: time to the first frame with the new paint (seen and never seen), no loading screen, camera,
           pose and section unchanged, compare with stock and back, resin look on during a change
   menu    picks a livery, then a picture of the panel closed and opened (docs/anteprime/menu-vernici-app.png)
@@ -49,10 +49,13 @@ def start_server():
     raise RuntimeError("the server did not start")
 
 
-FRAMES_JS = """(async () => { const v = __verseforge, r = v.renderer, t = [];
-  for (let i = 0; i < 60; i++) { const a = performance.now(); r.render(v.scene, v.camera); r.getContext().finish();
-    t.push(performance.now() - a); }
-  t.sort((a, b) => a - b); return { calls: r.info.render.calls, ms: t[30] }; })()"""
+FRAMES_JS = """(async () => { const v = __verseforge, r = v.renderer, meds = [];
+  for (let k = 0; k < 5; k++) {                     // headless GPU timings wobble: median of 5 medians
+    const t = [];
+    for (let i = 0; i < 60; i++) { const a = performance.now(); r.render(v.scene, v.camera); r.getContext().finish();
+      t.push(performance.now() - a); }
+    t.sort((a, b) => a - b); meds.push(t[30]); }
+  meds.sort((a, b) => a - b); return { calls: r.info.render.calls, ms: meds[2] }; })()"""
 
 
 async def frames(p, save):
@@ -68,8 +71,10 @@ async def frames(p, save):
         return
     base = json.load(open(BASELINE, encoding="utf-8"))
     print(f"  baseline: {base['calls']} calls, {base['ms']:.2f} ms")
-    if got["calls"] > base["calls"] * 1.10:
-        fail(f"draw calls {got['calls']} > baseline {base['calls']} + 10 %")
+    # +15 %: accepted on 19/11/2026, hull and interior pieces with the same material stay in separate batches because
+    # only the hull changes with the paint (spec, "Rischi")
+    if got["calls"] > base["calls"] * 1.15:
+        fail(f"draw calls {got['calls']} > baseline {base['calls']} + 15 %")
     if got["ms"] > base["ms"] * 1.10 + 0.3:          # 0.3 ms of slack: medians of a headless GPU still wobble
         fail(f"{got['ms']:.2f} ms per frame > baseline {base['ms']:.2f} + 10 %")
 
@@ -108,7 +113,92 @@ async def menu(p):
     print(f"  saved {out}")
 
 
-CHECKS = {"frames": frames, "menu": menu}
+STATE_JS = """(() => { const v = __verseforge, c = v.camera.position, t = v.controls.target;
+  return { cam: [c.x, c.y, c.z, t.x, t.y, t.z].map(x => +x.toFixed(4)), cut: v.state().cut,
+           pose: [...v.anim.actions.values()].map(a => +a.time.toFixed(3)) }; })()"""
+
+SWAP_JS = """(async (tag, keep) => { const v = __verseforge, n = v.stats.paints || 0, t = performance.now();
+  await v.changePaint(tag, { keepChoice: keep });
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return { ms: performance.now() - t, swapped: (v.stats.paints || 0) > n }; })"""
+
+WRONG_JS = """(() => { const v = __verseforge, ps = v.paint, built = ps.paints.get(ps.current); let bad = 0;
+  for (const [g, m] of built.mats) {
+    for (const o of ps.meshes.get(g) || []) if ((o.userData.gameMaterial || o.material) !== m) bad++;
+    for (const b of v.batches.byGroup(g)) if ((b.userData.gameMaterial || b.material) !== m) bad++; }
+  return bad; })()"""
+
+
+async def paint(p):
+    await p.js("""(() => { const L = document.querySelector('#loading'); window.__sawLoading = false;
+      new MutationObserver(() => { if (!L.classList.contains('hidden')) window.__sawLoading = true; })
+        .observe(L, { attributes: true, attributeFilter: ['class'] }); })()""")
+    if not await p.js("!!__verseforge.paint"):
+        fail("the Perseus is not swappable (no PaintSwap): check keyed_glb in /api/model/info")
+        return
+    tags = await p.js("[...document.querySelectorAll('#variantSel option')].map(o => o.value)")
+    first = await p.js("__verseforge.state().variant")
+    stock = await p.js("(__verseforge.info.variants.find(v => v.stock) || {}).tag || null")
+    others = [t for t in tags if t not in (first, stock)]
+    if len(others) < 5:
+        fail(f"the Perseus has too few paints for this check: {tags}")
+        return
+    a, b = others[0], others[4]                   # two paints never shown yet
+    before = await p.js(STATE_JS)
+
+    async def swap(tag, target, label, keep=False):
+        r = await p.js(f"({SWAP_JS})({json.dumps(tag)}, {json.dumps(keep)})")
+        print(f"  {label}: {r['ms']:.0f} ms" + ("" if r["swapped"] else " (NOT swapped)"))
+        if not r["swapped"]:
+            fail(f"{label}: reloaded instead of swapping")
+        elif r["ms"] > target:
+            fail(f"{label}: {r['ms']:.0f} ms > {target} ms")
+
+    await swap(a, 1500, "never seen paint")
+    await swap(b, 1500, "another never seen paint")
+    await swap(a, 300, "back to a seen paint")
+    await swap(first, 300, "back to the paint loaded first")
+    if await p.js("window.__sawLoading"):
+        fail("the loading screen showed during paint changes")
+    after = await p.js(STATE_JS)
+    for k in ("cam", "cut", "pose"):
+        if before[k] != after[k]:
+            fail(f"{k} changed: {before[k]} -> {after[k]}")
+    if await p.js(WRONG_JS):
+        fail("some pieces do not show the current paint's material")
+    # Compare with stock: the chosen paint stays chosen
+    await p.js(f"(() => {{ const s = document.querySelector('#variantSel'); s.value = {json.dumps(b)};"
+               " s.dispatchEvent(new Event('change')); })()")
+    for _ in range(100):
+        if await p.js(f"__verseforge.paint.current === {json.dumps(b)}"):
+            break
+        await asyncio.sleep(0.05)
+    if await p.js("!!document.querySelector('#cmpStock')"):
+        n = await p.js("__verseforge.stats.paints")
+        await p.js("document.querySelector('#cmpStock').click()")
+        for _ in range(100):
+            if await p.js(f"__verseforge.stats.paints > {n}"):
+                break
+            await asyncio.sleep(0.05)
+        if await p.js("__verseforge.state().variant") != b or await p.js("__verseforge.paint.current") != stock:
+            fail("Compare with stock changed the chosen paint, or did not show the stock one")
+        await p.js("document.querySelector('#cmpStock').click()")
+        await asyncio.sleep(0.5)
+        if await p.js("__verseforge.paint.current") != b:
+            fail("Compare with stock did not come back to the chosen paint")
+    else:
+        fail("no Compare with stock button on the Perseus")
+    # resin look on during a change: switching it off must show the new paint (`a` was shown a moment ago: kept)
+    await p.js("document.querySelector('#resinMenu [data-resin=\"grey\"]').click()")
+    await asyncio.sleep(0.5)
+    await swap(stock or a, 300, "paint change with the resin look on")
+    await p.js("document.querySelector('#resinMenu [data-resin=\"off\"]').click()")
+    await asyncio.sleep(0.5)
+    if await p.js(WRONG_JS):
+        fail("after the resin look the pieces do not show the current paint")
+
+
+CHECKS = {"frames": frames, "menu": menu, "paint": paint}
 
 
 async def main(names, save):
