@@ -37,6 +37,7 @@ class Material:
     albedo: tuple | None = None           # diffuse colour of the game shading (None = `color`); black for metals
     holo: bool = False                    # screen kind: a holographic HUD projection (see-through), not a panel
     rtt: bool = False                     # screen kind: a real monitor the game draws live ($RenderToTexture)
+    stencil_decal: bool = False           # MeshDecal + %STENCIL_MAP: a livery sticker (kind decal or hidden by palette)
 
 
 SCREEN_RGB = (110, 205, 235)       # default screen light (sRGB): the cold cyan of the game's holo UI
@@ -184,6 +185,7 @@ def _material(el, archive=None, palette=None):
     # MeshDecal + STENCIL_MAP: a palette stencil sticker. HardSurface + STENCIL_MAP is a camo paint on the hull (the
     # stencil only patterns the paint) and must stay a solid surface, or whole hull panels vanish
     if "%STENCIL_MAP" in (el.get("StringGenMask") or "") and shader.lower() in ("meshdecal", "decal"):
+        mat.stencil_decal = True
         # texture "$TintPaletteDecal": the paint's stencil atlas. Without a paint there is nothing to draw (the
         # decal's own colour is black and used to show as a black slab)
         if palette and palette.get("decal"):
