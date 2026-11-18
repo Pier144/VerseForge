@@ -191,7 +191,8 @@ at all, add `--appimage-extract-and-run` at the end of the command.
 - **Language** (Settings → Language): English by default, plus the ten other languages of the game: Italian,
   French, German, Spanish (Spain and Latin America), Brazilian Portuguese, Japanese, Korean, Simplified and
   Traditional Chinese. The names of ships, items, paints and rooms follow the language where the game has them
-  translated (English otherwise), and the search finds a model by either name. Exported file names, the MFD pages
+  translated (English otherwise), and the search finds a model by either name; *Names of ships and items* just
+  below keeps them in English while the interface speaks another language. Exported file names, the MFD pages
   and the installer stay in English. The translations have not all been checked by native speakers: corrections
   are welcome through *Feedback*. To fix or add a language, copy `web/locales/en.json` to `web/locales/<code>.json`,
   translate the values (keep the `{placeholders}`) and, for a new one, add it to `LANGUAGES` in

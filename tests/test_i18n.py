@@ -151,3 +151,14 @@ def test_game_has_every_language():
     have = {n.lower() for n in a.names if n.lower().endswith("global.ini")}
     for code, (_, folder) in i18n.LANGUAGES.items():
         assert f"data\\localization\\{folder}\\global.ini" in have, code
+
+
+def test_game_names_can_stay_english():
+    i18n.set_language("it")
+    try:
+        assert i18n.set_names("en") == "en" and i18n.game_language() == "english"
+        assert i18n.t("queued") != "Queued…"                    # the interface is still Italian
+        assert i18n.game_language("it") == "italian_(italy)"    # asked for by code: that language
+        assert i18n.set_names("anything") == "follow" and i18n.game_language() == "italian_(italy)"
+    finally:
+        i18n.set_names("follow")

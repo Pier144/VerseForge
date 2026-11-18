@@ -1691,6 +1691,8 @@ const appearanceDropdown = dropdown($("#cfgAppearance"));
 for (const l of I18N.languages) $("#cfgLang").append(new Option(l.name, l.code));
 $("#cfgLang").value = I18N.lang;
 const langDropdown = dropdown($("#cfgLang"));
+const namesDropdown = dropdown($("#cfgNames"));       // the game's names: in the interface language, or English
+let namesWas = "follow";
 // the model on screen when the language was changed: opened again once the catalogue is back in the new language
 let reopen = null;
 try { reopen = sessionStorage.getItem("vf.reopen"); sessionStorage.removeItem("vf.reopen"); } catch { /* storage unavailable */ }
@@ -1736,6 +1738,8 @@ $("#btnSettings").addEventListener("click", async () => {
   $("#versionLine").textContent = T("versionLine", { version: s.version });
   $("#cfgLang").value = I18N.lang;
   langDropdown.sync();
+  namesWas = $("#cfgNames").value = s.names === "en" ? "en" : "follow";
+  namesDropdown.sync();
   $("#cfgDiskCache").checked = s.disk_cache !== false;
   showCacheSize(s.disk_cache_bytes, s.disk_cache_limit);
   $("#settings").showModal();
@@ -1744,12 +1748,12 @@ $("#btnSettings").addEventListener("click", async () => {
 $("#cfgSave").addEventListener("click", async () => {
   const p = new URLSearchParams({ p4k_path: $("#cfgP4k").value, export_dir: $("#cfgExport").value, blender: $("#cfgBlender").value,
     appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked, disk_cache: $("#cfgDiskCache").checked,
-    lang: $("#cfgLang").value });
+    lang: $("#cfgLang").value, names: $("#cfgNames").value });
   applyAppearance($("#cfgAppearance").value);
   try {
     const saved = await (await api(`/api/config?${p}`, { method: "POST" })).json();
-    if (saved.lang !== I18N.lang) {
-      // another language: the page starts again in it (texts, categories, the game's names), on the same model
+    if (saved.lang !== I18N.lang || saved.names !== namesWas) {
+      // another language (or the game's names in another one): the page starts again, on the same model
       try {
         localStorage.setItem("vf.lang", saved.lang);
         if (state.current) sessionStorage.setItem("vf.reopen", state.current.path);

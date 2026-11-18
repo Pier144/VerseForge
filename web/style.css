@@ -383,6 +383,8 @@ dialog[open] { animation: pop .22s cubic-bezier(.2, .8, .3, 1.1); }
 dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(6px); }
 @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.97); } }
 .settings { display: flex; flex-direction: column; gap: 14px; padding: 22px; }
+/* a dialog taller than the window (small screens, long translations) scrolls inside instead of losing its buttons */
+.settings { max-height: calc(100vh - 34px); overflow-y: auto; }
 .settings h2 { margin: 0 0 2px; font: 650 19px/1.2 var(--font-display); }
 .field-col { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
 .field-col em { font-style: normal; color: var(--faint); }

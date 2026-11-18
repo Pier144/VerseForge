@@ -174,6 +174,7 @@ UI = {
 }
 
 _lang = "en"
+_names = "follow"           # the game's names: "follow" the interface language, or "en" (always English)
 _tables = {}                # language code -> its file's content
 _html = None                # English texts of web/index.html, by key
 
@@ -189,8 +190,22 @@ def set_language(code):
     return _lang
 
 
+def set_names(mode):
+    """The game's names (ships, items, paints, rooms): "follow" the interface language, or "en" for English
+    whatever the interface speaks."""
+    global _names
+    _names = "en" if mode == "en" else "follow"
+    return _names
+
+
+def names():
+    return _names
+
+
 def game_language(code=None):
     """Folder of the game's own texts for a language (the names of ships, items, paints and rooms)."""
+    if code is None and _names == "en":
+        return LANGUAGES["en"][1]
     return LANGUAGES.get(code or _lang, LANGUAGES["en"])[1]
 
 

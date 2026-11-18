@@ -31,7 +31,7 @@ DEFAULT_EXPORTS = paths.documents_dir()
 
 
 def load_config():
-    cfg = {"p4k_path": "", "export_dir": DEFAULT_EXPORTS, "blender": "", "lang": "en",
+    cfg = {"p4k_path": "", "export_dir": DEFAULT_EXPORTS, "blender": "", "lang": "en", "names": "follow",
            "appearance": "system", "check_updates": True, "skip_version": "", "disk_cache": True}
     if os.path.exists(CONFIG_FILE):
         try:
@@ -42,6 +42,8 @@ def load_config():
     cfg.pop("language", None)         # names follow it
     if cfg.get("lang") not in i18n.LANGUAGES:
         cfg["lang"] = "en"
+    if cfg.get("names") not in ("follow", "en"):
+        cfg["names"] = "follow"
     if not cfg["p4k_path"]:
         cfg["p4k_path"] = paths.find_p4k()   # first start: the usual install folder (Linux: Wine/Lutris prefixes)
     return cfg
@@ -56,6 +58,7 @@ class State:
     def __init__(self):
         self.cfg = load_config()
         i18n.set_language(self.cfg["lang"])
+        i18n.set_names(self.cfg["names"])
         self.archive = None
         self.textures = None
         self.items = []
@@ -247,7 +250,7 @@ def status():
     return {**state.status, "message": _msg(state.status["message"]), "error": _msg(state.status["error"]),
             "app": APP_NAME, "version": __version__, "p4k_path": state.cfg["p4k_path"], "export_dir": state.cfg["export_dir"],
             "blender": printing.find_blender(state.cfg.get("blender")), "blender_setting": state.cfg.get("blender", ""),
-            "appearance": state.cfg.get("appearance", "system"), "lang": i18n.language(),
+            "appearance": state.cfg.get("appearance", "system"), "lang": i18n.language(), "names": i18n.names(),
             "check_updates": bool(state.cfg.get("check_updates", True)),
             "disk_cache": state.disk.enabled, "disk_cache_bytes": state.disk.size, "disk_cache_limit": state.disk.limit,
             "memory": {"models": len(state.models), "models_bytes": state.models.bytes, "models_budget": state.models.budget,
@@ -293,7 +296,7 @@ def related(path: str):
 @app.get("/api/model/info")
 def model_info(path: str, variant: str = None, full: bool = False, interior: bool = False):
     _require_ready()
-    key = (path.lower(), variant, bool(full), bool(interior), i18n.language())     # names and warnings are texts
+    key = (path.lower(), variant, bool(full), bool(interior), i18n.language(), i18n.game_language())   # warnings and names are texts
     cached = state.disk.get("info", key, "json")
     if cached is not None:
         return Response(cached, media_type="application/json")
@@ -635,11 +638,15 @@ def print_file(job_id: str):
 # ------------------------------------------------------------------ settings
 @app.post("/api/config")
 def set_config(p4k_path: str = "", export_dir: str = "", blender: str = None, appearance: str = "", check_updates: str = "",
-               disk_cache: str = "", lang: str = ""):
+               disk_cache: str = "", lang: str = "", names: str = ""):
     changed_p4k = p4k_path and p4k_path != state.cfg["p4k_path"]
     changed_lang = lang in i18n.LANGUAGES and lang != state.cfg["lang"]
     if changed_lang:
         state.cfg["lang"] = i18n.set_language(lang)
+    game_before = i18n.game_language()
+    if names in ("follow", "en"):
+        state.cfg["names"] = i18n.set_names(names)
+    changed_names = i18n.game_language() != game_before or (changed_lang and names == "")
     if check_updates in ("true", "false"):
         state.cfg["check_updates"] = check_updates == "true"
     if disk_cache in ("true", "false"):
@@ -654,7 +661,9 @@ def set_config(p4k_path: str = "", export_dir: str = "", blender: str = None, ap
     if appearance in ("system", "light", "dark"):
         state.cfg["appearance"] = appearance
     save_config(state.cfg)
-    if changed_p4k or changed_lang:     # another language: the game's names of models, paints and rooms change too
+    # another language: the categories and, unless they are kept in English, the game's names of models, paints
+    # and rooms change, so the catalogue is built again
+    if changed_p4k or changed_lang or changed_names:
         state.status = {"ready": False, "message": ("reading_index",), "progress": 0.05, "error": None}
         threading.Thread(target=state.load, daemon=True).start()
     return status()
