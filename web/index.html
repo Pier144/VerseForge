@@ -189,6 +189,7 @@
           <label class="switch"><input id="expTex" type="checkbox" checked><span class="track"></span><span>Textures in GLB / OBJ</span></label>
           <label class="switch"><input id="expDecals" type="checkbox"><span class="track"></span><span>Decals in OBJ / STL</span></label>
           <label id="expAnimRow" class="switch hidden"><input id="expAnim" type="checkbox" checked><span class="track"></span><span>Animations in GLB</span></label>
+          <label id="expPoseRow" class="switch hidden" title="Exports and 3D prints freeze the model as you see it: landing gear down, ramp open, any animation paused where you left it. A GLB with its animations keeps the rest pose"><input id="expPose" type="checkbox" checked><span class="track"></span><span>Pose as shown</span></label>
         </section>
 
         <section id="printBox" class="box print hidden">
@@ -201,6 +202,18 @@
           <button id="btnPrint" class="primary">Create printable STL</button>
           <div id="printStatus" class="hint print-status"></div>
           <button id="btnOpenExports" class="link-btn"><svg class="i"><use href="#i-folder"/></svg>Open exports folder</button>
+        </section>
+
+        <section id="decalBox" class="box print hidden">
+          <h3>Decal sheet</h3>
+          <p class="hint">The ship's markings (text, numbers, emblems, livery) at kit scale, for water-slide decal paper. Two PDFs at 600 dpi: one for clear paper with its white mask, one for white paper on the hull colour.</p>
+          <div class="print-opts">
+            <label class="field">Scale 1: <input id="decalScale" type="number" min="1" max="5000" step="1" value="72"></label>
+            <label class="field">Paper <select id="decalPaper"><option value="a4">A4</option><option value="letter">Letter</option></select></label>
+          </div>
+          <div id="decalSize" class="hint"></div>
+          <button id="btnDecals" class="primary">Create decal sheets</button>
+          <div id="decalStatus" class="hint print-status"></div>
         </section>
 
         <details id="matBox" class="box fold hidden" open>

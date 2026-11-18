@@ -14,6 +14,8 @@ MESSAGES = {
     "file_missing": "File not found: {path}",
     "no_geometry": "No geometry",
     "nothing_to_export": "No geometry to export",
+    "no_decals": "This model has no markings to print at this scale",
+    "no_decals_big": "The markings are larger than the page at this scale: try a smaller model",
     "blender_missing": "Blender not found: install it or set the path to the Blender program in the settings.",
     "queued": "Queued…",
     "done": "Completed",

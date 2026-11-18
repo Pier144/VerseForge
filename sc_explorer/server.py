@@ -8,6 +8,7 @@ import threading
 import time
 import traceback
 import uuid
+import zipfile
 from contextlib import asynccontextmanager
 
 import zstandard
@@ -16,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, diskcache, entities, export, i18n, materials, model, modelcache, paths, printing, reports, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, diskcache, entities, export, i18n, materials, model, modelcache, paths, printing, reports, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -62,6 +63,7 @@ class State:
         self.models = modelcache.ModelCache()   # built models, LRU within a memory budget (modelcache.py)
         self.lock = threading.Lock()
         self.jobs = {}
+        self.poses = {}                   # poses sent by the viewer for the still exports (the last few)
         self.update = None                # last answer from GitHub (checked at most once an hour)
         self.disk = diskcache.DiskCache(CACHE_DIR)   # built models and textures kept on disk (diskcache.py)
         # VERSEFORGE_DISK_CACHE=0 (start.py --no-disk-cache): off for this process whatever the setting says, and the
@@ -307,6 +309,7 @@ def _model_info(path, variant, full, interior):
             "can_interior": state.can_interior(path), "interior": bool(interior) and state.can_interior(path),
             "ground_vehicle": "/vehicles/" in path.lower().replace("\\", "/"),
             "ammo": entities.ammo_for(state.entities, path),
+            "stickers": any(decalsheet.printable(p.material) for p in m.parts),
             "screen": _screen_info(m, it),
             "shading": _shading(m),
             "decks": assembly.decks(m) if bool(interior) and state.can_interior(path) else [],
@@ -455,15 +458,43 @@ def _save_export(data, filename):
     return out
 
 
+class PoseIn(BaseModel):
+    nodes: dict[str, list[float]]
+
+
+@app.post("/api/pose")
+def store_pose(p: PoseIn):
+    """The pose the viewer shows (see export.posed); the exports that follow name it by the id returned here."""
+    pose_id = uuid.uuid4().hex[:10]
+    state.poses[pose_id] = p.nodes
+    while len(state.poses) > 8:
+        state.poses.pop(next(iter(state.poses)))
+    return {"id": pose_id}
+
+
+def _posed(m, pose):
+    """(model in the stored pose, whether anything moved). An unknown or empty pose leaves the model as it is."""
+    nodes = state.poses.get(pose) if pose else None
+    if not nodes:
+        return m, False
+    out = export.posed(m, _sources(m), nodes)
+    return out, out is not m
+
+
 @app.get("/api/export")
 def export_model(path: str, fmt: str = Query("glb", pattern="^(glb|obj|stl)$"), decals: bool = False, tex: bool = True,
-                 variant: str = None, anim: bool = True, full: bool = False, interior: bool = False):
+                 variant: str = None, anim: bool = True, full: bool = False, interior: bool = False, pose: str = None):
     _require_ready()
     m = state.get_model(path, variant, full, interior)
     if not m.parts:
         raise HTTPException(422, tr("nothing_to_export"))
     stem = (_stem(path) + ("_full" if full and state.can_full(path) else "")
             + ("_interior" if interior and state.can_interior(path) else ""))
+    # a GLB with its animations keeps the rest pose (the clips move it); the still files take the pose shown
+    if pose and not (fmt == "glb" and anim and m.animations):
+        m, moved = _posed(m, pose)
+        stem += "_pose" if moved else ""
+        anim = anim and not moved
     tex_cache = state.textures if tex else None
     if fmt == "glb":
         data, name = export.to_glb(m, include_hidden=False, textures=tex_cache, tex_size=2048,
@@ -477,18 +508,42 @@ def export_model(path: str, fmt: str = Query("glb", pattern="^(glb|obj|stl)$"), 
                     headers={"Content-Disposition": f'attachment; filename="{name}"', "X-Saved-To": saved})
 
 
+@app.get("/api/decals")
+def decal_sheets(path: str, scale: float = Query(72.0, ge=1.0, le=5000.0), paper: str = Query("a4", pattern="^(a4|letter)$"),
+                 variant: str = None, full: bool = False):
+    """Zip with the two decal sheets of a model at a kit scale (see decalsheet.py)."""
+    _require_ready()
+    m = state.get_model(path, variant, full)
+    it = state.by_path.get(path.lower())
+    decals, small = decalsheet.collect(m, state.textures, scale)
+    clear, white, info = decalsheet.sheets(decals, paper, decalsheet.hull_colour(m), it.name if it else _stem(path), scale)
+    if not clear:
+        raise HTTPException(422, tr("no_decals_big" if info["too_big"] else "no_decals"))
+    stem = f"{_stem(path)}_decals_1-{scale:g}"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        z.writestr(f"{stem}_clear_paper.pdf", clear)
+        z.writestr(f"{stem}_white_paper.pdf", white)
+    data, name = buf.getvalue(), f"{stem}.zip"
+    saved = _save_export(data, name)
+    info["too_small"] = small
+    return Response(data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "X-Saved-To": saved,
+                             "X-Decals": json.dumps(info)})
+
+
 # ------------------------------------------------------------------ print jobs
-def _run_print_job(job_id, path, voxel, fill, full=False):
+def _run_print_job(job_id, path, voxel, fill, full=False, pose=None):
     job = state.jobs[job_id]
     try:
         blender = printing.find_blender(state.cfg.get("blender"))
         if not blender:
             raise i18n.LocalizedError("blender_missing")
-        m = state.get_model(path, full=full)
+        m, moved = _posed(state.get_model(path, full=full), pose)
         stl = export.to_stl(m, include_decals=False)
         data, info = printing.make_printable(stl, blender, voxel, fill,
                                              lambda msg, frac: job.update(message=msg, progress=frac))
-        job["file"] = _save_export(data, f"{_stem(path)}_{tr('suffix_print')}.stl")
+        job["file"] = _save_export(data, f"{_stem(path)}{'_pose' if moved else ''}_{tr('suffix_print')}.stl")
         job.update(state="done", message=("done",), progress=1.0, info=info)
     except Exception as e:
         traceback.print_exc()
@@ -496,12 +551,12 @@ def _run_print_job(job_id, path, voxel, fill, full=False):
 
 
 @app.post("/api/print")
-def start_print(path: str, voxel: float = 0.0, fill: bool = True, full: bool = False):
+def start_print(path: str, voxel: float = 0.0, fill: bool = True, full: bool = False, pose: str = None):
     _require_ready()
     job_id = uuid.uuid4().hex[:10]
     state.jobs[job_id] = {"id": job_id, "path": path, "state": "running", "message": ("queued",), "progress": 0.0,
                           "started": time.time()}
-    threading.Thread(target=_run_print_job, args=(job_id, path, voxel or None, fill, full), daemon=True).start()
+    threading.Thread(target=_run_print_job, args=(job_id, path, voxel or None, fill, full, pose), daemon=True).start()
     return print_status(job_id)
 
 

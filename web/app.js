@@ -31,6 +31,9 @@ const STRINGS = {
   printReady: "Ready: {size} mm, {volume} cm³, {closed}.", closedYes: "watertight ✓", closedNo: "not fully closed",
   downloadStl: "Download STL", printDone: "Printable STL of {name} ready", results: "{n} results",
   resultsOf: "{n} results · showing {shown}", all: "All", openSettings: "open Settings to fix the path",
+  decalSize: "The model is {size} long at this scale.", decalWorking: "Drawing the markings…",
+  decalReady: "Ready: {pieces} decals on {pages} page(s) per sheet.", decalSmall: "{n} too small to read at this scale were left out.",
+  decalBig: "{n} larger than the page were left out.",
   serverDown: "Server not reachable…", saved: "Settings saved", kindDecal: "decal", kindGlass: "glass", kindProxy: "proxy", kindScreen: "screen",
 };
 const T = (key, vars = {}) => (STRINGS[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
@@ -845,6 +848,10 @@ function showInfo(item, info) {
   }
   $("#exportBox").classList.remove("hidden");
   $("#printBox").classList.remove("hidden");
+  $("#decalBox").classList.toggle("hidden", !info.stickers);
+  $("#decalStatus").textContent = "";
+  decalLength = Math.max(x, y, z);
+  showDecalSize();
 }
 
 function showMaterials() {
@@ -909,6 +916,7 @@ function showAnimations(list) {
   anim.list = list.filter((a) => anim.clips.has(a.clip));
   $("#animBox").classList.toggle("hidden", !anim.list.length);
   $("#expAnimRow").classList.toggle("hidden", !anim.list.length);
+  $("#expPoseRow").classList.toggle("hidden", !anim.list.length);
   $("#animCount").textContent = anim.list.length || "";
   const groups = new Map();
   anim.list.forEach((a) => { if (!groups.has(a.group)) groups.set(a.group, []); groups.get(a.group).push(a); });
@@ -1201,13 +1209,29 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------- export
+// The pose on screen, for the still exports: every named node's matrix relative to the model root. The server keeps
+// it and applies it to the parts (export.posed); "" when the model does not move or the switch is off.
+async function poseParam() {
+  const root = modelRoot?.getObjectByName("__root__");
+  if (!root || !anim.mixer || !anim.list.length || !$("#expPose").checked) return "";
+  if (poseDirty) syncPose();
+  modelRoot.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), m = new THREE.Matrix4(), nodes = {};
+  root.traverse((o) => {
+    if (o === root || !o.name || o.isMesh || o.name.includes("|")) return;
+    nodes[o.name] = m.multiplyMatrices(inv, o.matrixWorld).toArray().map((x) => +x.toFixed(6));
+  });
+  const r = await (await api("/api/pose", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nodes }) })).json();
+  return `&pose=${r.id}`;
+}
 document.querySelectorAll("[data-exp]").forEach((b) => b.addEventListener("click", async () => {
   if (!state.current) return;
   const fmt = b.dataset.exp;
   b.disabled = true;
   try {
     const url = `/api/export?path=${encodeURIComponent(state.current.path)}&fmt=${fmt}&decals=${$("#expDecals").checked}&tex=${$("#expTex").checked}&anim=${$("#expAnim").checked}&full=${state.full}&interior=${state.interior}` +
-      (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "");
+      (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "") + await poseParam();
     const r = await api(url);
     const blob = await r.blob();
     const name = (r.headers.get("Content-Disposition") || "").match(/filename="(.+)"/)?.[1] || `model.${fmt}`;
@@ -1230,7 +1254,7 @@ $("#btnPrint").addEventListener("click", async () => {
   btn.disabled = true;
   const voxel = parseFloat($("#voxel").value) || 0;
   try {
-    const job = await (await api(`/api/print?path=${encodeURIComponent(state.current.path)}&voxel=${voxel}&fill=${$("#fill").checked}&full=${state.full}`, { method: "POST" })).json();
+    const job = await (await api(`/api/print?path=${encodeURIComponent(state.current.path)}&voxel=${voxel}&fill=${$("#fill").checked}&full=${state.full}${await poseParam()}`, { method: "POST" })).json();
     pollPrint(job.id, state.current.name);
   } catch (e) {
     toast(e.message, true);
@@ -1261,6 +1285,45 @@ async function pollPrint(id, name) {
     out.textContent = e.message;
   }
 }
+
+// ---------------------------------------------------------------- decal sheets
+let decalLength = 0;          // longest side of the model, metres
+function decalScale() {
+  return Math.min(5000, Math.max(1, parseFloat($("#decalScale").value) || 72));
+}
+function showDecalSize() {
+  const mm = decalLength * 1000 / decalScale();
+  $("#decalSize").textContent = decalLength ? T("decalSize", { size: mm >= 100 ? `${(mm / 10).toFixed(1)} cm` : `${mm.toFixed(0)} mm` }) : "";
+}
+try { $("#decalScale").value = localStorage.getItem("vf.decalScale") || 72; $("#decalPaper").value = localStorage.getItem("vf.decalPaper") || "a4"; } catch { /* private mode */ }
+$("#decalScale").addEventListener("input", showDecalSize);
+$("#btnDecals").addEventListener("click", async () => {
+  if (!state.current) return;
+  const btn = $("#btnDecals"), out = $("#decalStatus"), scale = decalScale(), paper = $("#decalPaper").value;
+  try { localStorage.setItem("vf.decalScale", scale); localStorage.setItem("vf.decalPaper", paper); } catch { /* private mode */ }
+  btn.disabled = true;
+  out.textContent = T("decalWorking");
+  try {
+    const r = await api(`/api/decals?path=${encodeURIComponent(state.current.path)}&scale=${scale}&paper=${paper}&full=${state.full}` +
+      (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : ""));
+    const blob = await r.blob();
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="(.+)"/)?.[1] || "decals.zip";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    const i = JSON.parse(r.headers.get("X-Decals") || "{}");
+    out.textContent = T("decalReady", { pieces: i.pieces, pages: i.pages }) +
+      (i.too_small ? " " + T("decalSmall", { n: i.too_small }) : "") + (i.too_big ? " " + T("decalBig", { n: i.too_big }) : "");
+    toast(T("exported", { name, dir: r.headers.get("X-Saved-To") || T("exportsDir") }));
+  } catch (e) {
+    out.textContent = "";
+    toast(T("exportFailed", { error: e.message }), true);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 $("#btnOpenExports").addEventListener("click", () => api("/api/open-exports", { method: "POST" }).catch((e) => toast(e.message, true)));
 

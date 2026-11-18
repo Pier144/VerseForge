@@ -1,4 +1,5 @@
 """Model -> GLB / OBJ (+MTL and textures, zipped) / STL."""
+import re
 import io
 import zipfile
 import zlib
@@ -234,10 +235,8 @@ def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=Non
 ROOT_NODE = "__root__"
 
 
-def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False, merge=False):
-    """Node hierarchy for the bones/nodes the clips move (and their ancestors); everything else stays merged by
-    material under the root, so a ship does not explode into hundreds of draw calls."""
-    from . import anim_glb
+def _animated_bones(model, sources):
+    """The bones the clips move, and those plus their ancestors (the nodes an animated GLB keeps)."""
     from .caf import ROOT_HASH
     bones = model.skeleton
     by_name = {b.name: i for i, b in enumerate(bones)}
@@ -247,6 +246,54 @@ def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False, merg
         while i >= 0 and i not in keep:
             keep.add(i)
             i = bones[i].parent
+    return bones, by_name, moved, keep
+
+
+def node_key(name):
+    """A node's name as three.js keeps it (PropertyBinding.sanitizeNodeName): the viewer names the pose by these."""
+    return re.sub(r"[\[\].:/]", "", re.sub(r"\s", "_", name))
+
+
+def posed(model, sources, pose):
+    """The model frozen in the pose the viewer shows (landing gear down, ramp open...), for the still exports.
+    pose: {node_key(bone name): 16 floats}, each node's matrix relative to the model root, column by column (three.js
+    Matrix4.elements), in the GLB's own space (Z up, metres). Every part follows its nearest kept ancestor, exactly
+    as in the animated GLB the pose was read from. Nodes that did not move are left alone."""
+    if not pose or not sources or not model.skeleton:
+        return model
+    bones, by_name, _, keep = _animated_bones(model, sources)
+    delta = {}
+    for i in keep:
+        m = pose.get(node_key(bones[i].name))
+        if m is None or len(m) != 16:
+            continue
+        d = np.array(m, dtype=np.float64).reshape(4, 4).T @ np.linalg.inv(bones[i].world)
+        if np.isfinite(d).all() and not np.allclose(d, np.eye(4), atol=1e-5):
+            delta[i] = d
+    if not delta:
+        return model
+    home = {}
+
+    def nearest(name):
+        if name not in home:
+            i = by_name.get(name, -1)
+            while i >= 0 and i not in keep:
+                i = bones[i].parent
+            home[name] = i
+        return home[name]
+
+    parts = []
+    for p in model.parts:
+        d = delta.get(nearest(p.node)) if p.node else None
+        parts.append(p if d is None else replace(p, vertices=p.vertices @ d[:3, :3].T + d[:3, 3]))
+    return replace(model, parts=parts, cache={})
+
+
+def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False, merge=False):
+    """Node hierarchy for the bones/nodes the clips move (and their ancestors); everything else stays merged by
+    material under the root, so a ship does not explode into hundreds of draw calls."""
+    from . import anim_glb
+    bones, by_name, moved, keep = _animated_bones(model, sources)
     scene = trimesh.Scene()
     axis = np.eye(4)
     axis[:3, :3] = Z_UP_TO_Y_UP
