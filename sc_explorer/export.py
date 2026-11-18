@@ -167,17 +167,32 @@ def _sid(mat):
     return materials.shading_id(sh) if sh else ""
 
 
-def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True, uv2=None, lite=False):
-    """lite: for the viewer's game look, which loads the textures itself (/api/texture): materials it rebuilds get
-    their UVs but no embedded images (saves encoding and hashing them on every load)."""
-    name, kind = mat.name, mat.kind
-    if kind == "screen":
-        return _screen_mesh(mat, v, f, uv, axis)
-    sh = materials.shading(mat) if lite else None
-    if sh and not mat.stencil_colors:
+def _q(values):
+    """Colour factors as trimesh stores them in the GLB (uint8): the viewer's paint tables must match bit for bit."""
+    return [float(np.round(np.clip(float(c), 0.0, 1.0) * 255.0) / 255.0) for c in values]
+
+
+def keyed_form(mat):
+    """(material, off) for a keyed GLB (paints.py). A livery stencil decal is hidden when its paint has no atlas
+    (materials.py); in a keyed GLB it keeps one shape in every paint: a decal with UVs, `off` (never drawn) here."""
+    if mat.stencil_decal and mat.kind == "hidden":
+        return replace(mat, kind="decal"), True
+    return mat, False
+
+
+def glb_material(mat, has_uv, textures, tex_size, lite=False, group=None, off=False):
+    """The glTF material _glb_mesh writes for `mat`: (fields, base image | None, normal image | None, uv scale,
+    shading | None). `fields` is the JSON form the viewer rebuilds when it swaps paints (paints.paint_table):
+    {name, color, alpha, metallic, roughness, emissive, alpha_mode, alpha_cutoff, texture, normal_texture, visible}.
+    group: paint group of a keyed GLB, written into the name; off: see keyed_form."""
+    kind = mat.kind
+    sh = materials.shading(mat) if lite and not off else None
+    if off:
+        base, normal, uv_scale = None, None, 1.0
+    elif sh and not mat.stencil_colors:
         base, normal, uv_scale = None, None, sh["uv_scale"]
     else:
-        base, normal, uv_scale = material_textures(mat, textures, tex_size) if uv is not None else (None, None, 1.0)
+        base, normal, uv_scale = material_textures(mat, textures, tex_size) if has_uv else (None, None, 1.0)
     rgb = _srgb(mat.color)
     alpha = 1.0
     metallic, rough = (0.85, 0.45) if mat.metal else (0.3, 0.6)
@@ -186,41 +201,71 @@ def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True, uv2=None, lite=False
         # (the body colour goes in linear, as glTF wants: sRGB-encoded it lit up as a pale grey veil)
         body, alpha = materials.glass_look(mat)
         rgb, metallic, rough = np.asarray(body), 0.0, 0.05
-    if base is not None and base.mode == "RGBA":
+    if off:
+        alpha_mode, alpha = "BLEND", 0.0
+    elif group is not None and mat.stencil_decal:
+        alpha_mode = "BLEND"                       # keyed GLB: one shape in every paint (see keyed_form)
+    elif base is not None and base.mode == "RGBA":
         alpha_mode = "BLEND" if kind == "decal" else "MASK"
     else:
         alpha_mode = "BLEND" if kind == "glass" else "OPAQUE"
+    color = _q([*rgb, alpha])
+    fields = {"name": f"{kind}|{mat.name}|{'' if off else _sid(mat)}" + (f"|g{group}" if group is not None else ""),
+              "color": color[:3], "alpha": color[3], "metallic": metallic, "roughness": rough,
+              "emissive": [float(c) for c in _srgb(mat.emissive)] if mat.emissive else None,
+              "alpha_mode": alpha_mode,
+              "alpha_cutoff": (mat.alpha_test or 0.5) if alpha_mode == "MASK" else None,
+              "texture": base is not None, "normal_texture": normal is not None, "visible": not off}
+    return fields, base, normal, uv_scale, sh
+
+
+def screen_fields(mat, group=None):
+    """Name and glow of a screen material as _screen_mesh writes them. The group goes before the |rtt / |holo
+    suffix: the viewer finds monitors and HUD veils by that ending (app.js)."""
+    tail = "|holo" if mat.holo else "|rtt" if mat.rtt else ""
+    glow = [float(c) for c in (mat.emissive or (0.15, 0.6, 0.8))]
+    return {"name": f"screen|{mat.name}" + (f"|g{group}" if group is not None else "") + tail, "emissive": glow}
+
+
+def _glb_mesh(mat, v, f, uv, textures, tex_size, axis=True, uv2=None, lite=False, group=None, off=False):
+    """lite: for the viewer's game look, which loads the textures itself (/api/texture): materials it rebuilds get
+    their UVs but no embedded images (saves encoding and hashing them on every load).
+    group / off: keyed GLB (paints.py, keyed_form)."""
+    if mat.kind == "screen":
+        return _screen_mesh(mat, v, f, uv, axis, group)
+    fields, base, normal, uv_scale, sh = glb_material(mat, uv is not None, textures, tex_size, lite, group, off)
     pbr = trimesh.visual.material.PBRMaterial(
-        name=f"{kind}|{name}|{_sid(mat)}", baseColorFactor=[*rgb, alpha], baseColorTexture=base, normalTexture=normal,
-        metallicFactor=metallic, roughnessFactor=rough,
-        alphaMode=alpha_mode, alphaCutoff=(mat.alpha_test or 0.5) if alpha_mode == "MASK" else None,
-        emissiveFactor=list(_srgb(mat.emissive)) if mat.emissive else None, doubleSided=True)
+        name=fields["name"], baseColorFactor=[*fields["color"], fields["alpha"]], baseColorTexture=base,
+        normalTexture=normal, metallicFactor=fields["metallic"], roughnessFactor=fields["roughness"],
+        alphaMode=fields["alpha_mode"], alphaCutoff=fields["alpha_cutoff"],
+        emissiveFactor=fields["emissive"], doubleSided=True)
     mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T if axis else v, f, process=False)
-    if uv is not None and (base is not None or normal is not None or sh):
+    if uv is not None and (base is not None or normal is not None or sh or off):
         # trimesh expects OpenGL UVs (V up) and flips them back when writing glTF
         t = uv.astype(np.float64) * uv_scale
         mesh.visual = trimesh.visual.TextureVisuals(uv=np.column_stack([t[:, 0], 1.0 - t[:, 1]]), material=pbr)
     else:
         mesh.visual = trimesh.visual.TextureVisuals(material=pbr)
-    if uv2 is not None and mat.stencil_map:
-        # custom glTF attribute (three.js reads it as "_uv2"): the camo/livery stencil is laid out on it
+    if uv2 is not None and (mat.stencil_map or group is not None):
+        # custom glTF attribute (three.js reads it as "_uv2"): the camo/livery stencil is laid out on it. A keyed GLB
+        # always carries it: a camo paint can put a stencil on a hull the stock paint leaves plain (Perseus)
         mesh.vertex_attributes["_UV2"] = uv2.astype(np.float32)
     return mesh
 
 
-def _screen_mesh(mat, v, f, uv, axis):
+def _screen_mesh(mat, v, f, uv, axis, group=None):
     # glTF colour factors are linear: the screen's colours go in as they are (sRGB-encoding them again turned the
     # near-black glass mid grey and washed the glow out to white)
-    glow = [float(c) for c in (mat.emissive or (0.15, 0.6, 0.8))]
+    sf = screen_fields(mat, group)
+    glow = sf["emissive"]
     if mat.holo:
         # holographic HUD: a faint glowing veil you see through (the material name ends in "|holo")
         pbr = trimesh.visual.material.PBRMaterial(
-            name=f"screen|{mat.name}|holo", baseColorFactor=[*glow, 0.16], metallicFactor=0.0, roughnessFactor=1.0,
+            name=sf["name"], baseColorFactor=[*glow, 0.16], metallicFactor=0.0, roughnessFactor=1.0,
             emissiveFactor=glow, emissiveTexture=screen_image(), alphaMode="BLEND", doubleSided=True)
     else:
         pbr = trimesh.visual.material.PBRMaterial(
-            name=f"screen|{mat.name}" + ("|rtt" if mat.rtt else ""),
-            baseColorFactor=[*(float(c) for c in mat.color), 1.0], metallicFactor=0.0,
+            name=sf["name"], baseColorFactor=[*(float(c) for c in mat.color), 1.0], metallicFactor=0.0,
             roughnessFactor=0.15, emissiveFactor=glow, emissiveTexture=screen_image(), doubleSided=True)
     mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T if axis else v, f, process=False)
     if uv is not None:
