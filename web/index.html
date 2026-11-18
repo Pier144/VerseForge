@@ -120,6 +120,10 @@
             <input id="cut" type="range" min="0" max="1000" value="1000" aria-label="Section height">
             <span id="cutVal">100%</span>
             <div id="decks" class="decks" hidden title="Decks found in the ship: show one, with everything above it taken away"></div>
+            <div id="roomsWrap" class="bg-wrap rooms-wrap" hidden>
+              <button id="roomsBtn" class="rooms-btn" aria-haspopup="menu" title="Rooms of the ship, as the game defines them: show one alone (Ctrl-click to add more)">Rooms</button>
+              <div id="roomsMenu" class="bg-menu rooms-menu hidden" role="menu" aria-label="Rooms"></div>
+            </div>
           </div>
 
           <div class="toolbar floating">

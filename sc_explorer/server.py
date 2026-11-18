@@ -63,6 +63,7 @@ class State:
         self.models = modelcache.ModelCache()   # built models, LRU within a memory budget (modelcache.py)
         self.lock = threading.Lock()
         self.jobs = {}
+        self.loc = None                   # the game's texts (global.ini), read when a room name needs them
         self.poses = {}                   # poses sent by the viewer for the still exports (the last few)
         self.update = None                # last answer from GitHub (checked at most once an hour)
         self.disk = diskcache.DiskCache(CACHE_DIR)   # built models and textures kept on disk (diskcache.py)
@@ -313,8 +314,55 @@ def _model_info(path, variant, full, interior):
             "screen": _screen_info(m, it),
             "shading": _shading(m),
             "decks": assembly.decks(m) if bool(interior) and state.can_interior(path) else [],
+            "rooms": _rooms(m) if bool(interior) and state.can_interior(path) else [],
             "animations": [{"id": a.id, "label": a.label, "group": a.group, "clip": a.clip, "duration": a.duration,
                             "speed": a.speed, "pose": a.pose} for a in m.animations]}
+
+
+def _room_label(r):
+    """The name the game shows for a room when it has one (global.ini), else its entity name tidied up:
+    Room_RN_habs_bunks_closet in the habs container -> "Bunks closet"."""
+    key = (r.get("key") or "").lstrip("@").lower()
+    if key:
+        if state.loc is None:
+            try:
+                state.loc = catalog.localization(state.archive, state.cfg["language"])
+            except Exception:
+                state.loc = {}
+        text = state.loc.get(key)
+        if text:
+            return text, text
+    n = re.sub(r"(?i)room_?rn|_rn\b|\broom\b", " ", r.get("name") or "")
+    n = re.sub(r"([a-z])([A-Z])", r"\1 \2", n)
+    words = [w for w in re.split(r"[\s_\-]+", n) if w and not w.isdigit()]
+    skip = {w.lower() for w in re.split(r"[\s_\-]+", r.get("container") or "")} | {"int", "rsi", "base", "main"}
+    kept = [w for w in words if w.lower() not in skip] or words
+    # (short name, full name): the full one keeps the container's words, to tell "Top corridor" from "Habs corridor"
+    return " ".join(kept).capitalize() or "Room", " ".join(words).capitalize() or "Room"
+
+
+def _rooms(m):
+    """The rooms of an interior that hold something, for the viewer's room list: id (the number in the mesh names,
+    "|R<id>"), name, height of the middle (metres, viewer Y)."""
+    out, seen = [], {}
+    for i, r in enumerate(m.rooms):
+        if not r["parts"]:
+            continue
+        name, full = _room_label(r)
+        seen[name] = seen.get(name, 0) + 1
+        out.append({"id": i, "name": name, "full": full, "y": round(r["centre"][2], 2)})
+    for o in out:                       # same short name twice: the full names tell them apart
+        full = o.pop("full")
+        if seen[o["name"]] > 1:
+            o["name"] = full
+    count, nth = {}, {}
+    for o in out:
+        count[o["name"]] = count.get(o["name"], 0) + 1
+    for o in out:                       # still the same (two "Docking Bay"): number them
+        if count[o["name"]] > 1:
+            nth[o["name"]] = nth.get(o["name"], 0) + 1
+            o["name"] = f"{o['name']} {nth[o['name']]}"
+    return out
 
 
 def _shading(m):

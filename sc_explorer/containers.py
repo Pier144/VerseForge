@@ -146,18 +146,175 @@ def _entities(d, off, size, classes):
     return out
 
 
-def read(archive, socpak, classes=None):
-    """Placements of a .socpak's main object container (container space). Missing file -> []."""
+def _main_soc(archive, socpak):
+    """Bytes of a .socpak's main <name>.soc, or None."""
     p = _data_path(socpak)
     if not archive.exists(p):
-        return []
+        return None
     z = zipfile.ZipFile(io.BytesIO(archive.read(p)))
     stem = p.rsplit("/", 1)[-1].rsplit(".", 1)[0]
     names = {n.lower(): n for n in z.namelist()}
     main = names.get(f"{stem}.soc".lower())
-    if main is None:
+    return z.read(main) if main is not None else None
+
+
+# ------------------------------------------------------------------ rooms
+@dataclass
+class Room:
+    """A room of the ship as the game defines it (Room_RN entity: atmosphere, audio, map). Its extent is the
+    GenericShape areas that name it: boxes, outlines pulled up to a height, or closed meshes."""
+    guid: str
+    name: str                # entity name (Room_RN_habs_bunks)
+    label: str = ""          # localisation key of the name the game shows ("@vehicle_room_crew"), often missing
+    volumes: list = None     # [(4x4 container space -> shape space, "box" | "shape" | "mesh", data, volume m3)]
+
+    def centre(self):
+        """Middle of the largest volume, container space (None without volumes)."""
+        if not self.volumes:
+            return None
+        inv, kind, data, _ = max(self.volumes, key=lambda v: v[3])
+        if kind == "box":
+            c = (np.asarray(data[0]) + np.asarray(data[1])) / 2
+        elif kind == "mesh":
+            c = (data.reshape(-1, 3).min(0) + data.reshape(-1, 3).max(0)) / 2
+        else:
+            pts, h = data
+            c = np.array([*np.mean(pts, axis=0), h / 2])
+        m = np.linalg.inv(inv)
+        return m[:3, :3] @ c + m[:3, 3]
+
+
+def _quat_t(text):
+    """'Q : w,x,y,z | T : x,y,z' -> 4x4."""
+    m = np.eye(4)
+    try:
+        q, t = (part.split(":", 1)[1] for part in (text or "").split("|"))
+        m[:3, :3] = _quat_matrix(*[float(x) for x in q.split(",")])
+        m[:3, 3] = [float(x) for x in t.split(",")]
+    except (IndexError, ValueError, TypeError):
+        return np.eye(4)
+    return m
+
+
+def _inside_polygon(pts, x, y):
+    inside = False
+    n = len(pts)
+    for i in range(n):
+        (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % n]
+        if (y0 > y) != (y1 > y) and x < (x1 - x0) * (y - y0) / (y1 - y0) + x0:
+            inside = not inside
+    return inside
+
+
+_RAY = np.array([0.5377, 0.2913, 0.7912])      # no wall of a ship runs exactly along this direction
+
+
+def _inside_mesh(tris, p):
+    """Is p inside the closed triangle mesh? A ray from p crosses its surface an odd number of times."""
+    a, e1, e2 = tris[:, 0], tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]
+    h = np.cross(_RAY, e2)
+    det = (e1 * h).sum(1)
+    ok = np.abs(det) > 1e-12
+    inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+    s = p - a
+    u = (s * h).sum(1) * inv
+    q = np.cross(s, e1)
+    v = (q @ _RAY) * inv
+    t = (e2 * q).sum(1) * inv
+    return int((ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1e-9)).sum()) % 2 == 1
+
+
+def rooms(archive, socpak):
+    """The rooms of a .socpak's main container with their volumes (container space). No room data -> []."""
+    d = _main_soc(archive, socpak)
+    if d is None:
         return []
-    d = z.read(main)
+    out = {}
+    shapes = []
+    for typ, ver, off, size in _chunks(d):
+        if typ != CHUNK_ENTITIES or d[off:off + 7] != b"CryXmlB":
+            continue
+        try:
+            root = cryxml.parse(d[off:off + size])
+        except Exception:
+            continue
+        for e in root.iter("Entity"):
+            cls = (e.get("EntityClass") or "").lower()
+            guid = (e.get("EntityCryGUID") or "").lower()
+            if cls.startswith("room") and "connector" not in cls and guid:
+                comp = e.find("PropertiesDataCore/EntityComponentRoom")
+                label = (comp.get("roomName") if comp is not None else "") or ""
+                out[guid] = Room(guid, e.get("Name") or "", "" if "null" in label.lower() else label, [])
+            area = e.find("AreaComponent")
+            if area is not None:
+                shapes.append((e, area))
+    for e, area in shapes:
+        owners = [(x.get("EntityCryGUID") or "").lower() for x in area.findall("Entities/Entity")]
+        owners = [g for g in owners if g in out]
+        # "..._portal" shapes are the doorways of a room, not its extent
+        if not owners or "portal" in (e.get("Name") or "").lower():
+            continue
+        base = entity_matrix(e)
+        for seg in area.findall("Segment"):
+            inv = np.linalg.inv(base @ _quat_t(seg.get("transform_ls")))
+            if seg.get("Type") == "Box":
+                lo, hi = _floats(seg.get("BoxMin"), 3, None), _floats(seg.get("BoxMax"), 3, None)
+                if lo is None or hi is None:
+                    continue
+                vol = (inv, "box", (lo, hi), float(np.prod(np.subtract(hi, lo))))
+            elif seg.get("Type") == "Trimesh":
+                pts = [_floats(p.get("pos") or p.get("Pos"), 3, None) for p in seg.findall("Point")]
+                if any(p is None for p in pts) or len(pts) < 12 or len(pts) % 3:
+                    continue
+                tris = np.array(pts, np.float64).reshape(-1, 3, 3)
+                signed = float((tris[:, 0] * np.cross(tris[:, 1], tris[:, 2])).sum() / 6)
+                vol = (inv, "mesh", tris, abs(signed))
+            else:
+                pts = [_floats(p.get("Pos"), 3, None) for p in seg.findall("Points/Point")]
+                pts = [(p[0], p[1]) for p in pts if p is not None]
+                h = _floats(seg.get("Height"), 1, [0.0])[0]
+                if len(pts) < 3 or h <= 0:
+                    continue
+                x, y = np.array(pts).T
+                area2 = abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))) / 2
+                vol = (inv, "shape", (pts, h), area2 * h)
+            for g in owners:
+                out[g].volumes.append(vol)
+    return list(out.values())
+
+
+ROOM_MARGIN = 0.35      # metres: walls and floors sit on the edge of a room's volume
+
+
+def room_of(room_list, point):
+    """Index of the room whose volume holds `point` (container space): the smallest one when several do (a toilet
+    inside the crew quarters). -1 = between rooms (structure)."""
+    best, best_vol = -1, float("inf")
+    p4 = np.array([*point, 1.0])
+    for i, r in enumerate(room_list):
+        for inv, kind, data, vol in r.volumes or ():
+            if vol >= best_vol:
+                continue
+            x, y, z = (inv @ p4)[:3]
+            if kind == "box":
+                lo, hi = data
+                ok = (lo[0] - ROOM_MARGIN <= x <= hi[0] + ROOM_MARGIN and lo[1] - ROOM_MARGIN <= y <= hi[1] + ROOM_MARGIN
+                      and lo[2] - ROOM_MARGIN <= z <= hi[2] + ROOM_MARGIN)
+            elif kind == "mesh":
+                ok = _inside_mesh(data, np.array([x, y, z]))
+            else:
+                pts, h = data
+                ok = -ROOM_MARGIN <= z <= h + ROOM_MARGIN and _inside_polygon(pts, x, y)
+            if ok:
+                best, best_vol = i, vol
+    return best
+
+
+def read(archive, socpak, classes=None):
+    """Placements of a .socpak's main object container (container space). Missing file -> []."""
+    d = _main_soc(archive, socpak)
+    if d is None:
+        return []
     out = []
     for typ, ver, off, size in _chunks(d):
         if typ == CHUNK_OBJECTS:

@@ -230,7 +230,7 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
     animations are not loaded. Each container hangs from its hull bone, so it follows the hull."""
     from . import containers
     out = replace(base, parts=list(base.parts), skeleton=list(base.skeleton), animations=list(base.animations),
-                  anim_sets=list(base.anim_sets), warnings=list(base.warnings), cache={})
+                  anim_sets=list(base.anim_sets), warnings=list(base.warnings), cache={}, rooms=[])
     ocs = (vehicle or {}).get("containers") or []
     if not ocs or not out.parts:
         return out
@@ -275,16 +275,36 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
         except Exception as e:
             out.warnings.append(("warn_part_error", {"path": oc["file"], "error": str(e)}))
             continue
+        # the rooms the game defines in this container (containers.rooms): each placed object joins the room
+        # whose volume holds its middle
+        try:
+            here = [r for r in containers.rooms(archive, oc["file"]) if r.volumes]
+        except Exception:
+            here = []
+        first = len(out.rooms)
+        for r in here:
+            c = r.centre()
+            out.rooms.append({"name": r.name, "key": r.label, "container": stem,
+                              "centre": [float(x) for x in (mount[:3, :3] @ c + mount[:3, 3])], "parts": 0})
         for pl in placed:
             parts = geometry(pl.geometry, pl.material)
             if not parts:
                 failed += parts is None
                 continue
             w = mount @ pl.matrix
+            room = -1
+            if here:
+                lo = np.min([p.vertices.min(0) for p in parts if len(p.vertices)], axis=0)
+                hi = np.max([p.vertices.max(0) for p in parts if len(p.vertices)], axis=0)
+                mid = (lo + hi) / 2
+                k = containers.room_of(here, pl.matrix[:3, :3] @ mid + pl.matrix[:3, 3])
+                room = first + k if k >= 0 else -1
             for p in parts:
                 out.parts.append(replace(p, vertices=p.vertices @ w[:3, :3].T + w[:3, 3], node=node,
                                          name=f"{INTERIOR_PREFIX} / {stem} / {p.name}", vbones=None,
-                                         bone_names=None))
+                                         bone_names=None, room=room))
+                if room >= 0:
+                    out.rooms[room]["parts"] += 1
                 added += 1
             if added > max_parts:
                 out.warnings.append(("warn_interior_truncated", {"n": added}))

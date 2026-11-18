@@ -22,6 +22,7 @@ class Part:
     vbones: np.ndarray | None = None     # skinned meshes: dominant bone index per vertex (into bone_names)
     bone_names: tuple | None = None
     uvs2: np.ndarray | None = None       # second UV set (stencils), same layout as uvs
+    room: int = -1                       # interiors: index into Model.rooms, -1 = no room (hull, structure)
 
 
 @dataclass
@@ -33,6 +34,7 @@ class Model:
     skeleton: list = field(default_factory=list)   # rig.Bone list, only for animated models
     animations: list = field(default_factory=list) # animations.AnimRef list (the actions the viewer offers)
     anim_sets: list = field(default_factory=list)  # animations.AnimSet per animated instance (clip sources)
+    rooms: list = field(default_factory=list)      # interiors: {name, key, container, centre} per room (assembly)
 
     def bounds(self):
         if not self.parts:

@@ -45,9 +45,13 @@ def _lite_key(mat):
             mat.metal, bool(mat.stencil_map))
 
 
-def merged_by_material(parts, uv2=False, lite=False):
+def merged_by_material(parts, uv2=False, lite=False, rooms=False):
     """Merge parts sharing a material so the viewer gets few draw calls -> [(material, verts, faces, uvs|None)].
     uv2=True adds a fifth item: the second UV set (stencils) when every part of the group has one, else None.
+    rooms=True lets the viewer show one room of an interior alone, and adds a last item. Solid pieces are kept
+    apart by room (the viewer batches them back into one draw call per material): the item is the room index, -1 for
+    none. See-through pieces (decals, glass, screens) cannot be batched, so they stay one mesh per material with
+    their triangles in room order: the item is the list of (room, first face, face count) runs.
     lite=True also merges materials that only differ in what the game look replaces anyway (_lite_key)."""
     # grouped by the material's content, not the object: interiors load each prop on its own, so equal materials
     # come as separate copies (3,400 draw calls on the Perseus interior instead of a few hundred)
@@ -56,10 +60,20 @@ def merged_by_material(parts, uv2=False, lite=False):
         k = keys.get(id(p.material))
         if k is None:
             k = keys[id(p.material)] = (_lite_key(p.material) if lite else None) or repr(p.material)
-        groups.setdefault(k, []).append(p)
+        groups.setdefault((k, p.room) if rooms and p.material.kind == "solid" else k, []).append(p)
     out = []
     for ps in groups.values():
         verts, faces, uvs, off = [], [], [], 0
+        runs = None
+        if rooms and ps[0].material.kind != "solid" and any(p.room >= 0 for p in ps):
+            ps = sorted(ps, key=lambda p: p.room)          # stable: the order inside a room is kept
+            runs, first = [], 0
+            for p in ps:
+                if runs and runs[-1][0] == p.room:
+                    runs[-1][2] += len(p.faces)
+                else:
+                    runs.append([p.room, first, len(p.faces)])
+                first += len(p.faces)
         for p in ps:
             verts.append(p.vertices)
             faces.append(p.faces + off)
@@ -69,6 +83,8 @@ def merged_by_material(parts, uv2=False, lite=False):
         item = (ps[0].material, np.vstack(verts), np.vstack(faces), np.vstack(uvs) if has_uv else None)
         if uv2:
             item += (np.vstack([p.uvs2 for p in ps]) if all(p.uvs2 is not None for p in ps) else None,)
+        if rooms:
+            item += (runs if runs is not None else ps[0].room if ps[0].material.kind == "solid" else -1,)
         out.append(item)
     return out
 
@@ -226,14 +242,24 @@ def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=Non
     if sources and model.skeleton:
         return _to_glb_animated(model, parts, textures, tex_size, sources, lite, merge)
     scene = trimesh.Scene()
-    for i, (mat, v, f, uv, uv2) in enumerate(merged_by_material(parts, uv2=True, lite=lite and merge)):
-        node = f"{mat.kind}|{mat.name}|{i}"
+    for i, (mat, v, f, uv, uv2, room) in enumerate(merged_by_material(parts, uv2=True, lite=lite and merge, rooms=True)):
+        node = _node_name(mat, i, room)
         scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, uv2=uv2, lite=lite), node_name=node,
                            geom_name=node)
     return scene.export(file_type="glb", include_normals=not lite)
 
 
 ROOT_NODE = "__root__"
+
+
+def _node_name(mat, i, room=-1):
+    """Mesh names are "kind|material|number". Interiors add the room: "|R<room>" for a piece of one room, or
+    "|M" and the runs of triangles of each room ("r<room>s<first face>n<faces>", room x = none) for a mesh that
+    spans several (see merged_by_material)."""
+    name = f"{mat.kind}|{mat.name}|{i}"
+    if isinstance(room, list):
+        return name + "|M" + "_".join(f"r{'x' if r < 0 else r}s{s}n{n}" for r, s, n in room)
+    return name + (f"|R{room}" if room >= 0 else "")
 
 
 def _animated_bones(model, sources):
@@ -337,8 +363,8 @@ def _to_glb_animated(model, parts, textures, tex_size, sources, lite=False, merg
         if frame != ROOT_NODE:
             inv = np.linalg.inv(kept[frame].world)
             ps = [replace(p, vertices=p.vertices @ inv[:3, :3].T + inv[:3, 3]) for p in ps]
-        for mat, v, f, uv, uv2 in merged_by_material(ps, uv2=True, lite=lite and merge):
-            node = f"{mat.kind}|{mat.name}|{n}"
+        for mat, v, f, uv, uv2, room in merged_by_material(ps, uv2=True, lite=lite and merge, rooms=True):
+            node = _node_name(mat, n, room)
             n += 1
             scene.add_geometry(_glb_mesh(mat, v, f, uv, textures, tex_size, axis=False, uv2=uv2, lite=lite),
                                node_name=node,

@@ -34,6 +34,7 @@ const STRINGS = {
   decalSize: "The model is {size} long at this scale.", decalWorking: "Drawing the markings…",
   decalReady: "Ready: {pieces} decals on {pages} page(s) per sheet.", decalSmall: "{n} too small to read at this scale were left out.",
   decalBig: "{n} larger than the page were left out.",
+  rooms: "Rooms", roomsN: "{n} rooms", roomsAll: "Whole ship", deckN: "Deck {n}",
   serverDown: "Server not reachable…", saved: "Settings saved", kindDecal: "decal", kindGlass: "glass", kindProxy: "proxy", kindScreen: "screen",
 };
 const T = (key, vars = {}) => (STRINGS[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
@@ -320,7 +321,7 @@ const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), curr
 const clock = new THREE.Clock();
 let shipScreens = null;  // MFD pages drawn on a ship's monitors (screen.js)
 let ammoScreen = null;   // weapon display drawn on its DisplayScreen (screen.js)
-window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; }, get shipScreens() { return shipScreens; },
+window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; }, get shipScreens() { return shipScreens; }, get rooms() { return rooms; }, showRooms: (ids) => showRooms(ids),
   camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting,
   get backdrop() { return backdrop; }, get batches() { return batches; },
   get batching() { return BATCH_ON; }, set batching(on) { BATCH_ON = !!on; }, get look() { return gameLook; }, stats, invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
@@ -415,9 +416,9 @@ for (const ev of ["pointerdown", "pointermove", "wheel"]) renderer.domElement.ad
 // any click or change in the panels (animations, rest pose, layers, menus) may change the scene: a few frames
 for (const ev of ["click", "input", "change", "keydown"]) document.addEventListener(ev, () => invalidate(400), { passive: true });
 
-function frame() {
+function frame(around = null) {
   if (!modelRoot) return;
-  const box = new THREE.Box3().setFromObject(modelRoot);
+  const box = around || new THREE.Box3().setFromObject(modelRoot);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(size.length() / 2, 0.01);
@@ -808,6 +809,7 @@ async function loadModel(item, keepView = false) {
     $("#cutBox").classList.toggle("hidden", !info.interior);
     sectionBox = info.interior ? new THREE.Box3().setFromObject(modelRoot) : null;
     buildDecks(info.decks || []);
+    buildRooms(info.interior ? info.rooms || [] : [], info.decks || []);
     applySection();
     $("#fullLabel").textContent = info.ground_vehicle ? "Full vehicle" : "Full ship";
     loadRelated(item);
@@ -1133,16 +1135,145 @@ async function compileShaders(root, section) {
 // The plane would discard every pixel of them anyway, but only after their vertices and part of their shading had run:
 // with the Perseus interior cut at 73% the frames went past 16 ms and the desktop window flashed half-drawn frames.
 const cullBox = new THREE.Box3();
+// Rooms: the interior's pieces carry their room in the mesh name ("...|R<id>", from the game's own room volumes).
+// With rooms chosen, only their pieces are drawn: the hull and the other rooms are left out like the parts above
+// the section plane, and the Section slider then slices just those rooms.
+const rooms = { list: [], on: new Set(), whole: null, decks: [] };
+function roomId(o) {
+  if (o.userData.room === undefined) {
+    const m = /\|R(\d+)$/.exec(o.name || o.parent?.name || "");
+    o.userData.room = m ? +m[1] : -1;
+  }
+  return o.userData.room;
+}
+// See-through meshes span several rooms ("...|M" + runs of triangles per room, in room order): the chosen rooms'
+// triangles are moved to the front of the index and only those are drawn.
+function roomRuns(o) {
+  if (o.userData.runs === undefined) {
+    const m = /\|M((?:r(?:x|\d+)s\d+n\d+_?)+)$/.exec(o.name || "");
+    o.userData.runs = m && o.geometry?.index
+      ? [...m[1].matchAll(/r(x|\d+)s(\d+)n(\d+)/g)].map((r) => [r[1] === "x" ? -1 : +r[1], +r[2] * 3, +r[3] * 3]) : null;
+  }
+  return o.userData.runs;
+}
+function drawRuns(o) {
+  const runs = roomRuns(o);
+  if (!runs) return;
+  const index = o.geometry.index;
+  if (!o.userData.fullIndex) o.userData.fullIndex = index.array.slice();
+  const full = o.userData.fullIndex;
+  let n = 0;
+  if (!rooms.on.size) { index.array.set(full); n = full.length; }
+  else for (const [room, first, count] of runs) {
+    if (!rooms.on.has(room)) continue;
+    index.array.set(full.subarray(first, first + count), n);
+    n += count;
+  }
+  index.needsUpdate = true;
+  o.geometry.setDrawRange(0, n);
+  o.userData.noRoom = n === 0;
+}
+const roomHidden = (o) => (o.geometry && roomRuns(o) ? o.userData.noRoom === true
+  : !o.name && o.parent?.geometry && roomRuns(o.parent) ? o.parent.userData.noRoom === true : !rooms.on.has(roomId(o)));
+function roomsBox() {
+  const box = batches.boxOf((n) => rooms.on.has(roomId(n)), new THREE.Box3());
+  modelRoot.traverse((o) => {
+    if (!o.isMesh || o.isBatchedMesh || !rooms.on.has(roomId(o))) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    box.union(cullBox.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld));
+  });
+  return box;
+}
+function showRooms(ids) {
+  if (!modelRoot) return;
+  rooms.on = new Set(ids);
+  if (poseDirty) syncPose();
+  modelRoot.updateMatrixWorld(true);
+  let box = rooms.on.size ? roomsBox() : null;
+  if (box && box.isEmpty()) { rooms.on.clear(); box = null; }
+  modelRoot.traverse((o) => { if (o.isMesh && !o.isBatchedMesh && o.name) drawRuns(o); });
+  sectionBox = rooms.on.size ? box : rooms.whole;
+  state.cut = 1;
+  buildDecks(rooms.on.size ? [] : rooms.decks);
+  applySection();
+  frame(rooms.on.size ? box : null);
+  const names = rooms.list.filter((r) => rooms.on.has(r.id)).map((r) => r.name);
+  $("#roomsBtn").textContent = names.length === 1 ? names[0] : names.length ? T("roomsN", { n: names.length }) : T("rooms");
+  $("#roomsBtn").classList.toggle("on", names.length > 0);
+  document.querySelectorAll("#roomsMenu [data-room]").forEach((b) =>
+    b.classList.toggle("on", b.dataset.room === "all" ? !rooms.on.size : rooms.on.has(+b.dataset.room)));
+  invalidate();
+}
+function buildRooms(list = [], floors = []) {
+  rooms.list = list;
+  rooms.on = new Set();
+  rooms.whole = sectionBox;
+  rooms.decks = floors;
+  const menu = $("#roomsMenu");
+  menu.replaceChildren();
+  menu.classList.add("hidden");
+  $("#roomsWrap").hidden = !sectionBox || list.length < 2;
+  $("#roomsBtn").textContent = T("rooms");
+  $("#roomsBtn").classList.remove("on");
+  if ($("#roomsWrap").hidden) return;
+  const item = (id, label) => {
+    const b = document.createElement("button");
+    b.dataset.room = id;
+    b.textContent = label;
+    b.setAttribute("role", "menuitemcheckbox");
+    menu.appendChild(b);
+    return b;
+  };
+  item("all", T("roomsAll")).classList.add("on");
+  // rooms under the deck whose floor they stand on (a room's height is its middle)
+  const deckOf = (r) => Math.max(1, floors.filter((f) => f <= r.y + 0.3).length);
+  const groups = new Map();
+  for (const r of [...list].sort((a, b) => a.name.localeCompare(b.name))) {
+    const d = floors.length > 1 ? deckOf(r) : 0;
+    if (!groups.has(d)) groups.set(d, []);
+    groups.get(d).push(r);
+  }
+  for (const d of [...groups.keys()].sort((a, b) => a - b)) {
+    if (d) {
+      const h = document.createElement("div");
+      h.className = "bg-head";
+      h.textContent = T("deckN", { n: d });
+      menu.appendChild(h);
+    }
+    for (const r of groups.get(d)) item(r.id, r.name);
+  }
+}
+$("#roomsBtn").addEventListener("click", () => $("#roomsMenu").classList.toggle("hidden"));
+$("#roomsMenu").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-room]");
+  if (!b) return;
+  markMotion();
+  if (b.dataset.room === "all") { $("#roomsMenu").classList.add("hidden"); showRooms([]); return; }
+  const id = +b.dataset.room;
+  if (e.ctrlKey || e.shiftKey || e.metaKey) {          // add to (or take from) the rooms shown
+    const next = new Set(rooms.on);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    showRooms(next);
+  } else {
+    $("#roomsMenu").classList.add("hidden");
+    showRooms([id]);
+  }
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#roomsWrap")) $("#roomsMenu").classList.add("hidden");
+});
+
 function cullAboveCut() {
   if (!modelRoot) return;
   const y = renderer.clippingPlanes.length ? sectionPlane.constant : Infinity;
   if (poseDirty) syncPose();
   modelRoot.updateMatrixWorld();
-  batches.cullAbove(y);
+  const lone = rooms.on.size > 0;
+  batches.cullAbove(y, lone ? roomHidden : null);
   modelRoot.traverse((o) => {
     if (!o.isMesh || o.isBatchedMesh) return;
-    let above = false;
-    if (y !== Infinity && !o.isSkinnedMesh) {
+    let above = lone && roomHidden(o);
+    if (!above && y !== Infinity && !o.isSkinnedMesh) {
       if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
       above = cullBox.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld).min.y > y;
     }

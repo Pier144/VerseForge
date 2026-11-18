@@ -135,16 +135,27 @@ export class Batches {
     for (const b of this.list) { b.boundingBox = null; b.boundingSphere = null; }
   }
 
-  // pieces lying wholly above the section plane (world height y) are not drawn; y = Infinity shows them all
-  cullAbove(y) {
-    for (const [, batch, id] of this.nodes) {
-      let above = false;
-      if (y !== Infinity) {
+  // pieces lying wholly above the section plane (world height y) are not drawn; y = Infinity shows them all.
+  // hidden(node): pieces to leave out whatever their height (the rooms that are not being shown)
+  cullAbove(y, hidden = null) {
+    for (const [node, batch, id] of this.nodes) {
+      let off = hidden ? hidden(node) : false;
+      if (!off && y !== Infinity) {
         batch.getMatrixAt(id, _m);
-        above = batch.getBoundingBoxAt(id, _box).applyMatrix4(_m).applyMatrix4(batch.matrixWorld).min.y > y;
+        off = batch.getBoundingBoxAt(id, _box).applyMatrix4(_m).applyMatrix4(batch.matrixWorld).min.y > y;
       }
-      if (batch.getVisibleAt(id) === above) batch.setVisibleAt(id, !above);
+      if (batch.getVisibleAt(id) === off) batch.setVisibleAt(id, !off);
     }
+  }
+
+  // world box around the pieces `pick(node)` chooses, added to `target`
+  boxOf(pick, target) {
+    for (const [node, batch, id] of this.nodes) {
+      if (!pick(node)) continue;
+      batch.getMatrixAt(id, _m);
+      target.union(batch.getBoundingBoxAt(id, _box).applyMatrix4(_m).applyMatrix4(batch.matrixWorld));
+    }
+    return target;
   }
 
   dispose() {
