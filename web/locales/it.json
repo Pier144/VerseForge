@@ -406,6 +406,8 @@
     "repNewsMany": "{n} nuove notifiche sulle tue segnalazioni",
     "repSending": "Invio…",
     "repSent": "Segnalazione #{n} inviata, grazie",
-    "repSentUnsaved": "Segnalazione #{n} inviata, ma VerseForge non è riuscito a salvare le impostazioni: dopo un riavvio non comparirà in Le mie segnalazioni"
+    "repSentUnsaved": "Segnalazione #{n} inviata, ma VerseForge non è riuscito a salvare le impostazioni: dopo un riavvio non comparirà in Le mie segnalazioni",
+    "compareStock": "Confronta con la vernice di serie",
+    "showingStock": "Vernice di serie · clic per tornare"
   }
 }

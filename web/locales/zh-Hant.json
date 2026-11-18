@@ -406,6 +406,8 @@
     "repNewsMany": "你的回報有 {n} 則新通知",
     "repSending": "正在傳送…",
     "repSent": "回報 #{n} 已傳送，謝謝",
-    "repSentUnsaved": "回報 #{n} 已傳送，但 VerseForge 無法儲存設定：重新啟動後它不會出現在「我的回報」中"
+    "repSentUnsaved": "回報 #{n} 已傳送，但 VerseForge 無法儲存設定：重新啟動後它不會出現在「我的回報」中",
+    "compareStock": "與原廠塗裝對比",
+    "showingStock": "正在顯示原廠塗裝 · 點擊返回"
   }
 }

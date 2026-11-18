@@ -75,7 +75,29 @@ function dropdown(sel) {
   wrap.append(sel, btn, list);
   let active = -1;
 
-  const sync = () => { btn.textContent = sel.selectedOptions[0]?.text ?? ""; };
+  // options with data-colors ("r,g,b;r,g,b;r,g,b", or "" for a paint without its own colours) show three swatches
+  // before their text: the paint menu
+  const fill = (node, o) => {
+    node.textContent = "";
+    node.classList.remove("sw");
+    if (!o) return;
+    if (!("colors" in o.dataset)) { node.textContent = o.text; return; }
+    node.classList.add("sw");
+    const dots = document.createElement("span");
+    dots.className = "dots";
+    const cols = o.dataset.colors ? o.dataset.colors.split(";") : [];
+    if (!cols.length) dots.classList.add("stock");
+    for (let i = 0; i < 3; i++) {
+      const d = document.createElement("i");
+      if (cols[i]) d.style.background = `rgb(${cols[i]})`;
+      dots.append(d);
+    }
+    const label = document.createElement("span");
+    label.className = "lbl";
+    label.textContent = o.text;
+    node.append(dots, label);
+  };
+  const sync = () => fill(btn, sel.selectedOptions[0]);
   const setActive = (i) => {
     active = i;
     [...list.children].forEach((li, k) => li.classList.toggle("active", k === i));
@@ -96,7 +118,7 @@ function dropdown(sel) {
       const li = document.createElement("li");
       li.setAttribute("role", "option");
       li.setAttribute("aria-selected", String(o.selected));
-      li.textContent = o.text;
+      fill(li, o);
       li.onmouseenter = () => setActive(i);
       li.onclick = () => pick(i);
       list.appendChild(li);
@@ -924,12 +946,16 @@ function showInfo(item, info) {
     ${info.warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join("")}`;
   const variantSel = $("#variantSel");
   if (variantSel) {
+    info.variants.forEach((v, i) => {
+      variantSel.options[i].dataset.colors = v.colors ? v.colors.map((c) => c.join(",")).join(";") : "";
+    });
     dropdown(variantSel);
     variantSel.addEventListener("change", (e) => {
       state.comparing = false;
       changePaint(e.target.value);
       showCompare(info);
     });
+    showCompare(info);
   }
   $("#exportBox").classList.remove("hidden");
   $("#printBox").classList.remove("hidden");
@@ -939,7 +965,26 @@ function showInfo(item, info) {
   showDecalSize();
 }
 
-function showCompare() {}   // Task 13 adds the Compare with stock button
+// "Compare with stock paint" under the paint menu: shows the stock paint without changing the chosen one
+function showCompare(info) {
+  const stock = info.variants.find((v) => v.stock);
+  let btn = $("#cmpStock");
+  if (!stock || state.variant === stock.tag) { btn?.remove(); state.comparing = false; return; }
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.id = "cmpStock";
+    btn.type = "button";
+    btn.className = "cmp";
+    $("#info .variant").after(btn);
+    btn.onclick = () => {
+      state.comparing = !state.comparing;
+      changePaint(state.comparing ? stock.tag : state.variant, { keepChoice: true });
+      showCompare(info);
+    };
+  }
+  btn.classList.toggle("on", !!state.comparing);
+  btn.textContent = "⇄ " + T(state.comparing ? "showingStock" : "compareStock");
+}
 
 function showMaterials() {
   const mats = new Map();

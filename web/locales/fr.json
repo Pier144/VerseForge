@@ -406,6 +406,8 @@
     "repNewsMany": "{n} nouvelles notifications sur vos signalements",
     "repSending": "Envoi…",
     "repSent": "Signalement #{n} envoyé, merci",
-    "repSentUnsaved": "Signalement #{n} envoyé, mais VerseForge n'a pas pu enregistrer ses paramètres : il n'apparaîtra plus dans Mes signalements après un redémarrage"
+    "repSentUnsaved": "Signalement #{n} envoyé, mais VerseForge n'a pas pu enregistrer ses paramètres : il n'apparaîtra plus dans Mes signalements après un redémarrage",
+    "compareStock": "Comparer avec la peinture d'origine",
+    "showingStock": "Peinture d'origine · cliquer pour revenir"
   }
 }

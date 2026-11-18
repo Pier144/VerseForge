@@ -406,6 +406,8 @@
     "repNewsMany": "{n} novas notificações nos seus relatos",
     "repSending": "Enviando…",
     "repSent": "Relato #{n} enviado, obrigado",
-    "repSentUnsaved": "Relato #{n} enviado, mas o VerseForge não conseguiu salvar as configurações: ele não vai aparecer em Meus relatos depois de reiniciar"
+    "repSentUnsaved": "Relato #{n} enviado, mas o VerseForge não conseguiu salvar as configurações: ele não vai aparecer em Meus relatos depois de reiniciar",
+    "compareStock": "Comparar com a pintura original",
+    "showingStock": "Pintura original · clique para voltar"
   }
 }

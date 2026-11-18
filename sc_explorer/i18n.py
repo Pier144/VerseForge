@@ -123,6 +123,7 @@ WEAPON_TYPES = {"brfl": "rifle", "rfl": "rifle", "smg": "SMG", "lmg": "LMG", "sg
 UI = {
     "loading": "Loading…", "loadingOf": "Loading {name}…", "width": "Width", "length": "Length", "height": "Height",
     "triangles": "Triangles", "parts": "Parts", "materials": "Materials", "variant": "Variant / paint",
+    "compareStock": "Compare with stock paint", "showingStock": "Showing stock paint · click to go back",
     "loadFailed": "Could not load the model: {error}", "exported": "Exported {name} (copy saved to {dir})",
     "exportsDir": "exports", "exportFailed": "Export failed: {error}", "print3d": "3D print: {error}",
     "loadPrepare": "Preparing the model on the server…", "loadDownload": "Downloading {done} / {total} MB",

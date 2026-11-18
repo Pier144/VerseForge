@@ -406,6 +406,8 @@
     "repNewsMany": "{n} notificaciones nuevas en tus reportes",
     "repSending": "Enviando…",
     "repSent": "Reporte #{n} enviado, ¡gracias!",
-    "repSentUnsaved": "Reporte #{n} enviado, pero VerseForge no pudo guardar su configuración: no aparecerá en Mis reportes tras reiniciar"
+    "repSentUnsaved": "Reporte #{n} enviado, pero VerseForge no pudo guardar su configuración: no aparecerá en Mis reportes tras reiniciar",
+    "compareStock": "Comparar con la pintura de fábrica",
+    "showingStock": "Pintura de fábrica · haz clic para volver"
   }
 }

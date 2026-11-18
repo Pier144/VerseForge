@@ -406,6 +406,8 @@
     "repNewsMany": "{n} notificaciones nuevas en tus informes",
     "repSending": "Enviando…",
     "repSent": "Informe #{n} enviado, ¡gracias!",
-    "repSentUnsaved": "Informe #{n} enviado, pero VerseForge no pudo guardar sus ajustes: no aparecerá en Mis informes tras reiniciar"
+    "repSentUnsaved": "Informe #{n} enviado, pero VerseForge no pudo guardar sus ajustes: no aparecerá en Mis informes tras reiniciar",
+    "compareStock": "Comparar con la pintura de serie",
+    "showingStock": "Pintura de serie · haz clic para volver"
   }
 }

@@ -326,6 +326,8 @@
     "triangles": "Triangles",
     "parts": "Parts",
     "variant": "Variant / paint",
+    "compareStock": "Compare with stock paint",
+    "showingStock": "Showing stock paint · click to go back",
     "loadFailed": "Could not load the model: {error}",
     "exported": "Exported {name} (copy saved to {dir})",
     "exportsDir": "exports",

@@ -406,6 +406,8 @@
     "repNewsMany": "{n} neue Benachrichtigungen zu deinen Meldungen",
     "repSending": "Wird gesendet…",
     "repSent": "Meldung #{n} gesendet, danke",
-    "repSentUnsaved": "Meldung #{n} gesendet, aber VerseForge konnte die Einstellungen nicht speichern: Nach einem Neustart fehlt sie unter Meine Meldungen"
+    "repSentUnsaved": "Meldung #{n} gesendet, aber VerseForge konnte die Einstellungen nicht speichern: Nach einem Neustart fehlt sie unter Meine Meldungen",
+    "compareStock": "Mit Serienlackierung vergleichen",
+    "showingStock": "Serienlackierung · zum Zurückkehren klicken"
   }
 }

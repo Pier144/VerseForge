@@ -406,6 +406,8 @@
     "repNewsMany": "あなたの報告に新しい通知が {n} 件あります",
     "repSending": "送信中…",
     "repSent": "報告 #{n} を送信しました。ありがとうございます",
-    "repSentUnsaved": "報告 #{n} を送信しましたが、VerseForge が設定を保存できませんでした。再起動後は「自分の報告」に表示されません"
+    "repSentUnsaved": "報告 #{n} を送信しましたが、VerseForge が設定を保存できませんでした。再起動後は「自分の報告」に表示されません",
+    "compareStock": "標準塗装と比較",
+    "showingStock": "標準塗装を表示中 · クリックで戻る"
   }
 }

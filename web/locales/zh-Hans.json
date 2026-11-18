@@ -406,6 +406,8 @@
     "repNewsMany": "你的报告有 {n} 条新通知",
     "repSending": "正在发送…",
     "repSent": "报告 #{n} 已发送，谢谢",
-    "repSentUnsaved": "报告 #{n} 已发送，但 VerseForge 无法保存设置：重启后它不会出现在“我的报告”中"
+    "repSentUnsaved": "报告 #{n} 已发送，但 VerseForge 无法保存设置：重启后它不会出现在“我的报告”中",
+    "compareStock": "与原厂涂装对比",
+    "showingStock": "正在显示原厂涂装 · 点击返回"
   }
 }
