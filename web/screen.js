@@ -5,6 +5,22 @@ import * as THREE from "three";
 const FONT = '"Bahnschrift SemiCondensed", "Bahnschrift", "Segoe UI", sans-serif';
 const WARN = "#ff8a3d";
 
+// The screen classes draw on a clone of each screen's material. dispose() puts the mesh's own material back (also
+// where the resin look keeps it, userData.gameMaterial) and frees the clone: a paint change rebuilds the screens with
+// the new paint's glow (app.js afterPaint).
+function cloneMaterials(meshes) {
+  const originals = meshes.map((m) => m.material);
+  for (const m of meshes) m.material = m.material.clone();
+  return { originals, clones: meshes.map((m) => m.material) };
+}
+function restoreMaterials(meshes, { originals, clones }) {
+  meshes.forEach((m, i) => {
+    if (m.userData.gameMaterial === clones[i]) m.userData.gameMaterial = originals[i];
+    else if (m.material === clones[i]) m.material = originals[i];
+    clones[i].dispose();
+  });
+}
+
 // world size of one unit of U and of V on the first triangle -> width / height of the screen
 function aspectOf(mesh) {
   const g = mesh.geometry;
@@ -38,8 +54,8 @@ export class AmmoScreen {
     this.texture.flipY = false;                    // glTF UVs: V grows downwards, like canvas Y
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.meshes = meshes;
+    this.saved = cloneMaterials(meshes);
     for (const m of meshes) {
-      m.material = m.material.clone();
       m.material.emissiveMap = this.texture;
       m.material.emissive = new THREE.Color(0xffffff);
       m.material.emissiveIntensity = 1.4;
@@ -121,6 +137,7 @@ export class AmmoScreen {
   dispose() {
     clearTimeout(this.timer);
     this.texture.dispose();
+    restoreMaterials(this.meshes, this.saved);
   }
 }
 
@@ -199,9 +216,10 @@ export class ShipScreens {
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 4;
     this.count = 0;
+    this.meshes = meshes;
     for (const m of meshes) this.place(m);
+    this.saved = cloneMaterials(meshes);
     for (const m of meshes) {
-      m.material = m.material.clone();
       m.material.emissiveMap = this.texture;
       m.material.emissive = new THREE.Color(0xffffff);
       m.material.emissiveIntensity = 1.25;
@@ -443,5 +461,6 @@ export class ShipScreens {
   dispose() {
     this.disposed = true;
     this.texture.dispose();
+    restoreMaterials(this.meshes, this.saved);
   }
 }
