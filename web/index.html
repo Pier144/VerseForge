@@ -12,10 +12,15 @@
       try { pref = localStorage.getItem("vf.appearance") || pref; } catch { /* storage unavailable */ }
       const dark = pref === "dark" || (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
       document.documentElement.dataset.mode = dark ? "dark" : "light";
+      // another language: the page stays blank until its texts are in (i18n.js), instead of flashing English
+      let lang = "en";
+      try { lang = localStorage.getItem("vf.lang") || lang; } catch { /* storage unavailable */ }
+      if (lang !== "en") { document.documentElement.lang = lang; document.documentElement.classList.add("i18n-wait"); }
     })();
   </script>
   <style>/* background before style.css arrives (same as --app-bg), so the first frame is not white */
-    html { background: #06070b; } html[data-mode="light"] { background: #eef1f6; }</style>
+    html { background: #06070b; } html[data-mode="light"] { background: #eef1f6; }
+    html.i18n-wait body { visibility: hidden; }</style>
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
     { "imports": {
@@ -67,24 +72,24 @@
     <header class="topbar">
       <div class="brand"><img class="logo" src="logo.svg" alt=""><span>VerseForge</span></div>
       <div id="status" class="status">Starting…</div>
-      <button id="btnUpdate" class="update-pill hidden" title="A new version of VerseForge is available"><svg class="i"><use href="#i-download"/></svg><span></span></button>
-      <button id="btnReport" class="report-pill" title="Report a problem or suggest an idea"><svg class="i"><use href="#i-bug"/></svg><svg class="i"><use href="#i-chat"/></svg><span>Feedback</span><b id="reportCount" class="report-count hidden"></b></button>
-      <button id="btnMode" class="icon-btn" title="Switch light / dark" aria-label="Switch light / dark"><svg class="i"><use href="#i-moon"/></svg></button>
-      <button id="btnSettings" class="icon-btn" title="Settings" aria-label="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
+      <button id="btnUpdate" class="update-pill hidden" title="A new version of VerseForge is available" data-t-title="updateTitle"><svg class="i"><use href="#i-download"/></svg><span></span></button>
+      <button id="btnReport" class="report-pill" title="Report a problem or suggest an idea"><svg class="i"><use href="#i-bug"/></svg><svg class="i"><use href="#i-chat"/></svg><span data-t="feedback">Feedback</span><b id="reportCount" class="report-count hidden"></b></button>
+      <button id="btnMode" class="icon-btn" title="Switch light / dark" aria-label="Switch light / dark" data-t-aria="modeSwitch"><svg class="i"><use href="#i-moon"/></svg></button>
+      <button id="btnSettings" class="icon-btn" title="Settings" aria-label="Settings" data-t-title="settings" data-t-aria="settings"><svg class="i"><use href="#i-gear"/></svg></button>
     </header>
 
     <main class="layout">
       <aside class="sidebar pane">
         <label class="search">
           <svg class="i"><use href="#i-search"/></svg>
-          <input id="q" type="search" placeholder="Search P4-AR, Gladius, Morozov…" autocomplete="off" autofocus>
+          <input id="q" type="search" placeholder="Search P4-AR, Gladius, Morozov…" data-t-ph="searchPh" autocomplete="off" autofocus>
         </label>
-        <div id="cats" class="cats catgrid" role="group" aria-label="Categories"></div>
+        <div id="cats" class="cats catgrid" role="group" aria-label="Categories" data-t-aria="categories"></div>
         <div id="subcats" class="cats subcats" hidden></div>
         <div class="list-head">
           <span id="count" class="count"></span>
-          <label class="switch" title="Hide LODs, decals, physics proxies and ship interior pieces">
-            <input id="mainOnly" type="checkbox" checked><span class="track"></span><span>Main models</span>
+          <label class="switch" title="Hide LODs, decals, physics proxies and ship interior pieces" data-t-title="mainOnlyTitle">
+            <input id="mainOnly" type="checkbox" checked><span class="track"></span><span data-t="mainOnly">Main models</span>
           </label>
         </div>
         <ul id="results" class="results"></ul>
@@ -94,8 +99,8 @@
         <div id="canvasWrap" class="canvas-wrap">
           <div id="empty" class="empty">
             <svg class="empty-icon"><use href="#i-cube"/></svg>
-            <p class="empty-title">Pick a model to inspect</p>
-            <p class="empty-hint">Search on the left, then drag to orbit · scroll to zoom · right-drag to pan</p>
+            <p class="empty-title" data-t="emptyTitle">Pick a model to inspect</p>
+            <p class="empty-hint" data-t="emptyHint">Search on the left, then drag to orbit · scroll to zoom · right-drag to pan</p>
           </div>
           <div id="loading" class="loading hidden" role="status" aria-live="polite">
             <div class="load-card">
@@ -105,128 +110,128 @@
             </div>
           </div>
 
-          <div class="layers floating" aria-label="Visible layers">
-            <label class="pill" title="Game textures (colour and normal map). Turn off to see only the material colours"><input id="texOn" type="checkbox" checked><span>Textures</span></label>
-            <label class="pill" title="Decals"><input type="checkbox" data-kind="decal"><span>Decals</span></label>
-            <label class="pill" title="Glass"><input type="checkbox" data-kind="glass" checked><span>Glass</span></label>
-            <label id="scrPill" class="pill hidden" title="Screens of cockpits, dashboards and weapons (lit as if switched on)"><input type="checkbox" data-kind="screen" checked><span>Screens</span></label>
-            <label class="pill" title="Physics proxies"><input type="checkbox" data-kind="hidden"><span>Proxy</span></label>
-            <label id="fullPill" class="pill full hidden" title="Mount the factory loadout: landing gear, weapons, thrusters, seats and components"><input id="fullOn" type="checkbox"><span id="fullLabel">Full ship</span></label>
-            <label id="intPill" class="pill hidden" title="Load the interior: rooms, corridors and props of the ship's object containers"><input id="intOn" type="checkbox"><span>Interiors</span></label>
+          <div class="layers floating" aria-label="Visible layers" data-t-aria="layers">
+            <label class="pill" title="Game textures (colour and normal map). Turn off to see only the material colours" data-t-title="texTitle"><input id="texOn" type="checkbox" checked><span data-t="textures">Textures</span></label>
+            <label class="pill" title="Decals" data-t-title="decals"><input type="checkbox" data-kind="decal"><span data-t="decals">Decals</span></label>
+            <label class="pill" title="Glass" data-t-title="glass"><input type="checkbox" data-kind="glass" checked><span data-t="glass">Glass</span></label>
+            <label id="scrPill" class="pill hidden" title="Screens of cockpits, dashboards and weapons (lit as if switched on)" data-t-title="screensTitle"><input type="checkbox" data-kind="screen" checked><span data-t="screens">Screens</span></label>
+            <label class="pill" title="Physics proxies" data-t-title="proxyTitle"><input type="checkbox" data-kind="hidden"><span data-t="proxyPill">Proxy</span></label>
+            <label id="fullPill" class="pill full hidden" title="Mount the factory loadout: landing gear, weapons, thrusters, seats and components" data-t-title="fullTitle"><input id="fullOn" type="checkbox"><span id="fullLabel">Full ship</span></label>
+            <label id="intPill" class="pill hidden" title="Load the interior: rooms, corridors and props of the ship's object containers" data-t-title="interiorsTitle"><input id="intOn" type="checkbox"><span data-t="interiors">Interiors</span></label>
           </div>
 
-          <div id="cutBox" class="cutbox floating hidden" title="Section: slice the ship from above to look into the decks">
-            <span>Section</span>
-            <input id="cut" type="range" min="0" max="1000" value="1000" aria-label="Section height">
+          <div id="cutBox" class="cutbox floating hidden" title="Section: slice the ship from above to look into the decks" data-t-title="sectionTitle">
+            <span data-t="section">Section</span>
+            <input id="cut" type="range" min="0" max="1000" value="1000" aria-label="Section height" data-t-aria="sectionAria">
             <span id="cutVal">100%</span>
-            <div id="decks" class="decks" hidden title="Decks found in the ship: show one, with everything above it taken away"></div>
+            <div id="decks" class="decks" hidden title="Decks found in the ship: show one, with everything above it taken away" data-t-title="decksTitle"></div>
             <div id="roomsWrap" class="bg-wrap rooms-wrap" hidden>
-              <button id="roomsBtn" class="rooms-btn" aria-haspopup="menu" title="Rooms of the ship, as the game defines them: show one alone (Ctrl-click to add more)">Rooms</button>
-              <div id="roomsMenu" class="bg-menu rooms-menu hidden" role="menu" aria-label="Rooms"></div>
+              <button id="roomsBtn" class="rooms-btn" aria-haspopup="menu" title="Rooms of the ship, as the game defines them: show one alone (Ctrl-click to add more)" data-t-title="roomsTitle">Rooms</button>
+              <div id="roomsMenu" class="bg-menu rooms-menu hidden" role="menu" aria-label="Rooms" data-t-aria="rooms"></div>
             </div>
           </div>
 
           <div class="toolbar floating">
-            <button data-act="reset" class="tool" title="Frame (F)"><svg class="i"><use href="#i-frame"/></svg><span>Frame</span></button>
-            <button data-act="wire" class="tool toggle" title="Wireframe (W)"><svg class="i"><use href="#i-wire"/></svg><span>Wireframe</span></button>
-            <button data-act="rotate" class="tool toggle" title="Auto-rotate (R)"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
-            <button data-act="grid" class="tool toggle on" title="Grid (G)"><svg class="i"><use href="#i-grid"/></svg><span>Grid</span></button>
-            <button data-act="light" class="tool toggle on" title="Lighting: game-like hangar (on) or plain white studio (off)"><svg class="i"><use href="#i-sun"/></svg><span>Hangar</span></button>
+            <button data-act="reset" class="tool" title="Frame (F)" data-t-title="frameTitle"><svg class="i"><use href="#i-frame"/></svg><span data-t="frame">Frame</span></button>
+            <button data-act="wire" class="tool toggle" title="Wireframe (W)" data-t-title="wireTitle"><svg class="i"><use href="#i-wire"/></svg><span data-t="wire">Wireframe</span></button>
+            <button data-act="rotate" class="tool toggle" title="Auto-rotate (R)" data-t-title="rotateTitle"><svg class="i"><use href="#i-rotate"/></svg><span data-t="rotate">Rotate</span></button>
+            <button data-act="grid" class="tool toggle on" title="Grid (G)" data-t-title="gridTitle"><svg class="i"><use href="#i-grid"/></svg><span data-t="grid">Grid</span></button>
+            <button data-act="light" class="tool toggle on" title="Lighting: game-like hangar (on) or plain white studio (off)" data-t-title="lightTitle"><svg class="i"><use href="#i-sun"/></svg><span data-t="hangar">Hangar</span></button>
             <div class="bg-wrap">
-              <button data-act="bg" class="tool" title="Backdrop: plain, space from the game (Pyro, Stanton), modelling workbench or photo studio" aria-haspopup="menu"><svg class="i"><use href="#i-contrast"/></svg><span>Backdrop</span></button>
-              <div id="bgMenu" class="bg-menu hidden" role="menu" aria-label="Backdrop">
-                <div class="bg-head">Plain</div>
-                <button data-bg="plain" role="menuitemradio"><span class="sw sw-plain"></span>Default</button>
-                <button data-bg="inverted" role="menuitemradio"><span class="sw sw-inv"></span>Inverted</button>
-                <div class="bg-head">Space · from the game</div>
-                <button data-bg="pyro" role="menuitemradio"><span class="sw sw-pyro"></span>Pyro nebula</button>
+              <button data-act="bg" class="tool" title="Backdrop: plain, space from the game (Pyro, Stanton), modelling workbench or photo studio" data-t-title="backdropTitle" aria-haspopup="menu"><svg class="i"><use href="#i-contrast"/></svg><span data-t="backdrop">Backdrop</span></button>
+              <div id="bgMenu" class="bg-menu hidden" role="menu" aria-label="Backdrop" data-t-aria="backdrop">
+                <div class="bg-head" data-t="bgPlain">Plain</div>
+                <button data-bg="plain" role="menuitemradio"><span class="sw sw-plain"></span><span data-t="bgDefault">Default</span></button>
+                <button data-bg="inverted" role="menuitemradio"><span class="sw sw-inv"></span><span data-t="bgInverted">Inverted</span></button>
+                <div class="bg-head" data-t="bgSpace">Space · from the game</div>
+                <button data-bg="pyro" role="menuitemradio"><span class="sw sw-pyro"></span><span data-t="bgPyro">Pyro nebula</span></button>
                 <button data-bg="stanton" role="menuitemradio"><span class="sw sw-stanton"></span>Stanton · Crusader</button>
-                <div class="bg-head">Scenes</div>
-                <button data-bg="workbench" role="menuitemradio"><span class="sw sw-bench"></span>Modelling workshop</button>
-                <button data-bg="studio" role="menuitemradio"><span class="sw sw-studio"></span>Photo studio</button>
+                <div class="bg-head" data-t="bgScenes">Scenes</div>
+                <button data-bg="workbench" role="menuitemradio"><span class="sw sw-bench"></span><span data-t="bgWorkshop">Modelling workshop</span></button>
+                <button data-bg="studio" role="menuitemradio"><span class="sw sw-studio"></span><span data-t="bgStudio">Photo studio</span></button>
               </div>
             </div>
             <div class="bg-wrap resin-wrap">
-              <button data-act="resin" class="tool toggle" title="Show the model as a resin 3D print: one colour, no paint or decals, layer lines up close" aria-haspopup="menu"><svg class="i"><use href="#i-drop"/></svg><span>Resin</span></button>
-              <div id="resinMenu" class="bg-menu hidden" role="menu" aria-label="Resin print">
-                <div class="bg-head">Resin print</div>
-                <button data-resin="off" role="menuitemradio"><span class="sw sw-plain"></span>Off (game look)</button>
-                <button data-resin="grey" role="menuitemradio"><span class="sw sw-resin-grey"></span>Grey</button>
-                <button data-resin="white" role="menuitemradio"><span class="sw sw-resin-white"></span>White</button>
-                <button data-resin="black" role="menuitemradio"><span class="sw sw-resin-black"></span>Black</button>
-                <button data-resin="clear" role="menuitemradio"><span class="sw sw-resin-clear"></span>Clear</button>
+              <button data-act="resin" class="tool toggle" title="Show the model as a resin 3D print: one colour, no paint or decals, layer lines up close" data-t-title="resinTitle" aria-haspopup="menu"><svg class="i"><use href="#i-drop"/></svg><span data-t="resin">Resin</span></button>
+              <div id="resinMenu" class="bg-menu hidden" role="menu" aria-label="Resin print" data-t-aria="resinPrint">
+                <div class="bg-head" data-t="resinPrint">Resin print</div>
+                <button data-resin="off" role="menuitemradio"><span class="sw sw-plain"></span><span data-t="resinOff">Off (game look)</span></button>
+                <button data-resin="grey" role="menuitemradio"><span class="sw sw-resin-grey"></span><span data-t="resinGrey">Grey</span></button>
+                <button data-resin="white" role="menuitemradio"><span class="sw sw-resin-white"></span><span data-t="resinWhite">White</span></button>
+                <button data-resin="black" role="menuitemradio"><span class="sw sw-resin-black"></span><span data-t="resinBlack">Black</span></button>
+                <button data-resin="clear" role="menuitemradio"><span class="sw sw-resin-clear"></span><span data-t="resinClear">Clear</span></button>
                 <div id="resinScale" class="bg-note"></div>
               </div>
             </div>
             <span class="tool-sep"></span>
-            <button data-act="shot" class="tool" title="Save a PNG screenshot"><svg class="i"><use href="#i-camera"/></svg><span>Snapshot</span></button>
+            <button data-act="shot" class="tool" title="Save a PNG screenshot" data-t-title="shotTitle"><svg class="i"><use href="#i-camera"/></svg><span data-t="snapshot">Snapshot</span></button>
           </div>
         </div>
       </section>
 
       <aside class="panel pane">
         <div id="info" class="info">
-          <div class="info-empty">No model selected</div>
+          <div class="info-empty" data-t="noModel">No model selected</div>
         </div>
 
         <section id="animBox" class="box anim hidden">
-          <h3>Animations <span id="animCount" class="n"></span></h3>
+          <h3><span data-t="animations">Animations</span> <span id="animCount" class="n"></span></h3>
           <div id="animGroups" class="anim-groups"></div>
           <div class="anim-ctrl">
-            <button id="animPlay" class="anim-play" title="Play / pause" disabled><svg class="i"><use href="#i-play"/></svg></button>
-            <input id="animTime" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Animation time">
+            <button id="animPlay" class="anim-play" title="Play / pause" data-t-title="playPause" disabled><svg class="i"><use href="#i-play"/></svg></button>
+            <input id="animTime" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Animation time" data-t-aria="animTime">
             <span id="animClock" class="anim-clock">0.0 s</span>
           </div>
           <div class="anim-opts">
-            <label class="switch"><input id="animLoop" type="checkbox"><span class="track"></span><span>Loop</span></label>
-            <button id="animReset" class="link-btn" title="Back to the rest pose">Rest pose</button>
+            <label class="switch"><input id="animLoop" type="checkbox"><span class="track"></span><span data-t="loop">Loop</span></label>
+            <button id="animReset" class="link-btn" title="Back to the rest pose" data-t-title="restPoseTitle" data-t="restPose">Rest pose</button>
           </div>
         </section>
 
         <section id="exportBox" class="box hidden">
-          <h3>Export</h3>
+          <h3 data-t="export">Export</h3>
           <div class="formats">
-            <button data-exp="glb" title="Binary glTF with materials and textures (Blender, Windows 3D Viewer, most 3D apps…)"><b>GLB</b><small>glTF binary</small></button>
-            <button data-exp="obj" title="OBJ + MTL + textures in a zip"><b>OBJ</b><small>zip archive</small></button>
-            <button data-exp="stl" title="Raw STL in millimetres, game surfaces as they are"><b>STL</b><small>raw, mm</small></button>
+            <button data-exp="glb" title="Binary glTF with materials and textures (Blender, Windows 3D Viewer, most 3D apps…)" data-t-title="glbTitle"><b>GLB</b><small data-t="glbSmall">glTF binary</small></button>
+            <button data-exp="obj" title="OBJ + MTL + textures in a zip" data-t-title="objTitle"><b>OBJ</b><small data-t="objSmall">zip archive</small></button>
+            <button data-exp="stl" title="Raw STL in millimetres, game surfaces as they are" data-t-title="stlTitle"><b>STL</b><small data-t="stlSmall">raw, mm</small></button>
           </div>
-          <label class="switch"><input id="expTex" type="checkbox" checked><span class="track"></span><span>Textures in GLB / OBJ</span></label>
-          <label class="switch"><input id="expDecals" type="checkbox"><span class="track"></span><span>Decals in OBJ / STL</span></label>
-          <label id="expAnimRow" class="switch hidden"><input id="expAnim" type="checkbox" checked><span class="track"></span><span>Animations in GLB</span></label>
-          <label id="expPoseRow" class="switch hidden" title="Exports and 3D prints freeze the model as you see it: landing gear down, ramp open, any animation paused where you left it. A GLB with its animations keeps the rest pose"><input id="expPose" type="checkbox" checked><span class="track"></span><span>Pose as shown</span></label>
+          <label class="switch"><input id="expTex" type="checkbox" checked><span class="track"></span><span data-t="expTex">Textures in GLB / OBJ</span></label>
+          <label class="switch"><input id="expDecals" type="checkbox"><span class="track"></span><span data-t="expDecals">Decals in OBJ / STL</span></label>
+          <label id="expAnimRow" class="switch hidden"><input id="expAnim" type="checkbox" checked><span class="track"></span><span data-t="expAnim">Animations in GLB</span></label>
+          <label id="expPoseRow" class="switch hidden" title="Exports and 3D prints freeze the model as you see it: landing gear down, ramp open, any animation paused where you left it. A GLB with its animations keeps the rest pose" data-t-title="expPoseTitle"><input id="expPose" type="checkbox" checked><span class="track"></span><span data-t="expPose">Pose as shown</span></label>
         </section>
 
         <section id="printBox" class="box print hidden">
-          <h3>3D print</h3>
-          <p class="hint">A solid, watertight STL in millimetres, ready for the slicer. Runs Blender in the background; large models can take a few minutes.</p>
+          <h3 data-t="print3dTitle">3D print</h3>
+          <p class="hint" data-t="printHint">A solid, watertight STL in millimetres, ready for the slicer. Runs Blender in the background; large models can take a few minutes.</p>
           <div class="print-opts">
             <label class="field">Voxel <input id="voxel" type="number" min="0" step="0.05" placeholder="auto"><em>mm</em></label>
-            <label class="switch"><input id="fill" type="checkbox" checked><span class="track"></span><span>Fill interior</span></label>
+            <label class="switch"><input id="fill" type="checkbox" checked><span class="track"></span><span data-t="fill">Fill interior</span></label>
           </div>
-          <button id="btnPrint" class="primary">Create printable STL</button>
+          <button id="btnPrint" class="primary" data-t="printCreate">Create printable STL</button>
           <div id="printStatus" class="hint print-status"></div>
-          <button id="btnOpenExports" class="link-btn"><svg class="i"><use href="#i-folder"/></svg>Open exports folder</button>
+          <button id="btnOpenExports" class="link-btn"><svg class="i"><use href="#i-folder"/></svg><span data-t="openExports">Open exports folder</span></button>
         </section>
 
         <section id="decalBox" class="box print hidden">
-          <h3>Decal sheet</h3>
-          <p class="hint">The ship's markings (text, numbers, emblems, livery) at kit scale, for water-slide decal paper. Two PDFs at 600 dpi: one for clear paper with its white mask, one for white paper on the hull colour.</p>
+          <h3 data-t="decalSheet">Decal sheet</h3>
+          <p class="hint" data-t="decalHint">The ship's markings (text, numbers, emblems, livery) at kit scale, for water-slide decal paper. Two PDFs at 600 dpi: one for clear paper with its white mask, one for white paper on the hull colour.</p>
           <div class="print-opts">
-            <label class="field">Scale 1: <input id="decalScale" type="number" min="1" max="5000" step="1" value="72"></label>
-            <label class="field">Paper <select id="decalPaper"><option value="a4">A4</option><option value="letter">Letter</option></select></label>
+            <label class="field"><span data-t="decalScaleLabel">Scale 1:</span> <input id="decalScale" type="number" min="1" max="5000" step="1" value="72"></label>
+            <label class="field"><span data-t="decalPaper">Paper</span> <select id="decalPaper"><option value="a4">A4</option><option value="letter">Letter</option></select></label>
           </div>
           <div id="decalSize" class="hint"></div>
-          <button id="btnDecals" class="primary">Create decal sheets</button>
+          <button id="btnDecals" class="primary" data-t="decalCreate">Create decal sheets</button>
           <div id="decalStatus" class="hint print-status"></div>
         </section>
 
         <details id="matBox" class="box fold hidden" open>
-          <summary><h3>Materials <span id="matCount" class="n"></span></h3><svg class="chev"><use href="#i-chevron"/></svg></summary>
-          <p class="hint">Click a material to hide it.</p>
+          <summary><h3><span data-t="materials">Materials</span> <span id="matCount" class="n"></span></h3><svg class="chev"><use href="#i-chevron"/></svg></summary>
+          <p class="hint" data-t="matHint">Click a material to hide it.</p>
           <ul id="mats" class="mats"></ul>
         </details>
         <details id="relBox" class="box fold hidden">
-          <summary><h3>Same folder <span id="relCount" class="n"></span></h3><svg class="chev"><use href="#i-chevron"/></svg></summary>
+          <summary><h3><span data-t="sameFolder">Same folder</span> <span id="relCount" class="n"></span></h3><svg class="chev"><use href="#i-chevron"/></svg></summary>
           <ul id="related" class="related"></ul>
         </details>
       </aside>
@@ -235,30 +240,34 @@
 
   <dialog id="settings">
     <form method="dialog" class="settings">
-      <h2>Settings</h2>
-      <label class="field-col"><span>Data.p4k location</span><input id="cfgP4k" type="text" spellcheck="false"></label>
-      <label class="field-col"><span>Exports folder</span><input id="cfgExport" type="text" spellcheck="false"></label>
-      <label class="field-col"><span>Blender executable <em>for 3D printing</em></span><input id="cfgBlender" type="text" placeholder="Detected automatically" spellcheck="false"><em id="blenderLine" class="version-line"></em></label>
-      <div class="field-col"><span>Appearance</span>
-        <select id="cfgAppearance"><option value="system">Match system</option><option value="light">Light</option><option value="dark">Dark</option></select>
+      <h2 data-t="settings">Settings</h2>
+      <label class="field-col"><span data-t="cfgP4k">Data.p4k location</span><input id="cfgP4k" type="text" spellcheck="false"></label>
+      <label class="field-col"><span data-t="cfgExport">Exports folder</span><input id="cfgExport" type="text" spellcheck="false"></label>
+      <label class="field-col"><span><span data-t="cfgBlender">Blender executable</span> <em data-t="cfgBlenderFor">for 3D printing</em></span><input id="cfgBlender" type="text" placeholder="Detected automatically" spellcheck="false"><em id="blenderLine" class="version-line"></em></label>
+      <div class="field-col"><span data-t="appearance">Appearance</span>
+        <select id="cfgAppearance"><option value="system" data-t="appSystem">Match system</option><option value="light" data-t="appLight">Light</option><option value="dark" data-t="appDark">Dark</option></select>
       </div>
-      <div class="field-col"><span>Updates</span>
+      <div class="field-col"><span data-t="language">Language</span>
+        <select id="cfgLang"></select>
+        <em class="version-line" data-t="langNote">Names of ships and items follow the language, where the game has them. Translations may contain mistakes: tell us with Feedback.</em>
+      </div>
+      <div class="field-col"><span data-t="updates">Updates</span>
         <div class="update-row">
-          <label class="switch"><input id="cfgUpdates" type="checkbox" checked><span class="track"></span><span>Check for new versions at startup</span></label>
-          <button id="btnCheckUpdates" type="button" class="link-btn">Check now</button>
+          <label class="switch"><input id="cfgUpdates" type="checkbox" checked><span class="track"></span><span data-t="cfgUpdates">Check for new versions at startup</span></label>
+          <button id="btnCheckUpdates" type="button" class="link-btn" data-t="checkNow">Check now</button>
         </div>
         <em id="versionLine" class="version-line"></em>
       </div>
-      <div class="field-col"><span>Cache</span>
+      <div class="field-col"><span data-t="cache">Cache</span>
         <div class="update-row">
-          <label class="switch" title="Models and textures already opened are kept on disk and open again much faster"><input id="cfgDiskCache" type="checkbox" checked><span class="track"></span><span>Keep opened models and textures on disk</span></label>
-          <button id="btnClearCache" type="button" class="link-btn">Clear</button>
+          <label class="switch" title="Models and textures already opened are kept on disk and open again much faster" data-t-title="cfgCacheTitle"><input id="cfgDiskCache" type="checkbox" checked><span class="track"></span><span data-t="cfgCache">Keep opened models and textures on disk</span></label>
+          <button id="btnClearCache" type="button" class="link-btn" data-t="cacheClear">Clear</button>
         </div>
         <em id="cacheLine" class="version-line"></em>
       </div>
       <div class="dialog-actions">
-        <button value="cancel" class="ghost">Cancel</button>
-        <button id="cfgSave" value="save" class="primary">Save</button>
+        <button value="cancel" class="ghost" data-t="cancel">Cancel</button>
+        <button id="cfgSave" value="save" class="primary" data-t="save">Save</button>
       </div>
     </form>
   </dialog>
@@ -268,15 +277,15 @@
       <div class="update-head">
         <svg class="update-icon"><use href="#i-download"/></svg>
         <div>
-          <h2>Update available</h2>
+          <h2 data-t="updAvailable">Update available</h2>
           <p id="updText" class="hint"></p>
         </div>
       </div>
       <div id="updNotes" class="update-notes"></div>
       <div id="updProgress" class="update-progress hidden"><div class="bar"><span></span></div><p class="hint"></p></div>
       <div class="dialog-actions">
-        <button id="updSkip" value="skip" class="link-btn skip">Skip this version</button>
-        <button value="later" class="ghost">Later</button>
+        <button id="updSkip" value="skip" class="link-btn skip" data-t="updSkip">Skip this version</button>
+        <button value="later" class="ghost" data-t="later">Later</button>
         <button id="updGo" type="button" class="primary">Update now</button>
       </div>
     </form>
@@ -284,39 +293,40 @@
   <dialog id="reportDlg">
     <form method="dialog" class="settings report">
       <div class="report-head">
-        <h2>Feedback</h2>
+        <h2 data-t="feedback">Feedback</h2>
         <div class="tabs">
-          <button type="button" class="tab is-on" data-tab="new">New report</button>
-          <button type="button" class="tab" data-tab="mine">My reports</button>
+          <button type="button" class="tab is-on" data-tab="new" data-t="repTabNew">New report</button>
+          <button type="button" class="tab" data-tab="mine" data-t="repTabMine">My reports</button>
         </div>
       </div>
       <div id="repNew" class="rep-pane">
         <div class="kind-row">
-          <button type="button" class="kind is-on" data-kind="bug">Bug</button>
-          <button type="button" class="kind" data-kind="idea">Idea</button>
+          <button type="button" class="kind is-on" data-kind="bug" data-t="repBug">Bug</button>
+          <button type="button" class="kind" data-kind="idea" data-t="repIdea">Idea</button>
         </div>
-        <label class="field-col"><span>Title</span><input id="repTitle" type="text" maxlength="120" spellcheck="true" placeholder="Short summary, e.g. Carrack interior has no textures"></label>
-        <label class="field-col"><span>Details <em>what happened, or what you would like</em></span><textarea id="repText" rows="6" maxlength="8000" placeholder="Steps to reproduce, what you expected, what you saw…"></textarea></label>
-        <label class="switch"><input id="repPicture" type="checkbox" checked><span class="track"></span><span>Attach a picture of the 3D view</span></label>
-        <label class="switch"><input id="repDetails" type="checkbox" checked><span class="track"></span><span>Attach technical details (version, system, graphics card, log)</span></label>
-        <details id="repPreviewBox" class="rep-preview"><summary>What will be sent</summary><pre id="repPreview"></pre></details>
-        <p class="hint">Reports and pictures are public on GitHub. Personal folders and names are removed.</p>
+        <label class="field-col"><span data-t="repTitle">Title</span><input id="repTitle" type="text" maxlength="120" spellcheck="true" placeholder="Short summary, e.g. Carrack interior has no textures" data-t-ph="repTitlePh"></label>
+        <label class="field-col"><span><span data-t="repDetails">Details</span> <em data-t="repDetailsHint">what happened, or what you would like</em></span><textarea id="repText" rows="6" maxlength="8000" placeholder="Steps to reproduce, what you expected, what you saw…" data-t-ph="repTextPh"></textarea></label>
+        <label class="switch"><input id="repPicture" type="checkbox" checked><span class="track"></span><span data-t="repPicture">Attach a picture of the 3D view</span></label>
+        <label class="switch"><input id="repDetails" type="checkbox" checked><span class="track"></span><span data-t="repTech">Attach technical details (version, system, graphics card, log)</span></label>
+        <details id="repPreviewBox" class="rep-preview"><summary data-t="repPreview">What will be sent</summary><pre id="repPreview"></pre></details>
+        <p class="hint" data-t="repPublic">Reports and pictures are public on GitHub. Personal folders and names are removed.</p>
         <p id="repError" class="rep-error hidden"></p>
         <div class="dialog-actions">
-          <button id="repFallback" type="button" class="link-btn skip hidden">Open on GitHub instead</button>
-          <button value="cancel" class="ghost">Cancel</button>
-          <button id="repSend" type="button" class="primary" disabled>Send</button>
+          <button id="repFallback" type="button" class="link-btn skip hidden" data-t="repFallback">Open on GitHub instead</button>
+          <button value="cancel" class="ghost" data-t="cancel">Cancel</button>
+          <button id="repSend" type="button" class="primary" disabled data-t="repSend">Send</button>
         </div>
       </div>
       <div id="repMine" class="rep-pane hidden">
         <ul id="repList" class="rep-list"></ul>
         <p id="repMineNote" class="hint"></p>
-        <div class="dialog-actions"><button value="close" class="ghost">Close</button></div>
+        <div class="dialog-actions"><button value="close" class="ghost" data-t="close">Close</button></div>
       </div>
     </form>
   </dialog>
 
   <div id="toast" class="toast hidden"></div>
+  <script src="i18n.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

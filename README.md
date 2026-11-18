@@ -188,6 +188,14 @@ at all, add `--appimage-extract-and-run` at the end of the command.
   *Clear* empties it.
 - **Light / dark mode**: the sun/moon button in the top bar switches it; by default it follows the system
   (also selectable in **Settings → Appearance**).
+- **Language** (Settings → Language): English by default, plus the ten other languages of the game: Italian,
+  French, German, Spanish (Spain and Latin America), Brazilian Portuguese, Japanese, Korean, Simplified and
+  Traditional Chinese. The names of ships, items, paints and rooms follow the language where the game has them
+  translated (English otherwise), and the search finds a model by either name. Exported file names, the MFD pages
+  and the installer stay in English. The translations have not all been checked by native speakers: corrections
+  are welcome through *Feedback*. To fix or add a language, copy `web/locales/en.json` to `web/locales/<code>.json`,
+  translate the values (keep the `{placeholders}`) and, for a new one, add it to `LANGUAGES` in
+  `sc_explorer/i18n.py`; anything left out stays English.
 - **Updates**: at startup VerseForge checks the [Releases](../../releases) page. When a newer version exists it shows
   what is new and asks whether to update: **Update now** downloads the installer (checking its SHA-256), installs it
   and reopens the program; **Later** keeps an "Update" button in the top bar; **Skip this version** stops asking until
@@ -313,7 +321,7 @@ sc_explorer/containers.py object containers (.socpak): placed brushes and entiti
 sc_explorer/backdrops.py 360° space panoramas (Pyro, Stanton) from the game's sky textures
 sc_explorer/diskcache.py disk cache of built models (GLB, info) and textures, per program and game version
 sc_explorer/catalog.py   catalogue, categories, in-game names, search
-sc_explorer/i18n.py      texts produced by the server (status, categories, warnings)
+sc_explorer/i18n.py      every text in English, the languages, and the lookup of translations (web/locales/*.json)
 sc_explorer/export.py    GLB / OBJ / STL
 sc_explorer/printing.py  closed STL for 3D printing (Blender + interior fill)
 sc_explorer/server.py    web API

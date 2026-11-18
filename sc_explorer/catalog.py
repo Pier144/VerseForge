@@ -71,12 +71,13 @@ class Item:
 
 
 def subtitle(it):
-    kind = i18n.t("hull") if it.kind == "hull" else i18n.WEAPON_TYPES.get(it.kind, "")
+    kind = i18n.t("hull") if it.kind == "hull" else i18n.weapon_type(it.kind)
     return " · ".join(x for x in (it.manu, kind, it.stem) if x)
 
 
 def compact(s):
-    return re.sub(r"[^a-z0-9]+", "", s.lower())
+    """Search key of a text: lowercase letters and digits of any script (names can be Japanese, Korean, Chinese)."""
+    return re.sub(r"[\W_]+", "", s.lower())
 
 
 def categorize(p):
@@ -254,15 +255,25 @@ def pretty(path):
 _DCB_PATTERN = re.compile(rb"@(item_Name[A-Za-z0-9_\-]+)\x00|([A-Za-z0-9_/\.\-]+\.(?:cdf|cga|cgf|skin))\x00")
 
 
-def localization(archive, language="english"):
-    """global.ini as {lowercase key: text}."""
+def _global_ini(archive, language):
     ini = next((n for n in archive.names if n.lower() == f"data\\localization\\{language}\\global.ini"), None)
     loc = {}
     if ini:
         for line in archive.read(ini).decode("utf-8-sig", "replace").splitlines():
             k, sep, v = line.partition("=")
-            if sep:
+            # texts the game has not translated yet hold a note instead ("! ITALIAN_(ITALY) TRANSLATION NOT FOUND
+            # FOR LOCID: ... !"): left out, so the English text is used
+            if sep and "TRANSLATION NOT FOUND" not in v:
                 loc[k.split(",")[0].strip().lower()] = v.strip()
+    return loc
+
+
+def localization(archive, language="english"):
+    """global.ini as {lowercase key: text}. Another language is laid over the English texts, so what the game has
+    not translated stays English."""
+    loc = _global_ini(archive, "english")
+    if language != "english":
+        loc.update({k: v for k, v in _global_ini(archive, language).items() if v})
     return loc
 
 
@@ -270,28 +281,46 @@ def game_names(archive, language="english"):
     """Map geometry path (lowercase) -> in-game names, using the order of strings in DataCore.
 
     DataCore stores strings in first-use order, so an item's '@item_Name<class>' key is followed closely by the
-    geometry it references. Not a full DataCore parse, but it names most weapons, armour, tools and vehicles."""
+    geometry it references. Not a full DataCore parse, but it names most weapons, armour, tools and vehicles.
+    For another language the answer is {"names": {path: [names]}, "english": {path: [English names]}}: the catalogue
+    shows the first and still finds (and sorts into sub-categories) by the second."""
     dcb = next((n for n in archive.names if n.lower().endswith(".dcb")), None)
-    loc = localization(archive, language)
-    if not dcb or not loc:
+    english = _global_ini(archive, "english")
+    if not dcb or not english:
         return {}
     data = archive.read(dcb)
-    names, last_key, last_pos = {}, None, -10 ** 9
+    keys, last_key, last_pos = {}, None, -10 ** 9
     for m in _DCB_PATTERN.finditer(data):
         if m.group(1):
             key = m.group(1).decode().lower()
-            if not key.endswith(("_short", "_desc")) and key in loc:
+            if not key.endswith(("_short", "_desc")) and key in english:
                 last_key, last_pos = key, m.start()
         elif last_key and m.start() - last_pos < 6000:
             path = m.group(2).decode().lower()
-            label = loc[last_key]
-            if label and not label.startswith("@") and label not in names.setdefault(path, []):
-                names[path].append(label)
-    return names
+            if last_key not in keys.setdefault(path, []):
+                keys[path].append(last_key)
+
+    def named(loc):
+        out = {}
+        for path, ks in keys.items():
+            labels = []
+            for k in ks:
+                label = loc.get(k) or english[k]
+                if label and not label.startswith("@") and label not in labels:
+                    labels.append(label)
+            out[path] = labels
+        return out
+
+    if language == "english":
+        return named(english)
+    return {"names": named(_global_ini(archive, language)), "english": named(english)}
 
 
 def build(archive, names=None):
     names = names or {}
+    english = names.get("english") if isinstance(names.get("english"), dict) else None
+    if english is not None:
+        names = names.get("names") or {}
     items = []
     ship_folders = defaultdict(list)
     for i, raw in enumerate(archive.names):
@@ -306,10 +335,14 @@ def build(archive, names=None):
         name, manu, kind = pretty(path)
         ext = path.rsplit(".", 1)[-1].lower()
         main = not JUNK.search(stem) and ext != "chr"
-        labels = names.get(path.lower(), []) if cat not in ("environments", "other") else []
-        key = compact(path) + compact(manu) + compact(labels[0] if labels else name) + "".join(compact(x) for x in labels)
+        named = cat not in ("environments", "other")
+        labels = names.get(path.lower(), []) if named else []
+        # another language: the English names still find the model, and sort it into its sub-category
+        en = english.get(path.lower(), []) if english is not None and named else labels
+        key = compact(path) + compact(manu) + compact(labels[0] if labels else name) + \
+            "".join(compact(x) for x in labels + [x for x in en if x not in labels])
         it = Item(path, labels[0] if labels else name, manu, kind, cat, ext, int(archive.usize[i]), main, key,
-                  sub=subcategorize(path, cat, labels[0] if labels else ""))
+                  sub=subcategorize(path, cat, en[0] if en else ""))
         if labels:
             it.game_name, it.stem = True, stem
         if cat == "ships":
@@ -337,7 +370,7 @@ def build(archive, names=None):
 def subcategory_label(cat, sub):
     if cat == "ships":
         return MANUFACTURERS.get(sub, sub.upper())
-    return i18n.SUBCATEGORIES.get(cat, {}).get(sub, sub)
+    return i18n.subcategory(cat, sub)
 
 
 def subcategories(items):

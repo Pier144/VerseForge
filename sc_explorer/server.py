@@ -31,14 +31,17 @@ DEFAULT_EXPORTS = paths.documents_dir()
 
 
 def load_config():
-    cfg = {"p4k_path": "", "export_dir": DEFAULT_EXPORTS, "blender": "", "language": "english",
+    cfg = {"p4k_path": "", "export_dir": DEFAULT_EXPORTS, "blender": "", "lang": "en",
            "appearance": "system", "check_updates": True, "skip_version": "", "disk_cache": True}
     if os.path.exists(CONFIG_FILE):
         try:
             cfg.update(json.load(open(CONFIG_FILE, encoding="utf-8")))
         except (OSError, ValueError):
             pass
-    cfg.pop("ui_lang", None)          # setting of older versions (the interface is English only now)
+    cfg.pop("ui_lang", None)          # settings of older versions: the language is "lang" now, and the game's
+    cfg.pop("language", None)         # names follow it
+    if cfg.get("lang") not in i18n.LANGUAGES:
+        cfg["lang"] = "en"
     if not cfg["p4k_path"]:
         cfg["p4k_path"] = paths.find_p4k()   # first start: the usual install folder (Linux: Wine/Lutris prefixes)
     return cfg
@@ -52,6 +55,7 @@ def save_config(cfg):
 class State:
     def __init__(self):
         self.cfg = load_config()
+        i18n.set_language(self.cfg["lang"])
         self.archive = None
         self.textures = None
         self.items = []
@@ -101,6 +105,7 @@ class State:
             if not self.disk_forced_off:
                 self.disk.bind(__version__, path)
             self.by_path = {it.path.lower(): it for it in items}
+            self.loc = None
             self.models.clear()
             self.status = {"ready": True, "message": ("models_ready", {"n": len(items)}), "progress": 1.0, "error": None}
         except Exception as e:
@@ -109,12 +114,13 @@ class State:
 
     def _names(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"names_{self.cfg['language']}_{st.st_size}_{int(st.st_mtime)}.json")
+        lang = i18n.game_language()
+        cache = os.path.join(CACHE_DIR, f"names3_{lang}_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
-        names = catalog.game_names(arch, self.cfg["language"])
+        names = catalog.game_names(arch, lang)
         for old in os.listdir(CACHE_DIR):
-            if old.startswith("names_"):
+            if old.startswith(("names_", "names2_", f"names3_{lang}_")):
                 try:
                     os.remove(os.path.join(CACHE_DIR, old))
                 except OSError:
@@ -124,13 +130,14 @@ class State:
 
     def _variants(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"variants_v3_{self.cfg['language']}_{st.st_size}_{int(st.st_mtime)}.json")
+        lang = i18n.game_language()
+        cache = os.path.join(CACHE_DIR, f"variants_v5_{lang}_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
-        out = variants.build(arch.read(dcb), catalog.localization(arch, self.cfg["language"]))
-        for old in os.listdir(CACHE_DIR):
-            if old.startswith("variants_"):
+        out = variants.build(arch.read(dcb), catalog.localization(arch, lang))
+        for old in os.listdir(CACHE_DIR):           # one file per language is kept: switching back is quick
+            if old.startswith("variants_") and not old.startswith("variants_v5_") or old.startswith(f"variants_v5_{lang}_"):
                 try:
                     os.remove(os.path.join(CACHE_DIR, old))
                 except OSError:
@@ -240,7 +247,7 @@ def status():
     return {**state.status, "message": _msg(state.status["message"]), "error": _msg(state.status["error"]),
             "app": APP_NAME, "version": __version__, "p4k_path": state.cfg["p4k_path"], "export_dir": state.cfg["export_dir"],
             "blender": printing.find_blender(state.cfg.get("blender")), "blender_setting": state.cfg.get("blender", ""),
-            "appearance": state.cfg.get("appearance", "system"),
+            "appearance": state.cfg.get("appearance", "system"), "lang": i18n.language(),
             "check_updates": bool(state.cfg.get("check_updates", True)),
             "disk_cache": state.disk.enabled, "disk_cache_bytes": state.disk.size, "disk_cache_limit": state.disk.limit,
             "memory": {"models": len(state.models), "models_bytes": state.models.bytes, "models_budget": state.models.budget,
@@ -262,7 +269,7 @@ def categories():
         if it.main:
             counts[it.category] = counts.get(it.category, 0) + 1
     subs = catalog.subcategories(state.items)
-    return [{"id": k, "label": i18n.CATEGORIES[k], "short": i18n.CATEGORIES_SHORT[k], "count": counts.get(k, 0),
+    return [{"id": k, "label": i18n.category(k), "short": i18n.category_short(k), "count": counts.get(k, 0),
              "subs": [{"id": s, "label": label, "count": n} for s, label, n in subs[k]]} for k in catalog.CATEGORIES]
 
 
@@ -286,7 +293,7 @@ def related(path: str):
 @app.get("/api/model/info")
 def model_info(path: str, variant: str = None, full: bool = False, interior: bool = False):
     _require_ready()
-    key = (path.lower(), variant, bool(full), bool(interior))
+    key = (path.lower(), variant, bool(full), bool(interior), i18n.language())     # names and warnings are texts
     cached = state.disk.get("info", key, "json")
     if cached is not None:
         return Response(cached, media_type="application/json")
@@ -326,7 +333,7 @@ def _room_label(r):
     if key:
         if state.loc is None:
             try:
-                state.loc = catalog.localization(state.archive, state.cfg["language"])
+                state.loc = catalog.localization(state.archive, i18n.game_language())
             except Exception:
                 state.loc = {}
         text = state.loc.get(key)
@@ -551,7 +558,7 @@ def export_model(path: str, fmt: str = Query("glb", pattern="^(glb|obj|stl)$"), 
     elif fmt == "obj":
         data, name = export.to_obj_zip(m, stem, include_decals=decals, textures=tex_cache, tex_size=2048), f"{stem}_obj.zip"
     else:
-        data, name = export.to_stl(m, include_decals=decals), f"{stem}_{tr('suffix_raw')}.stl"
+        data, name = export.to_stl(m, include_decals=decals), f"{stem}_raw_mm.stl"
     saved = _save_export(data, name)
     return Response(data, media_type="application/octet-stream",
                     headers={"Content-Disposition": f'attachment; filename="{name}"', "X-Saved-To": saved})
@@ -592,7 +599,7 @@ def _run_print_job(job_id, path, voxel, fill, full=False, pose=None):
         stl = export.to_stl(m, include_decals=False)
         data, info = printing.make_printable(stl, blender, voxel, fill,
                                              lambda msg, frac: job.update(message=msg, progress=frac))
-        job["file"] = _save_export(data, f"{_stem(path)}{'_pose' if moved else ''}_{tr('suffix_print')}.stl")
+        job["file"] = _save_export(data, f"{_stem(path)}{'_pose' if moved else ''}_print3d_mm.stl")
         job.update(state="done", message=("done",), progress=1.0, info=info)
     except Exception as e:
         traceback.print_exc()
@@ -628,8 +635,11 @@ def print_file(job_id: str):
 # ------------------------------------------------------------------ settings
 @app.post("/api/config")
 def set_config(p4k_path: str = "", export_dir: str = "", blender: str = None, appearance: str = "", check_updates: str = "",
-               disk_cache: str = ""):
+               disk_cache: str = "", lang: str = ""):
     changed_p4k = p4k_path and p4k_path != state.cfg["p4k_path"]
+    changed_lang = lang in i18n.LANGUAGES and lang != state.cfg["lang"]
+    if changed_lang:
+        state.cfg["lang"] = i18n.set_language(lang)
     if check_updates in ("true", "false"):
         state.cfg["check_updates"] = check_updates == "true"
     if disk_cache in ("true", "false"):
@@ -644,9 +654,16 @@ def set_config(p4k_path: str = "", export_dir: str = "", blender: str = None, ap
     if appearance in ("system", "light", "dark"):
         state.cfg["appearance"] = appearance
     save_config(state.cfg)
-    if changed_p4k:
+    if changed_p4k or changed_lang:     # another language: the game's names of models, paints and rooms change too
+        state.status = {"ready": False, "message": ("reading_index",), "progress": 0.05, "error": None}
         threading.Thread(target=state.load, daemon=True).start()
     return status()
+
+
+@app.get("/api/i18n")
+def page_language():
+    """The language and every text of the page (web/i18n.js)."""
+    return i18n.page_strings()
 
 
 @app.post("/api/open-exports")

@@ -20,25 +20,15 @@ const api = async (url, opts) => {
   return r;
 };
 
-// ---------------------------------------------------------------- texts built by the script
-const STRINGS = {
-  loading: "Loading…", loadingOf: "Loading {name}…", width: "Width", length: "Length", height: "Height",
-  triangles: "Triangles", parts: "Parts", materials: "Materials", variant: "Variant / paint",
-  loadFailed: "Could not load the model: {error}", exported: "Exported {name} (copy saved to {dir})",
-  exportsDir: "exports", exportFailed: "Export failed: {error}", print3d: "3D print: {error}",
-  loadPrepare: "Preparing the model on the server…", loadDownload: "Downloading {done} / {total} MB",
-  loadDownloadNoSize: "Downloading {done} MB", loadTextures: "Game textures {done} / {total}", loadScene: "Building the scene…", loadShaders: "Preparing shaders…",
-  printReady: "Ready: {size} mm, {volume} cm³, {closed}.", closedYes: "watertight ✓", closedNo: "not fully closed",
-  downloadStl: "Download STL", printDone: "Printable STL of {name} ready", results: "{n} results",
-  resultsOf: "{n} results · showing {shown}", all: "All", openSettings: "open Settings to fix the path",
-  decalSize: "The model is {size} long at this scale.", decalWorking: "Drawing the markings…",
-  decalReady: "Ready: {pieces} decals on {pages} page(s) per sheet.", decalSmall: "{n} too small to read at this scale were left out.",
-  decalBig: "{n} larger than the page were left out.",
-  rooms: "Rooms", roomsN: "{n} rooms", roomsAll: "Whole ship", deckN: "Deck {n}",
-  serverDown: "Server not reachable…", saved: "Settings saved", kindDecal: "decal", kindGlass: "glass", kindProxy: "proxy", kindScreen: "screen",
-};
+// ---------------------------------------------------------------- texts
+// Every text, in the chosen language, comes from the server (i18n.js asked for it and has already written the fixed
+// texts of the page); the English originals are in sc_explorer/i18n.py (UI) and in index.html (data-t keys).
+const I18N = await window.vfI18n;
+const STRINGS = I18N.strings;
 const T = (key, vars = {}) => (STRINGS[key] ?? key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
-const num = (n) => n.toLocaleString("en-US");
+const num = (n) => n.toLocaleString(I18N.lang);
+// "{n} comment" / "{n} comments": the key for one, the key for any other number
+const plural = (n, one, many) => T(n === 1 ? one : many, { n });
 
 const CAT_LABELS = {};
 const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy", screen: "kindScreen" };
@@ -635,8 +625,8 @@ function applyResin() {
   const scale = longest <= RESIN_LIFE_SIZE_M ? 1 : longest * 1000 / RESIN_PLATE_MM;   // model mm per printed mm
   resinLayer.value = RESIN_LAYER_MM * scale / 1000;
   $("#resinScale").textContent = resin === "off" ? "" : scale === 1
-    ? `Printed life size (1:1), ${RESIN_LAYER_MM} mm layers.`
-    : `Printed at 1:${Math.round(scale)} (${RESIN_PLATE_MM} mm long), ${RESIN_LAYER_MM} mm layers.`;
+    ? T("resinLife", { layer: RESIN_LAYER_MM })
+    : T("resinScaled", { scale: Math.round(scale), plate: RESIN_PLATE_MM, layer: RESIN_LAYER_MM });
   const mat = resin === "off" ? null : resinMaterial(resin);
   modelRoot.traverse((o) => {
     if (!o.isMesh) return;
@@ -811,7 +801,7 @@ async function loadModel(item, keepView = false) {
     buildDecks(info.decks || []);
     buildRooms(info.interior ? info.rooms || [] : [], info.decks || []);
     applySection();
-    $("#fullLabel").textContent = info.ground_vehicle ? "Full vehicle" : "Full ship";
+    $("#fullLabel").textContent = T(info.ground_vehicle ? "fullVehicle" : "fullShip");
     loadRelated(item);
   } catch (e) {
     $("#info").innerHTML = infoHead(item) + `<p class="warn">${esc(e.message)}</p>`;
@@ -939,7 +929,7 @@ function showAnimations(list) {
     const buttons = el("span", "acts");
     acts.forEach((a) => {
       const b = el("button", "anim-act", a.label);
-      b.title = `${a.group} · ${a.label} (${a.duration.toFixed(1)} s` + (a.speed < 0 ? ", reversed)" : ")");
+      b.title = `${a.group} · ${a.label} (${a.duration.toFixed(1)} s` + (a.speed < 0 ? `, ${T("animReversed")})` : ")");
       b.dataset.id = a.id;
       b.onclick = () => playAnimation(a);
       buttons.appendChild(b);
@@ -1318,9 +1308,9 @@ function buildDecks(floors = []) {
   };
   floors.forEach((f, i) => {
     const top = Math.min(f + DECK_HEADROOM, (floors[i + 1] ?? Infinity) - 0.2);
-    mk(String(i + 1), `Deck ${i + 1}: remove everything above it`, Math.min(1, (top - sectionBox.min.y) / span));
+    mk(String(i + 1), T("deckTitle", { n: i + 1 }), Math.min(1, (top - sectionBox.min.y) / span));
   });
-  mk("All", "Whole ship", 1);
+  mk(T("all"), T("roomsAll"), 1);
 }
 
 // "Full ship": remembered for the session, shown only for ships and vehicles that have a factory loadout
@@ -1485,6 +1475,7 @@ async function runSearch() {
 
 function renderResults({ total, items }) {
   $("#count").textContent = total > items.length ? T("resultsOf", { n: num(total), shown: items.length }) : T("results", { n: num(total) });
+  $("#count").title = $("#count").textContent;
   const ul = $("#results");
   ul.innerHTML = "";
   const frag = document.createDocumentFragment();
@@ -1579,7 +1570,7 @@ function applyAppearance(pref) {
   const mode = appearance === "system" ? (systemDark.matches ? "dark" : "light") : appearance;
   document.documentElement.dataset.mode = mode;
   $("#btnMode use").setAttribute("href", mode === "dark" ? "#i-sun" : "#i-moon");
-  $("#btnMode").title = mode === "dark" ? "Switch to light" : "Switch to dark";
+  $("#btnMode").title = T(mode === "dark" ? "modeToLight" : "modeToDark");
   if (modelRoot) buildGrid(new THREE.Box3().setFromObject(modelRoot));
 }
 systemDark.addEventListener("change", () => { if (appearance === "system") applyAppearance("system"); });
@@ -1613,15 +1604,15 @@ function notesHtml(md) {
 function showUpdatePill() {
   const pill = $("#btnUpdate");
   pill.classList.toggle("hidden", !update?.available || update.skipped);
-  if (update?.available) pill.querySelector("span").textContent = `Update to ${update.latest}`;
+  if (update?.available) pill.querySelector("span").textContent = T("updateTo", { version: update.latest });
 }
 
 function openUpdateDialog() {
   if (!update?.available) return;
-  $("#updText").textContent = `VerseForge ${update.latest} is available. You have ${update.current}.`;
-  $("#updNotes").innerHTML = notesHtml(update.notes || "") || `<p>${esc("No release notes.")}</p>`;
+  $("#updText").textContent = T("updateText", { latest: update.latest, current: update.current });
+  $("#updNotes").innerHTML = notesHtml(update.notes || "") || `<p>${esc(T("updateNoNotes"))}</p>`;
   $("#updNotes").classList.toggle("hidden", !update.notes);
-  $("#updGo").textContent = update.can_install ? "Update now" : "Open download page";
+  $("#updGo").textContent = T(update.can_install ? "updateNow" : "updateOpenPage");
   $("#updProgress").classList.add("hidden");
   $("#updateDlg").querySelectorAll("button").forEach((b) => { b.disabled = false; });
   if (!$("#updateDlg").open) $("#updateDlg").showModal();
@@ -1631,26 +1622,27 @@ async function checkUpdates(force) {
   try {
     update = await (await api(`/api/update/check?force=${force}`)).json();
   } catch (e) {
-    if (force) toast(`Could not check for updates: ${e.message}`, true);
+    if (force) toast(T("updateCheckFailed", { error: e.message }), true);
     return;
   }
   showUpdatePill();
   if (force) {
-    if (update.error) toast(`Could not reach GitHub: ${update.error}`, true);
+    if (update.error) toast(T("githubUnreachable", { error: update.error }), true);
     else if (update.available) { $("#settings").close(); openUpdateDialog(); }
-    else toast(`VerseForge ${update.current} is the latest version`);
+    else toast(T("upToDate", { version: update.current }));
   } else if (update.enabled && update.available && !update.skipped && !document.querySelector("dialog[open]")) {
     openUpdateDialog();
   }
 }
 
-let installing = false;
+let installing = false, launching = false;
 async function pollUpdate() {
   const box = $("#updProgress");
   try {
     const job = await (await api("/api/update/progress")).json();
     box.querySelector(".bar span").style.width = `${Math.round(job.progress * 100)}%`;
     box.querySelector(".hint").textContent = job.state === "running" ? `${job.message} ${Math.round(job.progress * 100)}%` : job.message;
+    launching = job.state === "launching";
     if (job.state === "error") throw new Error(job.message);
     if (job.state === "running") setTimeout(pollUpdate, 400);
     // "launching": the installer takes over and closes this window
@@ -1658,9 +1650,9 @@ async function pollUpdate() {
     installing = false;
     $("#updateDlg").querySelectorAll("button").forEach((b) => { b.disabled = false; });
     // after the app has quit for the installer the server stops answering: that is expected, not an error
-    if (box.querySelector(".hint").textContent.startsWith("Installing")) return;
+    if (launching) return;
     box.classList.add("hidden");
-    toast(`Update failed: ${e.message}`, true);
+    toast(T("updateFailed", { error: e.message }), true);
   }
 }
 
@@ -1680,7 +1672,7 @@ $("#updGo").addEventListener("click", async () => {
     installing = false;
     $("#updateDlg").querySelectorAll("button").forEach((b) => { b.disabled = false; });
     $("#updProgress").classList.add("hidden");
-    toast(`Update failed: ${e.message}`, true);
+    toast(T("updateFailed", { error: e.message }), true);
   }
 });
 $("#updateDlg").addEventListener("cancel", (e) => { if (installing) e.preventDefault(); });
@@ -1695,6 +1687,13 @@ $("#btnCheckUpdates").addEventListener("click", () => checkUpdates(true));
 
 // ---------------------------------------------------------------- status & settings
 const appearanceDropdown = dropdown($("#cfgAppearance"));
+// Language: the list comes from the server, each language under its own name
+for (const l of I18N.languages) $("#cfgLang").append(new Option(l.name, l.code));
+$("#cfgLang").value = I18N.lang;
+const langDropdown = dropdown($("#cfgLang"));
+// the model on screen when the language was changed: opened again once the catalogue is back in the new language
+let reopen = null;
+try { reopen = sessionStorage.getItem("vf.reopen"); sessionStorage.removeItem("vf.reopen"); } catch { /* storage unavailable */ }
 let appearanceLoaded = false;
 async function pollStatus() {
   const el = $("#status");
@@ -1712,6 +1711,13 @@ async function pollStatus() {
       if (backdrop.kind !== savedBackdrop) backdrop.set(savedBackdrop).catch(() => backdrop.set("plain"));
       await loadCategories();
       runSearch();
+      if (reopen) {
+        const path = reopen;
+        reopen = null;
+        api(`/api/related?path=${encodeURIComponent(path)}`).then((r) => r.json())
+          .then((list) => { const it = list.find((x) => x.path === path); if (it && !state.current) loadModel(it); })
+          .catch(() => { /* the model is simply not reopened */ });
+      }
       return;
     }
   } catch { el.textContent = T("serverDown"); }
@@ -1727,7 +1733,9 @@ $("#btnSettings").addEventListener("click", async () => {
   $("#cfgAppearance").value = appearance;
   appearanceDropdown.sync();
   $("#cfgUpdates").checked = s.check_updates !== false;
-  $("#versionLine").textContent = `You are using VerseForge ${s.version}`;
+  $("#versionLine").textContent = T("versionLine", { version: s.version });
+  $("#cfgLang").value = I18N.lang;
+  langDropdown.sync();
   $("#cfgDiskCache").checked = s.disk_cache !== false;
   showCacheSize(s.disk_cache_bytes, s.disk_cache_limit);
   $("#settings").showModal();
@@ -1735,10 +1743,21 @@ $("#btnSettings").addEventListener("click", async () => {
 // saved on the Save button's click (the dialog's "close" event can come late or not at all in a hidden window)
 $("#cfgSave").addEventListener("click", async () => {
   const p = new URLSearchParams({ p4k_path: $("#cfgP4k").value, export_dir: $("#cfgExport").value, blender: $("#cfgBlender").value,
-    appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked, disk_cache: $("#cfgDiskCache").checked });
+    appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked, disk_cache: $("#cfgDiskCache").checked,
+    lang: $("#cfgLang").value });
   applyAppearance($("#cfgAppearance").value);
   try {
-    showBlender(await (await api(`/api/config?${p}`, { method: "POST" })).json());
+    const saved = await (await api(`/api/config?${p}`, { method: "POST" })).json();
+    if (saved.lang !== I18N.lang) {
+      // another language: the page starts again in it (texts, categories, the game's names), on the same model
+      try {
+        localStorage.setItem("vf.lang", saved.lang);
+        if (state.current) sessionStorage.setItem("vf.reopen", state.current.path);
+      } catch { /* storage unavailable */ }
+      location.reload();
+      return;
+    }
+    showBlender(saved);
     toast(T("saved"));
     pollStatus();
   } catch (e) { toast(e.message, true); }
@@ -1747,23 +1766,22 @@ $("#cfgSave").addEventListener("click", async () => {
 // Blender (Settings): the path typed (the program or its folder; empty = automatic) and what it leads to
 function showBlender(s) {
   const typed = (s.blender_setting || "").trim();
-  $("#cfgBlender").placeholder = !typed && s.blender ? "Detected automatically" : "Path to blender.exe or its folder";
-  $("#blenderLine").textContent = s.blender ? `Using ${s.blender}`
-    : typed ? "Blender not found there: choose blender.exe or the folder that holds it"
-    : "Blender not found: type where blender.exe is (the program or its folder)";
+  $("#cfgBlender").placeholder = T(!typed && s.blender ? "blenderAuto" : "blenderPath");
+  $("#blenderLine").textContent = s.blender ? T("blenderUsing", { path: s.blender })
+    : T(typed ? "blenderNotThere" : "blenderNotFound");
   $("#blenderLine").classList.toggle("missing", !s.blender);
 }
 
 // disk cache (Settings → Cache): how much it holds, and a button to empty it
 const gb = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : `${Math.round(n / 1048576)} MB`);
 function showCacheSize(bytes = 0, limit = 0) {
-  $("#cacheLine").textContent = `Using ${gb(bytes)}${limit ? ` of ${gb(limit)}` : ""} · older files are removed beyond that`;
+  $("#cacheLine").textContent = limit ? T("cacheUse", { size: gb(bytes), limit: gb(limit) }) : T("cacheUseNoLimit", { size: gb(bytes) });
 }
 $("#btnClearCache").addEventListener("click", async () => {
   try {
     const r = await (await api("/api/cache/clear", { method: "POST" })).json();
     showCacheSize(r.bytes, (await (await api("/api/status")).json()).disk_cache_limit);
-    toast("Cache cleared");
+    toast(T("cacheCleared"));
   } catch (e) { toast(e.message, true); }
 });
 
@@ -1833,35 +1851,34 @@ function showReportError(text, offerGitHub = false) {
 }
 
 const REPORT_ERRORS = {
-  rate: () => "Too many reports from this connection, try again in a few minutes.",
-  invalid: (detail) => detail || "The report was not accepted.",
-  unavailable: () => "The report service is not available right now.",
-  network: () => "No connection to the report service.",
-  local: (detail) => `VerseForge could not prepare the report${detail ? `: ${detail}` : "."}`,
+  rate: () => T("repRate"),
+  invalid: (detail) => detail || T("repInvalid"),
+  unavailable: () => T("repUnavailable"),
+  network: () => T("repNetwork"),
+  local: (detail) => (detail ? T("repLocal", { detail }) : T("repLocalNoDetail")),
 };
 
 async function loadMyReports() {
   const list = $("#repList");
   list.replaceChildren();
-  $("#repMineNote").textContent = "Loading…";
+  $("#repMineNote").textContent = T("loading");
   try {
     const { reports, news } = await (await api("/api/report/mine")).json();
-    const STATES = { open: "Open", closed: "Closed", removed: "Removed" };
+    const STATES = { open: T("repOpen"), closed: T("repClosed"), removed: T("repRemoved") };
     for (const r of reports) {
-      const comments = r.comments ? `${r.comments} comment${r.comments === 1 ? "" : "s"} · ` : "";
+      const comments = r.comments ? `${plural(r.comments, "repCommentsOne", "repCommentsMany")} · ` : "";
       const btn = el("button", r.new ? "rep-item is-new" : "rep-item");
       btn.type = "button";
       btn.append(el("span", "rep-num", `#${r.number}`), el("span", "rep-title", r.title),
         el("span", `rep-state ${r.state || ""}`, STATES[r.state] || ""),
-        el("span", "rep-meta", (r.news ? `${r.news} new since you last looked · ` : "") + comments + r.date));
+        el("span", "rep-meta", (r.news ? `${T("repNewSince", { n: r.news })} · ` : "") + comments + r.date));
       btn.addEventListener("click", () => api("/api/report/open", JSON_POST({ number: r.number })).catch((e) => toast(e.message, true)));
       const li = el("li");
       li.append(btn);
       list.append(li);
     }
-    $("#repMineNote").textContent = !reports.length ? "No reports sent from this computer yet."
-      : reports.some((r) => r.state == null) ? "Status unavailable right now: GitHub limits how often it can be checked."
-        : "Click a report to open it on GitHub.";
+    $("#repMineNote").textContent = T(!reports.length ? "repNone"
+      : reports.some((r) => r.state == null) ? "repStatusUnavailable" : "repClickOpen");
     // shown now, so no longer news (the highlight stays in this list until it is reopened)
     if (news) api("/api/report/seen", { method: "POST" }).then(() => showReportNews(0)).catch(() => {});
   } catch (e) { $("#repMineNote").textContent = e.message; }
@@ -1874,9 +1891,9 @@ function showReportNews(news) {
   b.classList.toggle("has-news", news > 0);
   $("#reportCount").textContent = news > 99 ? "99+" : String(news);
   $("#reportCount").classList.toggle("hidden", !(news > 0));
-  b.title = news > 0 ? `${news} new ${news === 1 ? "notification" : "notifications"} on your reports`
-    : "Report a problem or suggest an idea";
+  b.title = news > 0 ? plural(news, "repNewsOne", "repNewsMany") : T("reportTitle");
 }
+showReportNews(0);
 
 // GitHub is asked at most once a minute (the server keeps statuses 60 s) with one request for all reports, and
 // never when nothing was sent: every 5 minutes, and when the window comes back to the front
@@ -1925,14 +1942,14 @@ $("#repSend").addEventListener("click", async () => {
   const btn = $("#repSend");
   showReportError("");
   btn.disabled = true;
-  btn.textContent = "Sending…";
+  btn.textContent = T("repSending");
   try {
     const r = await fetch("/api/report", JSON_POST(f));
     const out = await r.json().catch(() => ({}));
     // 502 = the service answered with an error kind; anything else failed here, in the local server
     if (!r.ok) throw r.status === 502 ? out : { kind: "local", detail: out.detail };
-    if (out.saved === false) toast(`Report #${out.number} sent, but VerseForge could not save its settings: it will be missing from My reports after a restart`, true);
-    else toast(`Report #${out.number} sent, thank you`);
+    if (out.saved === false) toast(T("repSentUnsaved", { n: out.number }), true);
+    else toast(T("repSent", { n: out.number }));
     $("#repTitle").value = "";
     $("#repText").value = "";
     showReportTab("mine");
@@ -1940,7 +1957,7 @@ $("#repSend").addEventListener("click", async () => {
     const kind = REPORT_ERRORS[e?.kind] ? e.kind : "network";
     showReportError(REPORT_ERRORS[kind](e?.detail), kind === "network" || kind === "unavailable");
   } finally {
-    btn.textContent = "Send";
+    btn.textContent = T("repSend");
     reportReady();
   }
 });
