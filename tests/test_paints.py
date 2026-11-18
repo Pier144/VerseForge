@@ -137,6 +137,33 @@ def test_groups_follow_the_material_slot():
     assert paints.group_keys(m)[-2:] == [4, 4]
 
 
+def test_only_the_main_mtl_keeps_its_slots_apart():
+    a = _paint([(0.5, 0.5, 0.5), (0.5, 0.5, 0.5), (0.8, 0.8, 0.8)])      # a.mtl has the most faces: the main one
+    same = _mat("prop", color=(0.3, 0.3, 0.3))
+    # two other .mtl files carrying equal materials (and two slots of one of them) share a group
+    props = [_part(same, "c.mtl", 0, seed=6), _part(same, "d.mtl", 3, seed=7), _part(same, "d.mtl", 4, seed=8)]
+    keys = paints.group_keys(model.Model("m", parts=a.parts + props))
+    assert keys[:5] == [0, 0, 1, 2, 3] and keys[5:] == [4, 4, 4]
+    # the same material on the main .mtl at different indices stays apart
+    twins = [_part(same, "a.mtl", 7, seed=6), _part(same, "a.mtl", 8, seed=7)]
+    keys = paints.group_keys(model.Model("m", parts=a.parts + twins))
+    assert keys[5] != keys[6] and keys[5] not in keys[:5]
+    # interior parts never pick the main .mtl: a big interior .mtl does not turn a.mtl into a loose one
+    big = [_part(same, "i.mtl", 0, n=50, seed=9)]
+    keys = paints.group_keys(model.Model("m", parts=a.parts + big), fixed_from=len(a.parts))
+    assert keys[:5] == [0, 0, 1, 2, 3]
+
+
+def test_check_refuses_a_paint_where_a_merged_group_diverges():
+    a = _paint([(0.5, 0.5, 0.5), (0.5, 0.5, 0.5), (0.8, 0.8, 0.8)])
+    same = _mat("prop", color=(0.3, 0.3, 0.3))
+    ref = model.Model("m", parts=a.parts + [_part(same, "c.mtl", 0, seed=6), _part(same, "d.mtl", 0, seed=7)])
+    g = paints.group_keys(ref)
+    assert g[5] == g[6] and paints.check(ref, ref, g)
+    other = _recolour(ref, 6, color=(0.9, 0.1, 0.1))                    # only one of the two copies changes colour
+    assert not paints.check(ref, other, g)                              # so that paint reloads instead of swapping
+
+
 def test_check_accepts_a_recoloured_paint():
     ref = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)], livery=False)
     other = _paint([(0.9, 0.1, 0.1), (0.1, 0.9, 0.1), (0.3, 0.3, 0.3)], camo=True)  # sticker shows up, camo added

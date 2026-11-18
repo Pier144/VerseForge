@@ -220,13 +220,18 @@ def load_model(archive, path, adb_path=None, animated=True):
     return model
 
 
-def with_variant(model, archive, material=None, palette=None):
-    """Copy of `model` with a paint variant: `material` replaces the model's main .mtl, `palette` tints layers."""
+def main_mtl(parts):
+    """The model's main .mtl: the path with the most faces, the one a livery .mtl replaces (None without any)."""
     weight = {}
-    for p in model.parts:
+    for p in parts:
         if p.mtl_path:
             weight[p.mtl_path] = weight.get(p.mtl_path, 0) + len(p.faces)
-    main = max(weight, key=weight.get) if weight else None
+    return max(weight, key=weight.get) if weight else None
+
+
+def with_variant(model, archive, material=None, palette=None):
+    """Copy of `model` with a paint variant: `material` replaces the model's main .mtl, `palette` tints layers."""
+    main = main_mtl(model.parts)
     override = _mtl(archive, material) if material else None
     cache = {}
     parts = []

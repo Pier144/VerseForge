@@ -2,21 +2,29 @@
 their material comes from, which does not depend on the paint, so every paint has the same geometry; a paint is then
 just a table of materials, one per group, written as the GLB would write them (export.glb_material)."""
 from . import export, materials
+from . import model as model_mod
 
 
 def group_keys(ref_model, fixed_from=None):
     """Group number of every part of `ref_model`, the model in its reference paint (variant_list()[0]). A paint only
-    changes a part's material through its .mtl path and sub-material index (model.with_variant), so parts sharing
-    both, and their reference material, share their material in every paint. Parts without a .mtl path are never
-    repainted (model.with_variant leaves them alone): grouped by material.
+    replaces the materials of the main .mtl (model.main_mtl, model.with_variant), by sub-material index, so parts on
+    it share their material in every paint exactly when they share the index (and the reference material): those
+    are keyed by slot. Every other part keeps its material in every paint but for the palette, so two equal
+    materials from different .mtl files with the same palette stay equal: keyed by material alone, which merges
+    the copies that interior props and loadout items carry. When two of them diverge in some paint, check()
+    refuses that paint (parts of one group must share their material) and the viewer reloads instead of swapping.
     fixed_from: index of the first interior part. Interior parts never change with the paint, so they get their own
-    groups even when they share a .mtl slot with a hull part."""
+    groups even when they share a key with a hull part (and they never take part in picking the main .mtl)."""
+    hull = ref_model.parts if fixed_from is None else ref_model.parts[:fixed_from]
+    main = model_mod.main_mtl(hull)
     index, out, memo = {}, [], {}
     for i, p in enumerate(ref_model.parts):
         k = memo.get(id(p.material))              # repr() once per material object: interiors have ~60k parts
         if k is None:
             k = memo[id(p.material)] = repr(p.material)
-        key = ("mat", k) if not p.mtl_path or p.mat_id < 0 else ("slot", p.mtl_path, p.mat_id, k)
+        # interior parts never change with the paint, whatever their .mtl: material alone is enough for them
+        on_main = i < len(hull) and p.mtl_path and p.mat_id >= 0 and p.mtl_path == main
+        key = ("slot", p.mtl_path, p.mat_id, k) if on_main else ("mat", k)
         if fixed_from is not None and i >= fixed_from:
             key = ("fixed", key)
         out.append(index.setdefault(key, len(index)))
