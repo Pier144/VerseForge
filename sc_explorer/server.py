@@ -69,6 +69,8 @@ class State:
         self.status = {"ready": False, "message": ("starting",), "progress": 0.0, "error": None}
         self.models = modelcache.ModelCache()   # built models, LRU within a memory budget (modelcache.py)
         self.paint_ok = {}               # (path, tag, full, interior) -> paints.check result
+        self._paint_locks = {}           # key -> Lock: group_keys / check run once while others wait for the result
+        self._paint_locks_guard = threading.Lock()
         self.lock = threading.Lock()
         self.jobs = {}
         self.loc = None                   # the game's texts (global.ini), read when a room name needs them
@@ -188,16 +190,22 @@ class State:
         """Models with 2+ paints get the paint-independent GLB layout (paints.py)."""
         return len(self.variant_list(path)) >= 2
 
+    def _paint_lock(self, key):
+        with self._paint_locks_guard:
+            return self._paint_locks.setdefault(key, threading.Lock())
+
     def paint_groups(self, path, full, interior):
         # same normalisation as swappable(): the groups are cached on the reference model, which is the same object
         full = bool(full) and self.can_full(path)
         interior = bool(interior) and self.can_interior(path)
         ref = self.get_model(path, None, full, interior)
-        if "paint_groups" not in ref.cache:
-            # interior parts come after the hull's and never share a group with them
-            fixed_from = len(self.get_model(path, None, full).parts) if interior else None
-            ref.cache["paint_groups"] = paints.group_keys(ref, fixed_from)
-        return ref.cache["paint_groups"]
+        # the info and the GLB requests arrive together and group_keys walks ~60k parts: the second waits
+        with self._paint_lock(("groups", path.lower(), full, interior)):
+            if "paint_groups" not in ref.cache:
+                # interior parts come after the hull's and never share a group with them
+                fixed_from = len(self.get_model(path, None, full).parts) if interior else None
+                ref.cache["paint_groups"] = paints.group_keys(ref, fixed_from)
+            return ref.cache["paint_groups"]
 
     def swappable(self, path, variant, full, interior):
         """Can this paint take the reference paint's place by swapping materials (paints.check)? Kept per request."""
@@ -206,11 +214,12 @@ class State:
         full = bool(full) and self.can_full(path)
         interior = bool(interior) and self.can_interior(path)
         key = (path.lower(), self.tag_of(path, variant), full, interior)
-        if key not in self.paint_ok:
-            ref = self.get_model(path, None, full, interior)
-            self.paint_ok[key] = paints.check(ref, self.get_model(path, variant, full, interior),
-                                              self.paint_groups(path, full, interior))
-        return self.paint_ok[key]
+        with self._paint_lock(("ok",) + key):
+            if key not in self.paint_ok:
+                ref = self.get_model(path, None, full, interior)
+                self.paint_ok[key] = paints.check(ref, self.get_model(path, variant, full, interior),
+                                                  self.paint_groups(path, full, interior))
+            return self.paint_ok[key]
 
     def get_model(self, path, variant=None, full=False, interior=False):
         """Model with a paint variant applied (None or an unknown tag = the reference paint, the first of the list).
@@ -573,7 +582,8 @@ def _hull_parts(path, variant, full, interior):
 
 @app.get("/api/model/paint")
 def model_paint(path: str, variant: str = None, full: bool = False, interior: bool = False):
-    """One paint's materials for the viewer's instant switch (web/paint.js), or {swappable: false}: reload instead."""
+    """One paint's materials for the viewer's instant switch (web/paint.js), or {swappable: false}: reload instead.
+    An unknown path answers {swappable: false} too: the client reloads and shows the GLB route's error."""
     _require_ready()
     tag = state.tag_of(path, variant)
     if not state.swappable(path, variant, full, interior):
@@ -594,7 +604,8 @@ def model_paint_texture(path: str, group: int, variant: str = None, full: bool =
     """The image _glb_mesh would embed for one group in one paint (a livery sticker coloured by the palette).
     Hull groups have the same numbers with and without the interior (hull parts come first), so no `interior`."""
     _require_ready()
-    key = (path.lower(), state.tag_of(path, variant), bool(full), int(group), map)
+    full = bool(full) and state.can_full(path)
+    key = (path.lower(), state.tag_of(path, variant), full, int(group), map)
     for ext, media in (("png", "image/png"), ("jpg", "image/jpeg")):
         cached = state.disk.get("painttex", key, ext)
         if cached is not None:

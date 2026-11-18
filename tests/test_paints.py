@@ -328,3 +328,43 @@ def test_livery_placeholders_keep_the_stock_material(monkeypatch):
              _part(stock[2], "a.mtl", 2, seed=3)]
     out = model.with_variant(model.Model("ship.cga", parts=parts), None, "livery.mtl", None)
     assert [p.material.name for p in out.parts] == ["hull_red", "gear_metal", "gear_rubber"]
+
+
+def test_placeholder_rule_needs_a_dash_and_a_swapped_mtl(monkeypatch):
+    stock = [_mat("hull"), _mat("gear")]
+    livery = [_mat("hull_red"), _mat("")]                  # an unnamed sub-material is not a placeholder
+    loads = []
+
+    def load(archive, path, palette=None):
+        loads.append((path, palette))
+        return {"a.mtl": stock, "livery.mtl": livery, "other.mtl": [_mat("other")]}[path]
+
+    monkeypatch.setattr(model, "_mtl", lambda archive, name: name)
+    monkeypatch.setattr(model.materials, "load", load)
+    parts = [_part(stock[0], "a.mtl", 0, n=3, seed=1), _part(stock[1], "a.mtl", 1, seed=2),
+             _part(stock[1], "a.mtl", 5, seed=3), _part(_mat("other"), "other.mtl", 0, seed=4)]
+    pal = {"A": [1, 2, 3]}
+    out = model.with_variant(model.Model("ship.cga", parts=parts), None, "livery.mtl", pal)
+    # index 1: the unnamed livery material stays; index 5 is beyond both .mtl files, so the part stays as it was;
+    # the other .mtl is never swapped
+    assert [p.material.name for p in out.parts] == ["hull_red", "", "gear", "other"]
+    assert ("a.mtl", pal) in loads
+
+
+def test_index_beyond_the_livery_falls_back_to_the_stock_material_with_the_palette(monkeypatch):
+    stock = [_mat("hull"), _mat("gear")]
+    tinted = [_mat("hull"), _mat("gear_tinted")]
+    livery = [_mat("hull_red")]
+    loads = []
+
+    def load(archive, path, palette=None):
+        loads.append((path, palette))
+        return livery if path == "livery.mtl" else (tinted if palette else stock)
+
+    monkeypatch.setattr(model, "_mtl", lambda archive, name: name)
+    monkeypatch.setattr(model.materials, "load", load)
+    parts = [_part(stock[0], "a.mtl", 0, n=3, seed=1), _part(stock[1], "a.mtl", 1, seed=2)]
+    pal = {"A": [1, 2, 3]}
+    out = model.with_variant(model.Model("ship.cga", parts=parts), None, "livery.mtl", pal)
+    assert [p.material.name for p in out.parts] == ["hull_red", "gear_tinted"]
+    assert ("a.mtl", pal) in loads

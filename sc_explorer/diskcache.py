@@ -10,6 +10,8 @@ import shutil
 import threading
 
 FORMAT = 5                          # bump when cached content changes shape within the same app version
+                                    # (cached model info includes keyed_glb, the result of paints.check: a change
+                                    # to that check needs a new FORMAT)
                                     # 2: viewer GLBs merged further (export.to_glb merge)
 DEFAULT_LIMIT = 10 * 1024 ** 3      # 10 GB
 PREFIX = "disk_"

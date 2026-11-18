@@ -231,7 +231,8 @@ def with_variant(model, archive, material=None, palette=None):
     cache = {}
     parts = []
     for p in model.parts:
-        path = override if override and p.mtl_path == main else p.mtl_path
+        swapped = bool(override) and p.mtl_path == main
+        path = override if swapped else p.mtl_path
         if not path or p.mat_id < 0:
             parts.append(p)
             continue
@@ -242,7 +243,7 @@ def with_variant(model, archive, material=None, palette=None):
                 cache[path] = []
         mats = cache[path]
         mat = mats[p.mat_id] if p.mat_id < len(mats) else None
-        if path == override and (mat is None or not mat.name.strip("- ")):
+        if swapped and (mat is None or (mat.name and not mat.name.strip("- "))):
             # a livery .mtl marks what it does not repaint with "--" placeholders (or ends early): those parts keep
             # the main .mtl's own material, with the paint's palette (Perseus landing gear on the full ship)
             if main not in cache:
