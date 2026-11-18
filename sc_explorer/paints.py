@@ -90,7 +90,7 @@ def paint_table(model, groups, textures, tex_size=1024, fixed_from=None):
     """{"groups": one entry per group (the material in `model`'s paint as the GLB writes it, or None for groups that
     never change: proxies, and with fixed_from the groups that start at or after that part, the interior's),
     "shading": the game-look description of every shading id used}."""
-    out = [None] * ((max(groups) + 1) if groups else 0)
+    out = [None] * ((int(max(groups)) + 1) if len(groups) else 0)
     has_uv = {g for g, p in zip(groups, model.parts) if p.uvs is not None}   # a merged mesh has UVs if any part has
     shading, seen = {}, set()
     for i, (g, p) in enumerate(zip(groups, model.parts)):

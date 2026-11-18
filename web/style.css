@@ -329,6 +329,8 @@ button.ghost:hover { background: var(--hover); }
 .stat .v small { margin-left: 2px; font-size: 10.5px; font-weight: 500; color: var(--muted); }
 .variant { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 11.5px; color: var(--muted); }
 .variant select { width: 100%; font-size: 13px; color: var(--text); }
+/* a paint change that takes long (the first one builds the interior): quiet sign, no loading screen */
+.variant.busy .dd-btn { cursor: progress; animation: pulse 1s ease-in-out infinite; }
 /* paint menu: three swatches of the paint's colours before its name (dashed: no colours of its own) */
 .dd-btn.sw, .dd-list li.sw { display: flex; align-items: center; gap: 9px; }
 .dots { display: inline-flex; flex: none; gap: 3px; }

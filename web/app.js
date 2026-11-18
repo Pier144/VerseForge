@@ -782,8 +782,8 @@ async function loadModel(item, keepView = false, opts = {}) {
     if (state.current !== item) return;
     modelRoot.traverse((o) => {
       if (o.isMesh) {
-        // livery stickers this paint does not have (keyed GLBs, alpha 0): not drawn at all
-        if (meshKind(o) === "decal" && o.material.opacity === 0 && !o.material.userData?.pom) o.material.visible = false;
+        // livery stickers this paint does not have (only keyed GLBs write alpha 0 stickers): not drawn at all
+        if (info.keyed_glb && meshKind(o) === "decal" && o.material.opacity === 0 && !o.material.userData?.pom) o.material.visible = false;
         // decals lie on the hull: they neither cast shadows nor need the shadow pass
         o.castShadow = renderer.shadowMap.enabled && meshKind(o) !== "decal" && !o.material.transparent;
         o.receiveShadow = renderer.shadowMap.enabled && !o.material.userData?.pom;
@@ -891,6 +891,9 @@ async function changePaint(tag, { keepChoice = false } = {}) {
   // another model or paint was asked meanwhile, or the model was reloaded (Full ship, Interiors, textures): a newer
   // choice is on its way, so this request neither swaps nor reloads over it
   const stale = () => state.current !== item || token !== paintToken || paintSwap !== swap;
+  // a slow change (the first one after a restart builds the reference interior, seconds) gets a quiet sign on the
+  // paint menu, not the loading screen; it goes away however the request ends
+  const busyTimer = setTimeout(() => $("#info .variant")?.classList.add("busy"), 800);
   try {
     // the paint of the model on screen: its own query (state.full and state.interior may have changed since it loaded)
     const paint = swap.answer(tag) ||
@@ -903,6 +906,9 @@ async function changePaint(tag, { keepChoice = false } = {}) {
     if (stale()) return;
     toast(T("loadFailed", { error: e.message }), true);
     return reload();
+  } finally {
+    clearTimeout(busyTimer);
+    $("#info .variant")?.classList.remove("busy");
   }
 }
 

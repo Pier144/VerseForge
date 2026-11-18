@@ -11,6 +11,7 @@ import uuid
 import zipfile
 from contextlib import asynccontextmanager
 
+import numpy as np
 import zstandard
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -204,7 +205,8 @@ class State:
             if "paint_groups" not in ref.cache:
                 # interior parts come after the hull's and never share a group with them
                 fixed_from = len(self.get_model(path, None, full).parts) if interior else None
-                ref.cache["paint_groups"] = paints.group_keys(ref, fixed_from)
+                # an int32 array: ModelCache's size walk counts one block instead of ~60k Python ints
+                ref.cache["paint_groups"] = np.asarray(paints.group_keys(ref, fixed_from), dtype=np.int32)
             return ref.cache["paint_groups"]
 
     def swappable(self, path, variant, full, interior):
@@ -580,6 +582,19 @@ def _hull_parts(path, variant, full, interior):
     return None
 
 
+def _paint_stamp():
+    """Names the game build and this program's grouping (paints.group_keys) for the texture URLs: group numbers can
+    change after a game patch or a program update, and the browser keeps those images for 24 hours."""
+    d = state.disk.dir
+    if d:
+        return os.path.basename(d)               # program version + format + p4k size and mtime (DiskCache.bind)
+    try:
+        st = os.stat(state.cfg["p4k_path"])
+        return f"{__version__}_{st.st_size}_{int(st.st_mtime)}"
+    except (OSError, KeyError, TypeError):
+        return str(__version__)
+
+
 @app.get("/api/model/paint")
 def model_paint(path: str, variant: str = None, full: bool = False, interior: bool = False):
     """One paint's materials for the viewer's instant switch (web/paint.js), or {swappable: false}: reload instead.
@@ -592,7 +607,7 @@ def model_paint(path: str, variant: str = None, full: bool = False, interior: bo
     table = paints.paint_table(m, state.paint_groups(path, full, interior), state.textures,
                                fixed_from=_hull_parts(path, variant, full, interior))
     it = state.by_path.get(path.lower())
-    data = {"variant": tag, "swappable": True, "groups": table["groups"], "shading": table["shading"],
+    data = {"variant": tag, "swappable": True, "stamp": _paint_stamp(), "groups": table["groups"], "shading": table["shading"],
             "stickers": any(decalsheet.printable(p.material) for p in m.parts), "screen": _screen_info(m, it)}
     return Response(json.dumps(data, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
                     media_type="application/json")
@@ -600,11 +615,13 @@ def model_paint(path: str, variant: str = None, full: bool = False, interior: bo
 
 @app.get("/api/model/paint/texture")
 def model_paint_texture(path: str, group: int, variant: str = None, full: bool = False,
-                        map: str = Query("base", pattern="^(base|normal)$")):
+                        map: str = Query("base", pattern="^(base|normal)$"), v: str = ""):
     """The image _glb_mesh would embed for one group in one paint (a livery sticker coloured by the palette).
     Hull groups have the same numbers with and without the interior (hull parts come first), so no `interior`."""
     _require_ready()
     full = bool(full) and state.can_full(path)
+    # `v` (the stamp of /api/model/paint) only changes the URL, so the browser's 24 h copy is dropped when the game
+    # or the group numbering changes; it is not part of the key here
     key = (path.lower(), state.tag_of(path, variant), full, int(group), map)
     for ext, media in (("png", "image/png"), ("jpg", "image/jpeg")):
         cached = state.disk.get("painttex", key, ext)

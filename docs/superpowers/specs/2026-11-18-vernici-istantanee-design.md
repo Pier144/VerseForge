@@ -304,3 +304,20 @@ Le prove già presenti restano verdi.
   ogni vernice, e la condizione 3 della verifica prende i casi rari in cui non succede (allora si ricarica).
 - **Interni condivisi**: se un giorno gli interni dipendessero dalla vernice, il controllo sul numero dei pezzi non
   basterebbe. Oggi `INTERIOR_PALETTE` è fissa: una prova lo tiene d'occhio.
+
+## Note di realizzazione
+
+- `materials` non è stato aggiunto a `/api/model/paint`: il visore ricostruisce l'elenco dei materiali dai nomi delle
+  mesh, che un GLB con chiavi tiene uguali in ogni vernice.
+- `group_keys` restituisce solo i numeri di gruppo e prende `fixed_from`.
+- Solo i pezzi sul `.mtl` principale tengono la chiave di slot; gli altri si raggruppano per materiale (draw call).
+- La modalità alpha non viene confrontata: ogni solido e ogni decal ha un id di shading, le uniche texture incorporate
+  sono i decal stencil (sempre BLEND in un GLB con chiavi) e il vetro è sempre BLEND.
+- Draw call accettate a +12 % (403 contro 359), con il tempo di fotogramma entro il budget.
+- Correzione del segnaposto della livrea: "--" mantiene il materiale di serie.
+- Le texture delle vernici portano `&v=<stamp>` (versione del programma e dimensione/data del p4k): dopo un
+  aggiornamento del gioco il browser non riusa le immagini di 24 ore con i vecchi numeri di gruppo.
+- Un cambio vernice lento (oltre 800 ms, per esempio il primo dopo il riavvio, che costruisce l'interno di
+  riferimento) mostra un segno discreto di attesa sul menu, senza schermata di caricamento.
+- Difetto esistente ancora aperto: il `with_variant` esterno perde i materiali di record del loadout
+  (`assembly.py:54`).

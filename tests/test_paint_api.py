@@ -56,6 +56,7 @@ def test_paint_table(client):
     out = client.get("/api/model/paint", params={"path": PATH, "variant": "1"}).json()
     assert out["swappable"] and out["variant"] == "1" and len(out["groups"]) == 4
     assert out["groups"][3]["visible"] and out["groups"][0]["name"].endswith("|g0")
+    assert isinstance(out["stamp"], str) and out["stamp"]      # names the game build: the texture URLs carry it
     assert set(out["shading"]) == {g["name"].split("|")[2] for g in out["groups"] if g and g["name"].split("|")[2]}
     assert client.get("/api/model/paint", params={"path": PATH, "variant": "2"}).json() == \
         {"variant": "2", "swappable": False}
@@ -77,6 +78,7 @@ def test_paint_texture_route(client, monkeypatch):
     group = server.state.paint_groups(PATH, False, False)[4]
     r = client.get("/api/model/paint/texture", params={**p, "group": group})
     assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert client.get("/api/model/paint/texture", params={**p, "group": group, "v": "x"}).status_code == 200   # v is ignored
     kind[0] = "jpg"
     r = client.get("/api/model/paint/texture", params={**p, "group": group})
     assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"

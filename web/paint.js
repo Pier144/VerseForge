@@ -14,7 +14,7 @@ export function groupOf(material) {
   return field && /^g\d+$/.test(field) ? Number(field.slice(1)) : null;
 }
 
-const KEEP = 3;                                   // paints kept built: the one on screen, stock (Compare), one more
+const KEEP = 3;                                   // paints kept built: the three most recent (stock stays recent while comparing)
 const NO_HOOK = THREE.Object3D.prototype.onBeforeRender;
 const kindOf = (name) => name.split("|")[0] || "solid";
 const meshKind = (o) => kindOf(o.name || o.parent?.name || "");
@@ -93,6 +93,7 @@ export class PaintSwap {
   // Show paint `tag` (`paint`: the /api/model/paint answer). False when a newer request took over meanwhile.
   async apply(tag, paint) {
     const seq = ++this.seq;
+    this.stamp = paint.stamp;                     // in the texture URLs: see PaintSwap.image
     let built = this.paints.get(tag);
     if (!built) {
       built = await this.build(tag, paint, () => seq !== this.seq || this.disposed);
@@ -156,7 +157,7 @@ export class PaintSwap {
   }
 
   async image(tag, g, map, textures) {
-    const url = `/api/model/paint/texture?${this.query}&variant=${encodeURIComponent(tag)}&group=${g}&map=${map}`;
+    const url = `/api/model/paint/texture?${this.query}&variant=${encodeURIComponent(tag)}&group=${g}&map=${map}&v=${encodeURIComponent(this.stamp || "")}`;
     try {
       const t = await new THREE.TextureLoader().loadAsync(url);
       t.flipY = false;                            // glTF images, like the GLB's
@@ -208,7 +209,7 @@ export class PaintSwap {
   }
 
   // castShadow, receiveShadow and the batches (opaque only) were set up for the paint loaded first: the server's
-  // swap check (paints.check, condition 5) only lets through paints that draw every group with the same transparency
+  // swap check (paints._look) only lets through paints that draw every group with the same transparency
   assign(built) {
     const put = (o, m) => { if (o.userData.gameMaterial) o.userData.gameMaterial = m; else o.material = m; };
     for (const [g, m] of built.mats) {

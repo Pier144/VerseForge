@@ -317,7 +317,8 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
 def repaint_interior(interior, hull, n):
     """`interior` (load_interior on another paint's hull, whose first `n` parts are that hull) with the hull parts of
     `hull`. Rooms never depend on the hull's paint (INTERIOR_PALETTE), so they are reused instead of rebuilt."""
-    return replace(interior, parts=list(hull.parts) + interior.parts[n:], warnings=list(interior.warnings), cache={})
+    return replace(interior, parts=list(hull.parts) + interior.parts[n:], warnings=list(interior.warnings), cache={},
+                   rooms=list(interior.rooms))
 
 
 DECK_BIN = 0.15        # metres

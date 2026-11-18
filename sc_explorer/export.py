@@ -289,7 +289,7 @@ def _selected_groups(model, parts, groups):
     if groups is None:
         return None
     keep = {id(p) for p in parts}
-    return [g for g, p in zip(groups, model.parts) if id(p) in keep]
+    return [int(g) for g, p in zip(groups, model.parts) if id(p) in keep]
 
 
 def to_glb(model, include_hidden=True, textures=None, tex_size=1024, sources=None, lite=False, merge=None, groups=None):
