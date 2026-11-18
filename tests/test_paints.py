@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from sc_explorer import export, materials, model, paints  # noqa: E402
+from sc_explorer import assembly, export, materials, model, modelcache, paints, server  # noqa: E402
 
 STENCIL = '<Material Name="livery" Shader="MeshDecal" StringGenMask="%STENCIL_MAP" Diffuse="0,0,0"><Textures/></Material>'
 
@@ -276,3 +276,43 @@ def test_keyed_glb_keeps_rooms_apart_and_see_through_groups_whole():
     see = [n for n in nodes if n.startswith("glass|pane|")]
     assert len(see) == 1 and "|M" in see[0] and "r0s0n1" in see[0] and "r1s1n1" in see[0]
     assert sorted(x["name"] for x in js["materials"]) == [f"glass|pane||g1", f"solid|hull|{export._sid(hull)}|g0"]
+
+
+def test_repaint_interior_swaps_the_hull_only():
+    hull_a = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)])
+    hull_b = _paint([(0.9, 0.1, 0.1), (0.1, 0.9, 0.1), (0.3, 0.3, 0.3)])
+    room = _part(_mat("floor"), "int.mtl", 0, seed=9, room=0)
+    interior = model.Model("ship.cga", parts=list(hull_a.parts) + [room], rooms=[{"name": "bridge", "parts": 1}])
+    out = assembly.repaint_interior(interior, hull_b, len(hull_a.parts))
+    assert out.parts[:5] == hull_b.parts and out.parts[5] is room
+    assert out.rooms == interior.rooms and out.cache == {} and out is not interior
+
+
+def test_state_builds_the_interior_once_for_every_paint(monkeypatch):
+    st = server.state
+    hulls = {"m0": _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)]),
+             "m1": _paint([(0.9, 0.1, 0.1), (0.1, 0.9, 0.1), (0.3, 0.3, 0.3)])}
+    room = _part(_mat("floor"), "int.mtl", 0, seed=9, room=0)
+    calls = []
+
+    def fake_interior(archive, hull, vehicle, classes):
+        calls.append(hull)
+        return model.Model(hull.path, parts=list(hull.parts) + [room], rooms=[{"name": "bridge", "parts": 1}])
+
+    vs = [{"tag": "0", "label": "Stock", "material": "m0", "palette": None, "stock": True},
+          {"tag": "1", "label": "Red", "material": "m1", "palette": None, "stock": False}]
+    monkeypatch.setattr(st, "variants", {"objects/ship.cga": vs})
+    monkeypatch.setattr(st, "models", modelcache.ModelCache())
+    monkeypatch.setattr(st, "can_interior", lambda p: True)
+    monkeypatch.setattr(st, "can_full", lambda p: False)
+    monkeypatch.setattr(st, "_base_model", lambda p, full=False: hulls["m0"])
+    monkeypatch.setattr(server.model, "with_variant", lambda m, a, mtl, pal: hulls[mtl])
+    monkeypatch.setattr(server.assembly, "load_interior", fake_interior)
+    monkeypatch.setattr(server.entities, "vehicle_for", lambda idx, p: {})
+    monkeypatch.setattr(server.entities, "classes_of", lambda idx: {})
+    a = st.get_model("Objects/ship.cga", "0", False, True)
+    b = st.get_model("Objects/ship.cga", "1", False, True)
+    assert len(calls) == 1 and calls[0] is hulls["m0"]
+    assert b.parts[:5] == hulls["m1"].parts and b.parts[5] is room and b.rooms == a.rooms
+    assert st.get_model("Objects/ship.cga", None, False, True) is a
+    assert st.get_model("Objects/ship.cga", "nope") is st.get_model("Objects/ship.cga", "0")

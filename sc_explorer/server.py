@@ -174,23 +174,34 @@ class State:
         return bool((entities.vehicle_for(self.entities, path) or {}).get("containers"))
 
     def get_model(self, path, variant=None, full=False, interior=False):
-        """Model with a paint variant applied (None = the item's default paint, when DataCore has one).
+        """Model with a paint variant applied (None or an unknown tag = the reference paint, the first of the list).
         full: ships and vehicles with their factory loadout and landing gear mounted (assembly.load_full).
-        interior: the rooms of the ship's object containers placed inside (assembly.load_interior)."""
-        if interior and self.can_interior(path):
-            return self.models.get_or_build(
-                (path.lower(), "interior", variant, bool(full)),
-                lambda: assembly.load_interior(self.archive, self.get_model(path, variant, full),
-                                               entities.vehicle_for(self.entities, path),
-                                               entities.classes_of(self.entities)))
-        full = bool(full) and self.can_full(path)
+        interior: the rooms of the ship's object containers placed inside (assembly.load_interior), built once for
+        the reference paint and reused by the others (assembly.repaint_interior)."""
         vs = self.variant_list(path)
         v = next((x for x in vs if x["tag"] == variant), vs[0] if vs else None)
+        tag = v["tag"] if v else None
+        if interior and self.can_interior(path):
+            return self.models.get_or_build((path.lower(), "interior", tag, bool(full)),
+                                            lambda: self._interior(path, tag, full))
+        full = bool(full) and self.can_full(path)
         if v is None:
             return self._base_model(path, full)
         return self.models.get_or_build(
             (path.lower(), v["tag"], full),
             lambda: model.with_variant(self._base_model(path, full), self.archive, v["material"], v["palette"]))
+
+    def _interior(self, path, tag, full):
+        hull = self.get_model(path, tag, full)
+        vs = self.variant_list(path)
+        if vs and tag != vs[0]["tag"]:
+            ref_hull = self.get_model(path, vs[0]["tag"], full)
+            ref = self.get_model(path, vs[0]["tag"], full, True)
+            n = len(ref_hull.parts)
+            if len(hull.parts) == n and len(ref.parts) >= n:
+                return assembly.repaint_interior(ref, hull, n)
+        return assembly.load_interior(self.archive, hull, entities.vehicle_for(self.entities, path),
+                                      entities.classes_of(self.entities))
 
     def _base_model(self, path, full=False):
         def build():
