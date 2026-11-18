@@ -185,3 +185,94 @@ def test_paint_table():
     sid = groups[0]["name"].split("|")[2]
     assert shading[sid] == materials.shading(ref.parts[0].material)
     assert paints.paint_table(ref, g, None, fixed_from=2)["groups"][1:] == [None, None, None]
+
+
+def test_check_guards_its_inputs():
+    ref = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)])
+    assert paints.check(ref, ref, paints.group_keys(ref))
+    assert not paints.check(ref, ref, [])                                  # zip would stop early
+
+
+def test_interior_parts_never_share_a_hull_group():
+    ref = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)])
+    twin = ref.parts[0]                                                    # same .mtl slot and material as a hull part
+    m = model.Model("m", parts=ref.parts + [twin])
+    assert paints.group_keys(m)[-1] == paints.group_keys(m)[0]
+    keys = paints.group_keys(m, fixed_from=len(ref.parts))
+    assert keys[-1] not in keys[:-1] and keys[:-1] == paints.group_keys(ref)
+
+
+def test_check_refuses_a_sticker_with_another_uv_repeat():
+    ref = _paint([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)])
+    ref.parts[4].material.diffuse = "atlas.dds"
+    other = _recolour(ref, 4, tiling=4.0)
+    assert not paints.check(ref, other, paints.group_keys(ref))
+
+
+def _table_vs_glb(m, groups):
+    js = _glb_json(export.to_glb(m, lite=True, groups=groups))
+    table = paints.paint_table(m, groups, None)["groups"]
+    seen = 0
+    for mat in js["materials"]:
+        entry = table[int(mat["name"].rsplit("|g", 1)[1].split("|")[0])]
+        assert entry is not None and entry["name"] == mat["name"]
+        pbr = mat["pbrMetallicRoughness"]
+        if "|rtt" in mat["name"] or "|holo" in mat["name"] or mat["name"].startswith("screen|"):
+            assert entry["emissive"] == mat["emissiveFactor"]
+        else:
+            assert [*entry["color"], entry["alpha"]] == pbr["baseColorFactor"]
+            assert entry["metallic"] == pbr["metallicFactor"] and entry["roughness"] == pbr["roughnessFactor"]
+            assert entry["emissive"] == mat.get("emissiveFactor")
+            assert entry["alpha_mode"] == mat.get("alphaMode", "OPAQUE")
+        seen += 1
+    return seen
+
+
+def test_paint_table_matches_the_glb():
+    b = _paint([(0.9, 0.1, 0.1), (0.9, 0.1, 0.1), (0.3, 0.3, 0.3)], camo=True)
+    assert _table_vs_glb(b, paints.group_keys(b)) == 4
+    mon = materials.Material("mfd", "DisplayScreen", "screen", (0.01, 0.01, 0.01), emissive=(0.1, 0.5, 0.7), rtt=True)
+    hud = materials.Material("hud", "UIPlane", "screen", (0.01, 0.01, 0.01), holo=True)
+    s = model.Model("s", parts=b.parts + [_part(mon, "c.mtl", 0, seed=6), _part(hud, "c.mtl", 1, seed=7)])
+    assert _table_vs_glb(s, paints.group_keys(s)) == 6
+
+
+def test_animated_keyed_glb_is_paint_independent():
+    import zlib
+    from types import SimpleNamespace
+    from sc_explorer import caf, rig
+    hull = rig.Bone("hull", -1, np.eye(4), np.eye(4))
+    leg_w = np.eye(4)
+    leg_w[:3, 3] = (0, 0, -1)
+    leg = rig.Bone("leg", 0, leg_w.copy(), leg_w)
+    clip = caf.Clip(caf.ClipInfo(0, 30, 1, 0, 30), {zlib.crc32(b"leg"): caf.Track(
+        rot_t=np.array([0, 30], np.float32), rot=np.array([[0, 0, 0, 1], [0, 0, 0.7071, 0.7071]], np.float32))})
+    sources = [("deploy", clip, {zlib.crc32(b"leg"): "leg"})]
+
+    def build(colors, **kw):
+        m = _paint(colors, **kw)
+        parts = [model.Part(**{**p.__dict__, "node": "leg" if i in (1, 2) else "hull"}) for i, p in enumerate(m.parts)]
+        return model.Model("ship.cga", parts=parts, skeleton=[hull, leg])
+
+    groups = [0, 0, 1, 2, 3]
+    a = build([(0.5, 0.5, 0.5), (0.2, 0.2, 0.2), (0.8, 0.8, 0.8)], livery=False)
+    b = build([(0.9, 0.1, 0.1), (0.9, 0.1, 0.1), (0.3, 0.3, 0.3)], camo=True)
+    ga = export.to_glb(a, lite=True, sources=sources, groups=groups)
+    gb = export.to_glb(b, lite=True, sources=sources, groups=groups)
+    ja, jb = _glb_json(ga), _glb_json(gb)
+    assert "animations" in ja and _glb_bin(ga) == _glb_bin(gb)
+    assert [n["name"] for n in ja["nodes"]] == [n["name"] for n in jb["nodes"]]
+    assert all("|g" in m["name"] for m in ja["materials"])
+
+
+def test_keyed_glb_keeps_rooms_apart_and_see_through_groups_whole():
+    hull, glass = _mat("hull"), _mat("pane", "glass", (0.8, 0.8, 0.8))
+    m = model.Model("m", parts=[_part(hull, seed=1, room=0), _part(hull, seed=2, room=1),
+                                _part(glass, "b.mtl", seed=3, room=0), _part(glass, "b.mtl", seed=4, room=1)])
+    js = _glb_json(export.to_glb(m, lite=True, groups=[0, 0, 1, 1]))
+    nodes = [n["name"] for n in js["nodes"]]
+    solid = [n for n in nodes if n.startswith("solid|hull|")]
+    assert sorted(n.rsplit("|", 1)[1] for n in solid) == ["R0", "R1"]
+    see = [n for n in nodes if n.startswith("glass|pane|")]
+    assert len(see) == 1 and "|M" in see[0] and "r0s0n1" in see[0] and "r1s1n1" in see[0]
+    assert sorted(x["name"] for x in js["materials"]) == [f"glass|pane||g1", f"solid|hull|{export._sid(hull)}|g0"]
