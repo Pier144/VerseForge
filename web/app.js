@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { AmmoScreen, isFire, isReload } from "./screen.js";
+import { AmmoScreen, ShipScreens, isFire, isReload } from "./screen.js";
 import { vertexNormals } from "./normals.js";
 import { GameLook } from "./gamelook.js";
 import { hangarTexture } from "./hangar.js";
@@ -318,8 +318,9 @@ function glassLook(o) {
 // animation state (see "animations" below); declared here because the render loop starts right away
 const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), current: null, dragging: false, landed: null };
 const clock = new THREE.Clock();
+let shipScreens = null;  // MFD pages drawn on a ship's monitors (screen.js)
 let ammoScreen = null;   // weapon display drawn on its DisplayScreen (screen.js)
-window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; },
+window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; }, get shipScreens() { return shipScreens; },
   camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting,
   get backdrop() { return backdrop; }, get batches() { return batches; },
   get batching() { return BATCH_ON; }, set batching(on) { BATCH_ON = !!on; }, get look() { return gameLook; }, stats, invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
@@ -727,6 +728,8 @@ async function loadModel(item, keepView = false) {
     stopAnimations();
     ammoScreen?.dispose();
     ammoScreen = null;
+    shipScreens?.dispose();
+    shipScreens = null;
     if (modelRoot) {
       scene.remove(modelRoot);
       modelRoot.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); (o.userData.gameMaterial || o.material).dispose(); } });
@@ -779,6 +782,11 @@ async function loadModel(item, keepView = false) {
     });
     $("#scrPill").classList.toggle("hidden", !anyScreen);
     if (screens.length && info.ammo) ammoScreen = new AmmoScreen(screens, info.ammo, info.screen);
+    else if (info.screen?.kit) {
+      // ships: the monitors the game draws live get MFD pages built on the game's own graphics
+      const monitors = screens.filter((o) => o.material.name.endsWith("|rtt"));
+      if (monitors.length) shipScreens = new ShipScreens(monitors, info.screen, { name: item.name, size: info.stats.size_m });
+    }
     applyWireframe();
     applyVisibility();
     if (resin !== "off") applyResin();

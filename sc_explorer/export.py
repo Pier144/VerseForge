@@ -203,7 +203,8 @@ def _screen_mesh(mat, v, f, uv, axis):
             emissiveFactor=glow, emissiveTexture=screen_image(), alphaMode="BLEND", doubleSided=True)
     else:
         pbr = trimesh.visual.material.PBRMaterial(
-            name=f"screen|{mat.name}", baseColorFactor=[*(float(c) for c in mat.color), 1.0], metallicFactor=0.0,
+            name=f"screen|{mat.name}" + ("|rtt" if mat.rtt else ""),
+            baseColorFactor=[*(float(c) for c in mat.color), 1.0], metallicFactor=0.0,
             roughnessFactor=0.15, emissiveFactor=glow, emissiveTexture=screen_image(), doubleSided=True)
     mesh = trimesh.Trimesh(v @ Z_UP_TO_Y_UP.T if axis else v, f, process=False)
     if uv is not None:

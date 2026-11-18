@@ -9,7 +9,7 @@ import os
 import shutil
 import threading
 
-FORMAT = 2                          # bump when cached content changes shape within the same app version
+FORMAT = 3                          # bump when cached content changes shape within the same app version
                                     # 2: viewer GLBs merged further (export.to_glb merge)
 DEFAULT_LIMIT = 10 * 1024 ** 3      # 10 GB
 PREFIX = "disk_"

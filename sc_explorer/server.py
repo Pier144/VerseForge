@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, diskcache, entities, export, i18n, materials, model, modelcache, paths, printing, reports, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, diskcache, entities, export, i18n, materials, model, modelcache, paths, printing, reports, screens, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -410,12 +410,13 @@ def backdrop(name: str):
 
 def _screen_info(m, it):
     """What the viewer needs to light the screens: their accent colour (from the paint) and the maker's name."""
-    screens = [p.material for p in m.parts if p.material.kind == "screen"]
-    if not screens:
+    screens_ = [p.material for p in m.parts if p.material.kind == "screen"]
+    if not screens_:
         return None
-    e = screens[0].emissive or (0.2, 0.6, 0.8)
+    e = screens_[0].emissive or (0.2, 0.6, 0.8)
+    kit = screens.kit_for(state.archive, m.path) if any(s.rtt for s in screens_) else None
     return {"accent": "#%02x%02x%02x" % tuple(int(round(min(1, max(0, c)) ** (1 / 2.2) * 255)) for c in e),
-            "maker": (it.manu if it else "") or ""}
+            "maker": (it.manu if it else "") or "", "kit": kit}
 
 
 def _sources(m):

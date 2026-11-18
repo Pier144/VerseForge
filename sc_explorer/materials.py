@@ -36,6 +36,7 @@ class Material:
     detail_normal: str | None = None      # normal map of the tiled layer (repeats `tiling` times)
     albedo: tuple | None = None           # diffuse colour of the game shading (None = `color`); black for metals
     holo: bool = False                    # screen kind: a holographic HUD projection (see-through), not a panel
+    rtt: bool = False                     # screen kind: a real monitor the game draws live ($RenderToTexture)
 
 
 SCREEN_RGB = (110, 205, 235)       # default screen light (sRGB): the cold cyan of the game's holo UI
@@ -222,6 +223,9 @@ def _material(el, archive=None, palette=None):
     if mat.kind == "screen":
         # UIPlane HUDs (RTT_HUD, UI_HUD_RTT) are projections in the air in front of the pilot: a faint see-through veil
         mat.holo = shader.lower() == "uiplane" and "hud" in name.lower()
+        # monitors get their picture from the UI ($RenderToTexture); DisplayScreen is also used for glowing glass
+        # with a picture of its own (Crusader light strips), which is not a monitor
+        mat.rtt = any((t.get("File") or "").lower() == "$rendertotexture" for t in el.findall("Textures/Texture"))
         accent = (palette or {}).get("decal_colors") or [None]
         # the paint's first stencil colour when it is a real colour (VOLT green); greys and whites -> holo cyan
         rgb = accent[0] if accent[0] and max(accent[0]) >= 100 and max(accent[0]) - min(accent[0]) >= 60 else SCREEN_RGB
