@@ -43,7 +43,8 @@ Search by in-game name (*P4-AR*, *Morozov-SH*, *Gladius*) or file name, then bro
 
 ### Look inside the ships
 Turn on **Interiors** and rooms, corridors and props are placed in the hull as the game does. The section slider
-cuts the ship open, and you can also view one deck at a time.
+cuts the ship open, and you can also view one deck at a time. The **Rooms** list shows a single room on its own
+(mess hall, bridge, medical bay…), as the game defines them.
 
 </td>
 <td width="55%"><img src="docs/readme/interiors.webp" alt="The section plane sliding down through the Perseus, showing its decks"></td>
@@ -55,6 +56,7 @@ cuts the ship open, and you can also view one deck at a time.
 ### Full ships that move
 **Full ship** mounts the factory loadout: landing gear, guns, missiles, thrusters and seats. The game's own
 animations play and scrub on a timeline: canopies, ramps, doors, landing gear, weapons firing and reloading.
+Cockpit monitors show MFD pages drawn on the game's own screen graphics.
 
 </td>
 </tr>
@@ -87,6 +89,10 @@ Choose from several backdrops, with hangar lighting and shadows or a plain studi
 | **OBJ** | Zip with `.obj`, `.mtl` and textures |
 | **STL** | Raw surfaces in millimetres, as a reference |
 | **STL for printing** | A closed, solid mesh ready for the slicer (made with Blender in the background) |
+| **Decal sheets** | The ship's markings at the scale of your model, as 600 dpi PDFs for water-slide decal paper: one for clear paper with its white mask, one for white paper on the hull colour |
+
+Exports follow the pose on screen: pause an animation where you like (landing gear down, ramp open) and the STL,
+the OBJ, the 3D print and a GLB without animations come out that way.
 
 ### Tell us what to fix, or what to add
 
