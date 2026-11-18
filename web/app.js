@@ -8,7 +8,7 @@ import { GameLook } from "./gamelook.js";
 import { hangarTexture } from "./hangar.js";
 import { Backdrops, BACKDROPS } from "./backdrops.js";
 import { Batches } from "./batching.js";
-import { groupOf } from "./paint.js";
+import { PaintSwap, groupOf } from "./paint.js";
 
 const $ = (s) => document.querySelector(s);
 const api = async (url, opts) => {
@@ -283,10 +283,15 @@ resize();
 // instead of an orange wall, and dark visors (X1) read as glossy black. Front faces only, like the game's glass
 // materials (not two-sided): a pane modelled with its thickness tints once, not twice.
 const GLASS_BODY = 0.35;
+// tint layer colour of a glass whose GLB body colour (linear) is `c`; paint.js recolours glass with it
+function glassTint(c) {
+  const t = new THREE.Color(c[0], c[1], c[2]).multiplyScalar(1 / GLASS_BODY);
+  t.r = Math.min(0.92, Math.max(0.04, t.r)); t.g = Math.min(0.92, Math.max(0.04, t.g)); t.b = Math.min(0.92, Math.max(0.04, t.b));
+  return t;
+}
 function glassLook(o) {
   const m = o.material;
-  const t = m.color.clone().multiplyScalar(1 / GLASS_BODY);
-  t.r = Math.min(0.92, Math.max(0.04, t.r)); t.g = Math.min(0.92, Math.max(0.04, t.g)); t.b = Math.min(0.92, Math.max(0.04, t.b));
+  const t = glassTint([m.color.r, m.color.g, m.color.b]);
   const tint = new THREE.MeshBasicMaterial({
     name: m.name, color: t, transparent: true, depthWrite: false, side: THREE.FrontSide, toneMapped: false,
     blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcColorFactor,
@@ -312,10 +317,14 @@ const anim = { mixer: null, clips: new Map(), list: [], actions: new Map(), curr
 const clock = new THREE.Clock();
 let shipScreens = null;  // MFD pages drawn on a ship's monitors (screen.js)
 let ammoScreen = null;   // weapon display drawn on its DisplayScreen (screen.js)
+let paintSwap = null;    // instant paint changes of the model on screen (paint.js), null when it needs a reload
+let retiredSwap = null;  // the PaintSwap of the model still on screen while the next one loads (freed when it goes)
+let currentInfo = null;  // /api/model/info of the model on screen (screens are rebuilt from it after a paint change)
 window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { return ammoScreen; }, get shipScreens() { return shipScreens; }, get rooms() { return rooms; }, showRooms: (ids) => showRooms(ids),
   camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting,
   get backdrop() { return backdrop; }, get batches() { return batches; },
-  get batching() { return BATCH_ON; }, set batching(on) { BATCH_ON = !!on; }, get look() { return gameLook; }, stats, invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
+  get batching() { return BATCH_ON; }, set batching(on) { BATCH_ON = !!on; }, get look() { return gameLook; }, stats,
+  get paint() { return paintSwap; }, get info() { return currentInfo; }, changePaint: (tag, o) => changePaint(tag, o), invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
 // Render on demand: a frame is drawn only when something changed (camera moving or settling, an animation or the
 // auto-rotate running, a texture/material update, a shadow redraw request, an explicit invalidate()), plus once a
 // second as a safety net. A still model leaves the GPU idle instead of redrawing it 60 times a second.
@@ -675,11 +684,17 @@ async function readWithProgress(res, onProgress) {
   return out.buffer;
 }
 
-async function loadModel(item, keepView = false) {
+async function loadModel(item, keepView = false, opts = {}) {
   if (state.current?.path !== item.path) state.variant = null;
   state.current = item;
+  // The old model stays on screen while this one loads, so its paint (textures included) must stay alive: a swap in
+  // progress is only cancelled here, and the PaintSwap is freed together with the model below. Meanwhile paint
+  // changes reload.
+  if (paintSwap) { paintSwap.seq++; retiredSwap = paintSwap; paintSwap = null; }
+  // opts.paint: show this paint without making it the chosen one (Compare with stock on a model that must reload)
+  const paintTag = opts.paint ?? state.variant;
   if (!keepView) state.matOff.clear();
-  const v = (state.variant != null ? `&variant=${encodeURIComponent(state.variant)}` : "") + `&full=${state.full}` +
+  const v = (paintTag != null ? `&variant=${encodeURIComponent(paintTag)}` : "") + `&full=${state.full}` +
     `&interior=${state.interior}`;
   document.querySelectorAll(".results li").forEach((li) => li.classList.toggle("active", li.dataset.path === item.path));
   $("#empty").classList.add("hidden");
@@ -695,7 +710,7 @@ async function loadModel(item, keepView = false) {
     ]);
     if (state.current !== item) return;  // user clicked something else meanwhile
     const info = await infoRes.json();
-    state.variant = info.variant;
+    if (opts.paint == null) { state.variant = info.variant; state.comparing = false; }
     // download: 0-70 % of the bar, parsing 70-75 %, game textures 75-100 %
     const buf = await readWithProgress(glbRes, (done, total) => {
       if (state.current !== item) return;
@@ -722,6 +737,8 @@ async function loadModel(item, keepView = false) {
     ammoScreen = null;
     shipScreens?.dispose();
     shipScreens = null;
+    retiredSwap?.dispose();
+    retiredSwap = null;
     if (modelRoot) {
       scene.remove(modelRoot);
       modelRoot.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); (o.userData.gameMaterial || o.material).dispose(); } });
@@ -742,6 +759,8 @@ async function loadModel(item, keepView = false) {
     if (state.current !== item) return;
     modelRoot.traverse((o) => {
       if (o.isMesh) {
+        // livery stickers this paint does not have (keyed GLBs, alpha 0): not drawn at all
+        if (meshKind(o) === "decal" && o.material.opacity === 0 && !o.material.userData?.pom) o.material.visible = false;
         // decals lie on the hull: they neither cast shadows nor need the shadow pass
         o.castShadow = renderer.shadowMap.enabled && meshKind(o) !== "decal" && !o.material.transparent;
         o.receiveShadow = renderer.shadowMap.enabled && !o.material.userData?.pom;
@@ -768,27 +787,19 @@ async function loadModel(item, keepView = false) {
     if (state.current !== item) return;
     anim.clips = new Map(gltf.animations.map((c) => [c.name, c]));
     anim.mixer = gltf.animations.length ? new THREE.AnimationMixer(modelRoot) : null;
-    const screens = [];
-    let anyScreen = false;
-    modelRoot.traverse((o) => {
-      if (!o.isMesh || meshKind(o) !== "screen") return;
-      anyScreen = true;
-      if (o.geometry.attributes.uv && !o.material.name.endsWith("|holo")) screens.push(o);   // HUD veils: no ammo
-    });
-    $("#scrPill").classList.toggle("hidden", !anyScreen);
-    if (screens.length && info.ammo) ammoScreen = new AmmoScreen(screens, info.ammo, info.screen);
-    else if (info.screen?.kit) {
-      // ships: the monitors the game draws live get MFD pages built on the game's own graphics
-      const monitors = screens.filter((o) => o.material.name.endsWith("|rtt"));
-      if (monitors.length) shipScreens = new ShipScreens(monitors, info.screen, { name: item.name, size: info.stats.size_m });
-    }
+    startScreens(item, info);
     applyWireframe();
     applyVisibility();
     if (resin !== "off") applyResin();
     buildGrid(new THREE.Box3().setFromObject(modelRoot));
     renderer.shadowMap.needsUpdate = true;
     if (!keepView) frame();
-    showInfo(item, info);
+    showInfo(item, opts.paint != null ? { ...info, variant: state.variant } : info);
+    currentInfo = info;
+    if (info.keyed_glb && state.tex && state.look) {
+      paintSwap = new PaintSwap({ gameLook, batches, root: modelRoot, compile: compileShaders, section: !!info.interior,
+        look: { swapNormalXY: state.swapXY, sun }, query: paintQuery(item), glassTint, tag: info.variant });
+    }
     showMaterials();
     showAnimations(info.animations || []);
     anim.landed = info.full ? anim.list.find((a) => /land/i.test(a.group) && /^(deploy|extend|open)$/i.test(a.label)) : null;
@@ -808,11 +819,80 @@ async function loadModel(item, keepView = false) {
     $("#fullLabel").textContent = T(info.ground_vehicle ? "fullVehicle" : "fullShip");
     loadRelated(item);
   } catch (e) {
+    // failed before the old model went away (it is still on screen, with its paint): paint changes swap again
+    if (state.current === item && retiredSwap?.root === modelRoot) { paintSwap = retiredSwap; retiredSwap = null; }
     $("#info").innerHTML = infoHead(item) + `<p class="warn">${esc(e.message)}</p>`;
     toast(T("loadFailed", { error: e.message }), true);
   } finally {
     $("#loading").classList.add("hidden");
   }
+}
+
+// the weapon ammo display and the ships' MFD pages, drawn on the model's screens. The names are read from the game
+// material, which the resin look keeps in userData.gameMaterial (a paint change rebuilds the screens with it on)
+function startScreens(item, info) {
+  const screens = [];
+  let anyScreen = false;
+  const matName = (o) => (o.userData.gameMaterial || o.material).name;
+  modelRoot.traverse((o) => {
+    if (!o.isMesh || meshKind(o) !== "screen") return;
+    anyScreen = true;
+    if (o.geometry.attributes.uv && !matName(o).endsWith("|holo")) screens.push(o);   // HUD veils: no ammo
+  });
+  $("#scrPill").classList.toggle("hidden", !anyScreen);
+  if (screens.length && info.ammo) ammoScreen = new AmmoScreen(screens, info.ammo, info.screen);
+  else if (info.screen?.kit) {
+    // ships: the monitors the game draws live get MFD pages built on the game's own graphics
+    const monitors = screens.filter((o) => matName(o).endsWith("|rtt"));
+    if (monitors.length) shipScreens = new ShipScreens(monitors, info.screen, { name: item.name, size: info.stats.size_m });
+  }
+}
+
+const paintQuery = (item) => `path=${encodeURIComponent(item.path)}&full=${state.full}&interior=${state.interior}`;
+
+// Show paint `tag`: swapped in place when the model allows it (paint.js), else reloaded as before.
+// keepChoice: Compare with stock, the menu and the exports keep the chosen paint. The last request wins.
+let paintToken = 0;
+async function changePaint(tag, { keepChoice = false } = {}) {
+  const item = state.current, token = ++paintToken;
+  if (!item) return;
+  if (!keepChoice) state.variant = tag;
+  const reload = () => loadModel(item, true, keepChoice ? { paint: tag } : {});
+  if (!paintSwap) return reload();
+  try {
+    const paint = paintSwap.answer(tag) ||
+      await api(`/api/model/paint?${paintQuery(item)}&variant=${encodeURIComponent(tag)}`).then((r) => r.json());
+    if (state.current !== item || token !== paintToken) return;      // another model or paint was asked meanwhile
+    if (!paint.swappable) return reload();
+    if (!(await paintSwap.apply(tag, paint)) || state.current !== item || token !== paintToken) return;
+    afterPaint(item, paint);
+  } catch (e) {
+    toast(T("loadFailed", { error: e.message }), true);
+    return reload();
+  }
+}
+
+// What depends on the materials, redone after a paint was swapped in. The resin look can stay on: paint.js and the
+// screen classes both write into userData.gameMaterial while it is on, so the resin material is never touched.
+function afterPaint(item, paint) {
+  ammoScreen?.dispose();                          // puts each screen's own material back
+  ammoScreen = null;
+  shipScreens?.dispose();
+  shipScreens = null;
+  modelRoot.traverse((o) => {
+    const e = o.isMesh && meshKind(o) === "screen" ? paint.groups[o.userData.group] : null;
+    const m = e?.emissive ? o.userData.gameMaterial || o.material : null;   // the glow of this paint's screens
+    if (m?.emissive) m.emissive.setRGB(e.emissive[0], e.emissive[1], e.emissive[2]);
+  });
+  currentInfo = { ...currentInfo, screen: paint.screen, stickers: paint.stickers };
+  startScreens(item, currentInfo);
+  applyWireframe();
+  applyVisibility();
+  showMaterials();
+  $("#decalBox").classList.toggle("hidden", !paint.stickers);
+  renderer.shadowMap.needsUpdate = true;
+  invalidate(300);
+  stats.paints = (stats.paints || 0) + 1;         // for tools/paint_check.py
 }
 
 function fmtLen(m) {
@@ -846,8 +926,9 @@ function showInfo(item, info) {
   if (variantSel) {
     dropdown(variantSel);
     variantSel.addEventListener("change", (e) => {
-      state.variant = e.target.value;
-      loadModel(state.current, true);
+      state.comparing = false;
+      changePaint(e.target.value);
+      showCompare(info);
     });
   }
   $("#exportBox").classList.remove("hidden");
@@ -857,6 +938,8 @@ function showInfo(item, info) {
   decalLength = Math.max(x, y, z);
   showDecalSize();
 }
+
+function showCompare() {}   // Task 13 adds the Compare with stock button
 
 function showMaterials() {
   const mats = new Map();
