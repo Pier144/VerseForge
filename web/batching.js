@@ -82,7 +82,10 @@ export class Batches {
     root.traverse((o) => {
       if (!batchable(o)) return;
       if (_m.multiplyMatrices(_inv, o.matrixWorld).determinant() < 0) return;   // mirrored: needs its own winding
-      const key = [labelOf(o), o.material.uuid, layout(o.geometry), o.renderOrder, o.castShadow, o.receiveShadow].join("#");
+      // keyed GLBs: pieces of one paint group share their material in every paint, so a paint change only has to
+      // replace the batch's material (paint.js); elsewhere, pieces sharing the material object
+      const g = o.userData.group;
+      const key = [labelOf(o), g ?? o.material.uuid, layout(o.geometry), o.renderOrder, o.castShadow, o.receiveShadow].join("#");
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(o);
     });
@@ -99,6 +102,7 @@ export class Batches {
       batch.receiveShadow = first.receiveShadow;
       batch.sortObjects = false;                                // opaque only: the depth buffer sorts, no CPU sort needed
       batch.hook = first.material.userData?.beforeRender || null;
+      batch.userData.group = first.userData.group ?? null;
       const disposable = new Set();
       for (const o of meshes) {
         const id = batch.addGeometry(o.geometry);
@@ -156,6 +160,11 @@ export class Batches {
       target.union(batch.getBoundingBoxAt(id, _box).applyMatrix4(_m).applyMatrix4(batch.matrixWorld));
     }
     return target;
+  }
+
+  // the batches of one paint group (paint.js)
+  byGroup(g) {
+    return this.list.filter((b) => b.userData.group === g);
   }
 
   dispose() {
