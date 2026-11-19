@@ -323,6 +323,8 @@ function glassLook(o) {
   layer.renderOrder = o.renderOrder - 1;               // tint first, reflections over it
   o.add(layer);
   m.color.setRGB(0, 0, 0);                             // the reflection layer: specular only, added to the frame
+  m.flatShading = false;                               // GLTFLoader shades the lite GLB flat (it has no normals): the
+  m.needsUpdate = true;                                // reflections broke at every triangle; ours are computed, smooth
   m.opacity = 1;
   m.transparent = true;
   m.depthWrite = false;
