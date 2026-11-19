@@ -23,7 +23,7 @@ def group_keys(ref_model, fixed_from=None):
         if k is None:
             k = memo[id(p.material)] = repr(p.material)
         # interior parts never change with the paint, whatever their .mtl: material alone is enough for them
-        on_main = i < len(hull) and p.mtl_path and p.mat_id >= 0 and p.mtl_path == main
+        on_main = i < len(hull) and p.mtl_path and p.mat_id >= 0 and p.mtl_path.lower() == main.lower()
         key = ("slot", p.mtl_path, p.mat_id, k) if on_main else ("mat", k)
         if fixed_from is not None and i >= fixed_from:
             key = ("fixed", key)

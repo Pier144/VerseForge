@@ -129,6 +129,25 @@ def invisible_vehicle_ports(xml_bytes):
     return frozenset(out)
 
 
+def vehicle_parts(xml_bytes):
+    """What a vehicle implementation XML hangs on the hull itself, outside any loadout: tank treads
+    (<Part class="Tread"><Tread filename=...cdf>) and road wheels (<Part class="SubPartWheel"><SubPart filename=...>),
+    each on the hull node of the part's name. Wheels that only exist for the physics (..._invisible, ..._hidden) are
+    left out. [{"port", "geometry"}]"""
+    out = []
+    root = cryxml.parse(xml_bytes)
+    for part in root.iter("Part"):
+        cls, name = (part.get("class") or "").lower(), part.get("name") or ""
+        tag = {"tread": "Tread", "subpartwheel": "SubPart"}.get(cls)
+        if not tag or not name:
+            continue
+        geo = next((e.get("filename") for e in part.iter(tag) if e.get("filename")), "")
+        stem = geo.rsplit("/", 1)[-1].lower()
+        if geo and "invisible" not in stem and "hidden" not in stem:
+            out.append({"port": name, "geometry": _data_path(geo)})
+    return out
+
+
 def _gears(dc, comps):
     out = []
     for c in comps:
@@ -206,15 +225,22 @@ def build(data: bytes, read=None):
     found, vehicles, ammo, classes = {}, {}, {}, {}
     defs = {}
 
-    def vehicle_hidden(comps):
+    def definition(comps):
+        """(invisible ports, parts on the hull) of the vehicle's implementation XML."""
         path = _vehicle_definition(comps)
         if path and read is not None and path.lower() not in defs:
+            got = (frozenset(), [])
             try:
                 xml = read(path)
-                defs[path.lower()] = invisible_vehicle_ports(xml) if xml else frozenset()
-            except Exception:       # a broken XML only means no port is known to be invisible
-                defs[path.lower()] = frozenset()
-        return defs.get(path.lower(), frozenset()) | _invisible_item_ports(comps)
+                if xml:
+                    got = (invisible_vehicle_ports(xml), vehicle_parts(xml))
+            except Exception:       # a broken XML only means no port is known to be invisible, no tread is mounted
+                pass
+            defs[path.lower()] = got
+        return defs.get(path.lower(), (frozenset(), []))
+
+    def vehicle_hidden(comps):
+        return definition(comps)[0] | _invisible_item_ports(comps)
     for ri in dc.records_of("EntityClassDefinition"):
         geo, adb, comps = idx.info(ri)
         if not geo:
@@ -230,9 +256,10 @@ def build(data: bytes, read=None):
             tree = idx.tree(idx.entries(comps), hidden=vehicle_hidden(comps))
             gears = _gears(dc, comps)
             ocs = _containers(comps)
-            if tree or gears or ocs:
+            fixed = definition(comps)[1]
+            if tree or gears or ocs or fixed:
                 vehicles.setdefault(_norm(geo), []).append((rec_name, {"tree": tree, "gears": gears,
-                                                                       "containers": ocs}))
+                                                                       "containers": ocs, "fixed": fixed}))
     adbs = {}
     for geo, recs in found.items():
         recs.sort()

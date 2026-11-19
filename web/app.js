@@ -1666,7 +1666,9 @@ document.querySelectorAll("[data-kind]").forEach((c) => c.addEventListener("chan
   applyVisibility();
 }));
 window.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  // never while typing (the feedback text is a textarea) or while a dialog is open over the viewer
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) || e.target.isContentEditable) return;
+  if (document.querySelector("dialog[open]") && e.key !== "Escape") return;
   if (e.key === "Escape" && document.documentElement.classList.contains("vf-bare") && !document.querySelector("dialog[open]")) { showPanels(true); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = { f: "reset", w: "wire", r: "rotate", g: "grid", h: "panels" }[e.key.toLowerCase()];

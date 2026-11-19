@@ -222,11 +222,12 @@ def load_model(archive, path, adb_path=None, animated=True):
 
 def main_mtl(parts):
     """The model's main .mtl: the path with the most faces, the one a livery .mtl replaces (None without any)."""
-    weight = {}
+    weight, spelt = {}, {}          # counted whatever the case of the path, given back as first spelt
     for p in parts:
         if p.mtl_path:
-            weight[p.mtl_path] = weight.get(p.mtl_path, 0) + len(p.faces)
-    return max(weight, key=weight.get) if weight else None
+            weight[p.mtl_path.lower()] = weight.get(p.mtl_path.lower(), 0) + len(p.faces)
+            spelt.setdefault(p.mtl_path.lower(), p.mtl_path)
+    return spelt[max(weight, key=weight.get)] if weight else None
 
 
 def with_variant(model, archive, material=None, palette=None):
@@ -236,7 +237,8 @@ def with_variant(model, archive, material=None, palette=None):
     cache = {}
     parts = []
     for p in model.parts:
-        swapped = bool(override) and p.mtl_path == main
+        # the same file whatever its case: a tank's treads name the hull's .mtl as TMBL_Nova.mtl, the hull as tmbl_nova.mtl
+        swapped = bool(override) and bool(main) and (p.mtl_path or "").lower() == main.lower()
         path = override if swapped else p.mtl_path
         if not path or p.mat_id < 0:
             parts.append(p)

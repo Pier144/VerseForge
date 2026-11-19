@@ -85,6 +85,62 @@ def load_full(archive, path, vehicle, adb_path=None):
         out.anim_sets = [replace(st, refs=_merge_siblings(st.refs, gear_links)) if st.prefix == "" else st
                          for st in out.anim_sets]
 
+    families = {}       # (prefix, port name without its number) -> the bone that family of ports moves with
+    carriers = {}       # prefix of a mounted component -> (component, index of its first bone, names its clips move)
+
+    def holder(port_i, prefix):
+        """The bone an item mounted on port_i moves with. Normally the port itself. But some clips move only a few
+        ports of a family and the piece around them all: the Nova's missile reload lowers the rack and four of its
+        twelve missile ports (hardpoint_s1_missile_201-204); the other eight, children of the root, stayed in the
+        air with their missiles. Such a port follows the moving piece whose geometry holds it."""
+        if prefix not in carriers:
+            return port_i
+        comp, base, moved = carriers[prefix]
+        j = port_i - base
+        if not moved or not 0 <= j < len(comp.skeleton):
+            return port_i
+        bones = comp.skeleton
+
+        def moves(k):
+            while k >= 0:
+                if bones[k].name in moved:
+                    return True
+                k = bones[k].parent
+            return False
+
+        stem = re.sub(r"\d+$", "", bones[j].name)
+        if moves(j) or stem == bones[j].name or not any(re.sub(r"\d+$", "", n) == stem for n in moved):
+            return port_i
+        if (prefix, stem) in families:
+            return port_i if families[prefix, stem] is None else families[prefix, stem]
+        index = {b.name: k for k, b in enumerate(bones)}
+
+        def around(at):
+            best = None
+            for p in comp.parts:
+                k = index.get(p.node)
+                if k is None or not moves(k) or not len(p.vertices):
+                    continue
+                lo, hi = p.vertices.min(0) - 0.15, p.vertices.max(0) + 0.15
+                if (at >= lo).all() and (at <= hi).all():
+                    # the piece nearest the root among those that hold it (the rack, not the arm that swings on it),
+                    # then the smallest
+                    depth, q = 0, k
+                    while bones[q].parent >= 0:
+                        depth, q = depth + 1, bones[q].parent
+                    rank = (depth, float(np.prod(hi - lo)))
+                    if best is None or rank < best[0]:
+                        best = (rank, k)
+            return None if best is None else best[1]
+
+        # the whole family goes with the piece that holds most of it: the ports at the rack's edge fall inside the
+        # arm's box only, and would swing with it
+        votes = [around(b.world[:3, 3]) for k, b in enumerate(bones)
+                 if re.sub(r"\d+$", "", b.name) == stem and not moves(k)]
+        votes = [v for v in votes if v is not None]
+        families[prefix, stem] = base + max(set(votes), key=votes.count) if votes else None
+        return port_i if families[prefix, stem] is None else families[prefix, stem]
+
     def mount(node, prefix, depth, parent_i=None, gear=False):
         port_i = find_port(lookup, (prefix + node["port"]).lower())
         if port_i is None and parent_i is not None:
@@ -112,12 +168,17 @@ def load_full(archive, path, vehicle, adb_path=None):
         base = len(out.skeleton)
         names = {b.name for b in comp.skeleton}
         mount_i = base if comp.skeleton else port_i      # the component's root bone, or the port itself
+        hold_i = holder(port_i, prefix)                  # what the item moves with: the port, almost always
+        hold = out.skeleton[hold_i]
         for b in comp.skeleton:
-            out.skeleton.append(rig.Bone(pre + b.name, base + b.parent if b.parent >= 0 else port_i, b.local,
+            local = b.local if b.parent >= 0 or hold_i == port_i else np.linalg.inv(hold.world) @ w @ b.world
+            out.skeleton.append(rig.Bone(pre + b.name, base + b.parent if b.parent >= 0 else hold_i, local,
                                          w @ b.world))
             lookup.setdefault((pre + b.name).lower(), len(out.skeleton) - 1)
+        carriers[pre] = (comp, base, {s.targets[h] for s in comp.anim_sets for r in s.refs for h in r.targets
+                                      if h in s.targets})
         for p in comp.parts:
-            node_name = pre + p.node if p.node in names else port.name
+            node_name = pre + p.node if p.node in names else hold.name
             out.parts.append(replace(p, vertices=p.vertices @ w[:3, :3].T + w[:3, 3], node=node_name,
                                      name=f"{node['port']} / {p.name}"))
         for s in comp.anim_sets:
@@ -144,6 +205,8 @@ def load_full(archive, path, vehicle, adb_path=None):
         if "fake" in g["geometry"].rsplit("/", 1)[-1].lower():     # static stand-ins of the real legs
             continue
         mount({"port": g["port"], "geometry": g["geometry"], "adb": "", "children": []}, "", 0, gear=True)
+    for f in vehicle.get("fixed") or []:          # tank treads and road wheels, from the vehicle's definition
+        mount({"port": f["port"], "geometry": f["geometry"], "adb": "", "children": []}, "", 0)
     for n in vehicle.get("tree") or []:
         mount(n, "", 0)
     if stats["missing"]:

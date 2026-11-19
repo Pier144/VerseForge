@@ -179,3 +179,29 @@ def test_perseus_mounts_everything(archive, index):
     assert any(p.name.startswith("hardpoint_lifesupport / ") for p in full.parts)
     m = assembly.load_interior(archive, full, v, entities.classes_of(index))
     assert not [w for w in m.warnings if w[0] == "warn_interior_missing"]
+
+
+NOVA = "Objects/Vehicles/TMBL/Nova/TMBL_Nova.cga"
+
+
+def test_tank_treads_and_wheels_are_mounted(archive, index):
+    # treads and road wheels are not loadout items: the vehicle's implementation XML hangs them on the hull
+    # (<Part class="Tread">, <Part class="SubPartWheel">); the wheels that only exist for the physics stay out
+    v = entities.vehicle_for(index, NOVA)
+    fixed = {f["port"]: f["geometry"].lower() for f in v["fixed"]}
+    assert fixed["hardpoint_tread_left"].endswith("tmbl_nova_tread_left.cdf")
+    assert not [g for g in fixed.values() if "hidden" in g or "invisible" in g]
+    m = assembly.load_full(archive, NOVA, v)
+    assert any(p.name.startswith("hardpoint_tread_left") and len(p.vertices) > 1000 for p in m.parts)
+    assert any(p.name.startswith("hardpoint_wheel") for p in m.parts)
+
+
+def test_items_on_ports_a_clip_forgets_follow_their_rack(archive, index):
+    # the Nova's missile reload lowers the rack and moves four of its missile ports (201-204); the other ports hang
+    # from the launcher's root, and their missiles stayed in the air: they follow the rack that holds them
+    m = assembly.load_full(archive, NOVA, entities.vehicle_for(index, NOVA))
+    parents = {b.name: m.skeleton[b.parent].name for b in m.skeleton if b.name.endswith("/FSKI_Ignite_S2")}
+    one = "hardpoint_primary_turret/hardpoint_missile_launcher/hardpoint_s1_missile_"
+    assert parents[one + "201/FSKI_Ignite_S2"].endswith("hardpoint_s1_missile_201")
+    assert parents[one + "101/FSKI_Ignite_S2"].endswith("4x_missile_launcher_02")
+    assert parents[one + "304/FSKI_Ignite_S2"].endswith("4x_missile_launcher_02")

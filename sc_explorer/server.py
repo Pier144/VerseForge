@@ -155,7 +155,7 @@ class State:
 
     def _entities(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"entities_v6_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"entities_v7_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
