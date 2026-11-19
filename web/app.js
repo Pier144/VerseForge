@@ -34,7 +34,7 @@ const plural = (n, one, many) => T(n === 1 ? one : many, { n });
 const CAT_LABELS = {};
 const KIND_LABELS = { solid: "", decal: "kindDecal", glass: "kindGlass", hidden: "kindProxy", screen: "kindScreen" };
 const SUBCATS = {};
-const state = { cat: "", sub: "", current: null, kinds: { decal: false, glass: true, hidden: false, screen: true }, matOff: new Set(), printJob: null, tex: true, variant: null, full: false,
+const state = { cat: "", sub: "", current: null, kinds: { decal: true, glass: true, hidden: false, screen: true }, matOff: new Set(), printJob: null, tex: true, variant: null, full: true,
   look: true, swapXY: false, light: "hangar", interior: false, cut: 1 };
 try { state.tex = localStorage.getItem("vf.tex") !== "0"; } catch { /* storage unavailable */ }
 try { state.light = localStorage.getItem("vf.light") === "studio" ? "studio" : "hangar"; } catch { /* storage unavailable */ }
@@ -1468,8 +1468,8 @@ function buildDecks(floors = []) {
   mk(T("all"), T("roomsAll"), 1);
 }
 
-// "Full ship": remembered for the session, shown only for ships and vehicles that have a factory loadout
-try { state.full = sessionStorage.getItem("vf.full") === "1"; } catch { /* storage unavailable */ }
+// "Full ship": on from the start, a choice to turn it off is remembered for the session; shown only for ships and vehicles that have a factory loadout
+try { state.full = sessionStorage.getItem("vf.full") !== "0"; } catch { /* storage unavailable */ }
 $("#fullOn").checked = state.full;
 $("#fullOn").addEventListener("change", (e) => {
   state.full = e.target.checked;
