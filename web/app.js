@@ -946,23 +946,29 @@ function fmtLen(m) {
   return `${(m * 1000).toFixed(1)}<small>mm</small>`;
 }
 
+const plainLen = (m) => fmtLen(m).replace(/<small>(\w+)<\/small>/, " $1");
+// width × length × height on one line: metres, or millimetres for small things
+function fmtSize(size) {
+  const mm = Math.max(...size) < 1;
+  const one = (v) => mm ? (v * 1000).toFixed(v >= 0.1 ? 0 : 1) : v.toFixed(2);
+  return `${size.map(one).join(" × ")} ${mm ? "mm" : "m"}`;
+}
+
 function infoHead(item) {
   const sub = item.subtitle || CAT_LABELS[item.category] || "";
   return `<div class="info-head">
       ${sub ? `<div class="eyebrow">${esc(sub)}</div>` : ""}
-      <h2>${esc(item.name)}</h2>
-      <div class="path" title="${esc(item.path)}">${esc(item.path)}</div>
+      <h2 title="${esc(item.path)}">${esc(item.name)}</h2>
     </div>`;
 }
 
 function showInfo(item, info) {
   const s = info.stats;
   const [x, y, z] = s.size_m;
-  const stat = (k, v) => `<div class="stat"><span class="k">${T(k)}</span><span class="v">${v}</span></div>`;
+  const sizes = `${T("width")} ${plainLen(x)} · ${T("length")} ${plainLen(y)} · ${T("height")} ${plainLen(z)}`;
   $("#info").innerHTML = `${infoHead(item)}
-    <div class="stats">
-      ${stat("width", fmtLen(x))}${stat("length", fmtLen(y))}${stat("height", fmtLen(z))}
-      ${stat("triangles", num(s.triangles))}${stat("parts", s.parts)}${stat("materials", s.materials.length)}
+    <div class="specs" title="${esc(sizes)}">
+      <b>${fmtSize(s.size_m)}</b>${T("triangles")} ${num(s.triangles)} · ${T("parts")} ${num(s.parts)} · ${T("materials")} ${s.materials.length}
     </div>
     ${info.variants.length > 1 ? `<div class="variant"><span>${T("variant")}</span>
       <select id="variantSel">${info.variants.map((v) => `<option value="${esc(v.tag)}"${v.tag === info.variant ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>` : ""}
@@ -1217,7 +1223,9 @@ document.querySelectorAll("#resinMenu [data-resin]").forEach((b) => b.addEventLi
   try { localStorage.setItem("vf.resin", resin); } catch { /* storage unavailable */ }
   applyResin();
 }));
+$("#layersBtn").addEventListener("click", () => $("#layersBtn").classList.toggle("on", !$("#layersMenu").classList.toggle("hidden")));
 document.addEventListener("pointerdown", (e) => {
+  if (!e.target.closest("#layersWrap")) { $("#layersMenu").classList.add("hidden"); $("#layersBtn").classList.remove("on"); }
   if (!e.target.closest("#bgMenu, [data-act=\"bg\"]")) $("#bgMenu").classList.add("hidden");
   if (!e.target.closest("#resinMenu, [data-act=\"resin\"]")) $("#resinMenu").classList.add("hidden");
 });
@@ -1225,6 +1233,56 @@ applyResin();
 // the space panoramas come from the game files: a saved one is put back once the catalogue is ready (pollStatus)
 const savedBackdrop = backdrop.kind;
 backdrop.set(["pyro", "stanton", "workbench"].includes(savedBackdrop) ? "plain" : savedBackdrop);
+// Panels hidden: the top bar, the list and the right panel go away and the view is centred on the whole window.
+// Not remembered: the app always starts with its panels.
+function showPanels(on) {
+  document.documentElement.classList.toggle("vf-bare", !on);
+  $('[data-act="panels"]').classList.toggle("on", !on);
+  resize();
+}
+
+// Icon-only buttons say their name at once on hover, in a tip drawn here: the browser's own tooltip takes a second.
+// The text is the element's title (kept in the page's language by i18n.js), moved aside while the tip is used.
+const tip = document.body.appendChild(Object.assign(document.createElement("div"), { id: "tip", className: "hidden" }));
+const TIPPED = ".toolbar .tool, .catgrid .chip, .ptabs button:not(.on)";
+document.addEventListener("pointerover", (e) => {
+  const el = e.target.closest?.(TIPPED);
+  if (!el) { tip.classList.add("hidden"); return; }
+  if (el.title) { el.dataset.tip = el.title; el.setAttribute("aria-label", el.title); el.removeAttribute("title"); }
+  if (!el.dataset.tip) return;
+  tip.textContent = el.dataset.tip;
+  tip.classList.remove("hidden");
+  const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight, above = r.top > innerHeight / 2;
+  tip.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
+  tip.style.top = `${above ? r.top - h - 8 : r.bottom + 8}px`;
+});
+document.addEventListener("pointerdown", () => tip.classList.add("hidden"), true);
+
+// Right panel: one tab at a time (animations, export, 3D print with the decal sheet, materials with the folder).
+// The boxes are shown and hidden by the code that fills them; a tab exists while one of its boxes does.
+const ptabs = { wanted: "anim", boxes: [...document.querySelectorAll(".panel .box[data-ptab]")] };
+try { ptabs.wanted = localStorage.getItem("vf.ptab") || ptabs.wanted; } catch { /* storage unavailable */ }
+function syncTabs() {
+  const live = new Set(ptabs.boxes.filter((b) => !b.classList.contains("hidden")).map((b) => b.dataset.ptab));
+  const buttons = [...document.querySelectorAll("#ptabs button")];
+  const shown = live.has(ptabs.wanted) ? ptabs.wanted : buttons.find((b) => live.has(b.dataset.ptab))?.dataset.ptab || "";
+  buttons.forEach((b) => {
+    b.hidden = !live.has(b.dataset.ptab);
+    b.classList.toggle("on", b.dataset.ptab === shown);
+    b.setAttribute("aria-selected", b.dataset.ptab === shown);
+  });
+  $("#ptabs").classList.toggle("hidden", live.size < 2);
+  $(".panel").dataset.ptab = shown;
+}
+document.querySelectorAll("#ptabs button").forEach((b) => b.addEventListener("click", () => {
+  ptabs.wanted = b.dataset.ptab;
+  try { localStorage.setItem("vf.ptab", ptabs.wanted); } catch { /* storage unavailable */ }
+  syncTabs();
+}));
+const tabWatch = new MutationObserver(syncTabs);
+ptabs.boxes.forEach((b) => tabWatch.observe(b, { attributes: true, attributeFilter: ["class"] }));
+syncTabs();
+
 function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
   if (a === "reset") frame();
   if (a === "wire") { wireframe = !wireframe; b.classList.toggle("on", wireframe); applyWireframe(); }
@@ -1236,6 +1294,7 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
     try { localStorage.setItem("vf.light", state.light); } catch { /* storage unavailable */ }
     setLighting(state.light);
   }
+  if (a === "panels") showPanels(document.documentElement.classList.contains("vf-bare"));
   if (a === "bg") $("#bgMenu").classList.toggle("hidden");
   if (a === "resin") $("#resinMenu").classList.toggle("hidden");
   if (a === "shot") {
@@ -1488,7 +1547,9 @@ document.querySelectorAll("[data-kind]").forEach((c) => c.addEventListener("chan
 }));
 window.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
-  const k = { f: "reset", w: "wire", r: "rotate", g: "grid" }[e.key.toLowerCase()];
+  if (e.key === "Escape" && document.documentElement.classList.contains("vf-bare") && !document.querySelector("dialog[open]")) { showPanels(true); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = { f: "reset", w: "wire", r: "rotate", g: "grid", h: "panels" }[e.key.toLowerCase()];
   if (k) act(k);
 });
 
@@ -1629,8 +1690,10 @@ async function runSearch() {
 }
 
 function renderResults({ total, items }) {
-  $("#count").textContent = total > items.length ? T("resultsOf", { n: num(total), shown: items.length }) : T("results", { n: num(total) });
-  $("#count").title = $("#count").textContent;
+  // the categories are icons: the chosen one is named here, with its number of models
+  const all = total > items.length ? T("resultsOf", { n: num(total), shown: items.length }) : T("results", { n: num(total) });
+  $("#count").textContent = state.cat && CAT_LABELS[state.cat] ? `${CAT_LABELS[state.cat]} · ${num(total)}` : all;
+  $("#count").title = all;
   const ul = $("#results");
   ul.innerHTML = "";
   const frag = document.createDocumentFragment();
@@ -1638,9 +1701,13 @@ function renderResults({ total, items }) {
     const li = document.createElement("li");
     li.dataset.path = it.path;
     if (state.current?.path === it.path) li.classList.add("active");
-    const sub = it.subtitle || CAT_LABELS[it.category] || "";
-    li.innerHTML = `<div class="name"><span>${esc(it.name)}</span><span class="badge">${it.ext}</span></div>
-      <div class="sub">${sub ? `${esc(sub)} · ` : ""}<span class="file">${esc(it.path.split("/").pop())}</span></div>`;
+    // one line: the name, then the maker; with every file listed ("Main models" off) the file name tells them apart
+    const name = document.createElement("span"), sub = document.createElement("span"), files = !$("#mainOnly").checked;
+    name.className = "name";
+    name.textContent = it.name;
+    sub.className = files ? "sub file" : "sub";
+    sub.textContent = files ? it.path.split("/").pop() : it.subtitle || CAT_LABELS[it.category] || "";
+    li.append(name, sub);
     li.title = it.path;
     li.onclick = () => loadModel(it);
     frag.appendChild(li);
@@ -1697,17 +1764,17 @@ function chip(id, label, n) {
 }
 function loadCategoriesUI() {
   $("#cats").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c.dataset.id === state.cat));
-  // the sub-categories of the selected category, in a second row
+  // the sub-categories of the selected category (the makers, for ships): one menu instead of a cloud of chips
   const box = $("#subcats"), subs = SUBCATS[state.cat] || [];
   box.replaceChildren();
   box.hidden = subs.length < 2;
   if (box.hidden) return;
-  [{ id: "", label: T("all") }, ...subs].forEach((s) => {
-    const c = chip(s.id, s.label, s.count);
-    c.classList.toggle("on", s.id === state.sub);
-    c.onclick = () => { state.sub = state.sub === s.id ? "" : s.id; loadCategoriesUI(); runSearch(); };
-    box.appendChild(c);
-  });
+  const sel = document.createElement("select");
+  [{ id: "", label: T("all") }, ...subs].forEach((s) =>
+    sel.add(new Option(s.count != null ? `${s.label} · ${num(s.count)}` : s.label, s.id, false, s.id === state.sub)));
+  sel.addEventListener("change", () => { state.sub = sel.value; runSearch(); });
+  box.appendChild(sel);
+  dropdown(sel);
 }
 
 $("#q").addEventListener("input", scheduleSearch);

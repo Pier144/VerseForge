@@ -204,7 +204,6 @@
     "screensTitle": "조종석, 계기판, 무기의 화면 (전원이 켜진 것처럼 점등)",
     "screens": "화면",
     "proxyTitle": "물리 프록시",
-    "proxyPill": "프록시",
     "fullTitle": "기본 장비를 장착합니다: 랜딩 기어, 무기, 추진기, 좌석 및 부품",
     "interiorsTitle": "내부를 불러옵니다: 함선 오브젝트 컨테이너의 방, 통로, 소품",
     "interiors": "내부",
@@ -408,6 +407,8 @@
     "repSent": "제보 #{n}을(를) 보냈습니다. 감사합니다",
     "repSentUnsaved": "제보 #{n}을(를) 보냈지만 VerseForge가 설정을 저장하지 못했습니다. 다시 시작하면 내 제보에 표시되지 않습니다",
     "compareStock": "기본 도색과 비교",
-    "showingStock": "기본 도색 표시 중 · 클릭하여 돌아가기"
+    "showingStock": "기본 도색 표시 중 · 클릭하여 돌아가기",
+    "layersBtn": "레이어",
+    "panelsTitle": "패널 숨기기 / 표시 (H)"
   }
 }

@@ -7,7 +7,7 @@
   --font-display: "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --mono: "SF Mono", "Cascadia Mono", Consolas, monospace;
 
-  --gap: 12px; --topbar-h: 52px; --sidebar-w: 320px; --panel-w: 324px;
+  --gap: 12px; --topbar-h: 52px; --sidebar-w: 280px; --panel-w: 300px;
   /* how much of the canvas the floating panels cover: overlays are centred in what stays visible */
   --ov-l: calc(var(--sidebar-w) + var(--gap) * 2);
   --ov-r: calc(var(--panel-w) + var(--gap) * 2);
@@ -524,7 +524,7 @@ textarea::placeholder { color: var(--faint); }
 }
 
 /* ---------------------------------------------------------------- animations */
-.anim-groups { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.anim-groups { display: flex; flex-direction: column; gap: 6px; max-height: max(200px, calc(100vh - 480px)); overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
 .anim-group { display: grid; grid-template-columns: minmax(0, 40%) 1fr; align-items: center; gap: 8px; }
 .anim-group .g { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .anim-group .acts { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -588,3 +588,67 @@ textarea::placeholder { color: var(--faint); }
 }
 .decks button:hover { background: var(--hover); color: var(--text); }
 .decks button.on { background: var(--accent); color: var(--accent-ink); }
+
+/* ================================================================== leaner interface
+   Icons instead of words where a word is not needed: the name shows at once on hover (#tip, drawn by app.js). */
+#tip {
+  position: fixed; z-index: 60; padding: 5px 9px; border-radius: 8px; background: var(--menu-bg); border: 1px solid var(--float-border);
+  box-shadow: var(--float-shadow); font-size: 11.5px; color: var(--text); white-space: nowrap; pointer-events: none;
+}
+#tip.hidden { display: none; }
+
+/* categories: a grid of icons, name and count in the tip */
+.catgrid { grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.catgrid .chip { justify-content: center; height: 32px; padding: 0; }
+.catgrid .chip.all { grid-column: auto; }
+.catgrid .chip .l, .catgrid .chip .n { display: none; }
+.catgrid .chip .i { width: 16px; height: 16px; }
+
+/* sub-categories: one menu */
+.subcats { display: block; margin: 0; padding: 0; border: 0; }
+
+/* results: one line each, name on the left, maker (or file name) on the right */
+.results li { display: flex; align-items: baseline; gap: 10px; padding: 7px 10px; }
+.results .name { flex: 0 0 auto; max-width: 72%; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results .sub { flex: 1 1 0; min-width: 0; margin: 0; text-align: right; }
+.results .sub.file { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+
+/* toolbar: icons only */
+.tool { width: 38px; padding: 0; justify-content: center; }
+.tool span { display: none; }
+.tool .i { width: 18px; height: 18px; }
+
+/* layers: Full ship and Interiors stay in sight, the rest is in the Layers menu */
+.layers-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 0; border-radius: 10px; background: none;
+  font-size: 12px; color: var(--text-2); transition: background .15s, color .15s;
+}
+.layers-btn:hover { color: var(--text); }
+.layers-btn.on { background: var(--accent-soft); color: var(--accent-text); }
+.layers-btn .i { width: 15px; height: 15px; }
+.layers-menu { bottom: auto; top: calc(100% + 12px); left: auto; right: -4px; transform: none; min-width: 190px; gap: 10px; padding: 12px 14px; }
+.layers-menu .switch { white-space: nowrap; }
+
+/* right panel: sizes on two short lines, then one tab at a time */
+.specs { margin-top: 8px; font-size: 12px; line-height: 1.55; color: var(--muted); font-variant-numeric: tabular-nums; }
+.specs b { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.ptabs { display: flex; gap: 2px; padding: 3px; margin-top: 16px; border-radius: 12px; background: var(--input-bg); border: 1px solid var(--input-border); }
+.ptabs.hidden, .ptabs button[hidden] { display: none; }
+.ptabs button {
+  flex: none; width: 42px; height: 30px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 0;
+  border: 0; border-radius: 9px; background: none; color: var(--muted); font-size: 12.5px; font-weight: 600; transition: background .15s, color .15s;
+}
+.ptabs button:hover { color: var(--text); }
+.ptabs button.on { flex: 1; background: var(--accent-soft); color: var(--accent-text); }
+.ptabs button span { display: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptabs button.on span { display: inline; }
+.ptabs .i { width: 15px; height: 15px; }
+.panel[data-ptab="anim"] .box:not([data-ptab="anim"]), .panel[data-ptab="export"] .box:not([data-ptab="export"]),
+.panel[data-ptab="print"] .box:not([data-ptab="print"]), .panel[data-ptab="mats"] .box:not([data-ptab="mats"]) { display: none; }
+.box.first { margin-top: 16px; padding-top: 0; border-top: 0; }
+.mats, .related { max-height: max(280px, calc(100vh - 560px)); }
+.box.first > h3 { display: none; }               /* the tab already says it */
+
+/* panels hidden (toolbar button, H): the 3D view has the whole window, the toolbar and the layers stay */
+html.vf-bare { --ov-l: 0px; --ov-r: 0px; --ov-t: 0px; }
+html.vf-bare .topbar, html.vf-bare .sidebar, html.vf-bare .panel { display: none; }

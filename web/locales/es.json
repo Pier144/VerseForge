@@ -204,7 +204,6 @@
     "screensTitle": "Pantallas de cabinas, paneles y armas (iluminadas como si estuvieran encendidas)",
     "screens": "Pantallas",
     "proxyTitle": "Proxies de física",
-    "proxyPill": "Proxy",
     "fullTitle": "Monta el equipamiento de fábrica: tren de aterrizaje, armas, propulsores, asientos y componentes",
     "interiorsTitle": "Carga el interior: salas, pasillos y objetos de los contenedores de objetos de la nave",
     "interiors": "Interiores",
@@ -408,6 +407,8 @@
     "repSent": "Informe #{n} enviado, ¡gracias!",
     "repSentUnsaved": "Informe #{n} enviado, pero VerseForge no pudo guardar sus ajustes: no aparecerá en Mis informes tras reiniciar",
     "compareStock": "Comparar con la pintura de serie",
-    "showingStock": "Pintura de serie · haz clic para volver"
+    "showingStock": "Pintura de serie · haz clic para volver",
+    "layersBtn": "Capas",
+    "panelsTitle": "Ocultar o mostrar los paneles (H)"
   }
 }

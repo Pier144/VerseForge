@@ -204,7 +204,6 @@
     "screensTitle": "驾驶舱、仪表板和武器的屏幕（以开机状态点亮）",
     "screens": "屏幕",
     "proxyTitle": "物理代理",
-    "proxyPill": "代理",
     "fullTitle": "安装出厂配装：起落架、武器、推进器、座椅和组件",
     "interiorsTitle": "加载内部：舰船对象容器中的房间、走廊和道具",
     "interiors": "内部",
@@ -408,6 +407,8 @@
     "repSent": "报告 #{n} 已发送，谢谢",
     "repSentUnsaved": "报告 #{n} 已发送，但 VerseForge 无法保存设置：重启后它不会出现在“我的报告”中",
     "compareStock": "与原厂涂装对比",
-    "showingStock": "正在显示原厂涂装 · 点击返回"
+    "showingStock": "正在显示原厂涂装 · 点击返回",
+    "layersBtn": "图层",
+    "panelsTitle": "隐藏或显示面板 (H)"
   }
 }

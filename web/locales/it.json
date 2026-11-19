@@ -204,7 +204,6 @@
     "screensTitle": "Schermi di abitacoli, cruscotti e armi (illuminati come se fossero accesi)",
     "screens": "Schermi",
     "proxyTitle": "Proxy fisici",
-    "proxyPill": "Proxy",
     "fullTitle": "Monta il loadout di fabbrica: carrello d'atterraggio, armi, propulsori, sedili e componenti",
     "interiorsTitle": "Carica gli interni: stanze, corridoi e oggetti degli object container della nave",
     "interiors": "Interni",
@@ -408,6 +407,8 @@
     "repSent": "Segnalazione #{n} inviata, grazie",
     "repSentUnsaved": "Segnalazione #{n} inviata, ma VerseForge non è riuscito a salvare le impostazioni: dopo un riavvio non comparirà in Le mie segnalazioni",
     "compareStock": "Confronta con la vernice di serie",
-    "showingStock": "Vernice di serie · clic per tornare"
+    "showingStock": "Vernice di serie · clic per tornare",
+    "layersBtn": "Livelli",
+    "panelsTitle": "Nascondi o mostra i pannelli (H)"
   }
 }

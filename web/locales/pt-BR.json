@@ -204,7 +204,6 @@
     "screensTitle": "Telas de cockpits, painéis e armas (acesas como se estivessem ligadas)",
     "screens": "Telas",
     "proxyTitle": "Proxies de física",
-    "proxyPill": "Proxy",
     "fullTitle": "Montar o loadout de fábrica: trem de pouso, armas, propulsores, assentos e componentes",
     "interiorsTitle": "Carregar o interior: salas, corredores e objetos dos object containers da nave",
     "interiors": "Interiores",
@@ -408,6 +407,8 @@
     "repSent": "Relato #{n} enviado, obrigado",
     "repSentUnsaved": "Relato #{n} enviado, mas o VerseForge não conseguiu salvar as configurações: ele não vai aparecer em Meus relatos depois de reiniciar",
     "compareStock": "Comparar com a pintura original",
-    "showingStock": "Pintura original · clique para voltar"
+    "showingStock": "Pintura original · clique para voltar",
+    "layersBtn": "Camadas",
+    "panelsTitle": "Ocultar ou mostrar os painéis (H)"
   }
 }

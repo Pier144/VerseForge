@@ -204,7 +204,6 @@
     "screensTitle": "コックピット、計器盤、武器の画面 (電源が入った状態で点灯)",
     "screens": "画面",
     "proxyTitle": "物理プロキシ",
-    "proxyPill": "プロキシ",
     "fullTitle": "標準装備を取り付けます：ランディングギア、武器、スラスター、座席、コンポーネント",
     "interiorsTitle": "内装を読み込みます：船のオブジェクトコンテナにある部屋、通路、小道具",
     "interiors": "内装",
@@ -408,6 +407,8 @@
     "repSent": "報告 #{n} を送信しました。ありがとうございます",
     "repSentUnsaved": "報告 #{n} を送信しましたが、VerseForge が設定を保存できませんでした。再起動後は「自分の報告」に表示されません",
     "compareStock": "標準塗装と比較",
-    "showingStock": "標準塗装を表示中 · クリックで戻る"
+    "showingStock": "標準塗装を表示中 · クリックで戻る",
+    "layersBtn": "レイヤー",
+    "panelsTitle": "パネルを隠す／表示する (H)"
   }
 }

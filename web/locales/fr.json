@@ -204,7 +204,6 @@
     "screensTitle": "Écrans des cockpits, tableaux de bord et armes (éclairés comme s'ils étaient allumés)",
     "screens": "Écrans",
     "proxyTitle": "Proxys physiques",
-    "proxyPill": "Proxy",
     "fullTitle": "Monter le loadout d'usine : train d'atterrissage, armes, propulseurs, sièges et composants",
     "interiorsTitle": "Charger l'intérieur : salles, couloirs et objets des object containers du vaisseau",
     "interiors": "Intérieurs",
@@ -408,6 +407,8 @@
     "repSent": "Signalement #{n} envoyé, merci",
     "repSentUnsaved": "Signalement #{n} envoyé, mais VerseForge n'a pas pu enregistrer ses paramètres : il n'apparaîtra plus dans Mes signalements après un redémarrage",
     "compareStock": "Comparer avec la peinture d'origine",
-    "showingStock": "Peinture d'origine · cliquer pour revenir"
+    "showingStock": "Peinture d'origine · cliquer pour revenir",
+    "layersBtn": "Calques",
+    "panelsTitle": "Masquer ou afficher les panneaux (H)"
   }
 }

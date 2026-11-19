@@ -204,7 +204,6 @@
     "screensTitle": "Displays von Cockpits, Armaturen und Waffen (leuchten wie eingeschaltet)",
     "screens": "Displays",
     "proxyTitle": "Physik-Proxys",
-    "proxyPill": "Proxy",
     "fullTitle": "Werks-Loadout montieren: Fahrwerk, Waffen, Triebwerke, Sitze und Komponenten",
     "interiorsTitle": "Innenraum laden: Räume, Gänge und Requisiten aus den Object Containern des Schiffs",
     "interiors": "Innenraum",
@@ -408,6 +407,8 @@
     "repSent": "Meldung #{n} gesendet, danke",
     "repSentUnsaved": "Meldung #{n} gesendet, aber VerseForge konnte die Einstellungen nicht speichern: Nach einem Neustart fehlt sie unter Meine Meldungen",
     "compareStock": "Mit Serienlackierung vergleichen",
-    "showingStock": "Serienlackierung · zum Zurückkehren klicken"
+    "showingStock": "Serienlackierung · zum Zurückkehren klicken",
+    "layersBtn": "Ebenen",
+    "panelsTitle": "Bedienfelder aus- oder einblenden (H)"
   }
 }
