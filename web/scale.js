@@ -3,9 +3,9 @@
 //    width, the numbers and the totals written flat on the floor, turned towards the default camera (at -x, -z), and
 //    a staff for the height with its value at its foot
 //  - "pilot": a pilot from the game standing by the nose, his height written beside him
-//  - "scene": a hangar floor in use: cargo boxes, containers, forklifts, missiles, tool carts, cones… from the game,
-//    scattered at random around the model (the same way for the same model, until shuffled), and work lights on
-//    tripods that light the hull
+//  - "scene": a hangar floor in use, with things from the game: an ordnance area (missiles, torpedoes, ammunition),
+//    a cargo area (boxes, containers, a forklift) and a tools corner, each a tidy group, drawn to a side of the model
+//    (the same way for the same model, until shuffled), and work lights in mirrored pairs turned to the hull
 // Everything sits on the model's floor (the bottom of its box) and is rebuilt when the model or the choice changes.
 import * as THREE from "three";
 
@@ -18,28 +18,48 @@ const LAMPS = [
   B + "common/light/work/tripod/set_a/common_light_work_tripod_set_a_assembled_a.cgf",
   B + "common/light/work/tripod/set_a/common_light_work_tripod_set_a_assembled_b.cgf",
 ];
-// what the scene is made of. w: how often it is picked; n: how many stand together; tall: never between the camera
-// and the model; max: how many in one scene; square: turned by quarter turns (with a little slack), like parked things
-const SCENERY = [
-  { path: CARGO + "cargo_exp_1_125x125x125_a.cgf", w: 5, n: [2, 6], stack: true, square: true },
-  { path: CARGO + "cargo_liquid_2SCU_1_a.cgf", w: 2, n: [1, 3], square: true },
-  { path: CARGO + "cargo_liquid_8SCU_1_a.cgf", w: 2, n: [1, 2], tall: true, square: true },
-  { path: CARGO + "cargo_liquid_32SCU_1_a.cgf", w: 2, tall: true, max: 3, square: true },
-  { path: B + "universal/prop/uee/forklift/forklift_machine_1_a.cgf", w: 2, tall: true, max: 2 },
-  { path: B + "universal/prop/uee/forklift/forklift_standing_1_a.cgf", w: 1, tall: true, max: 2 },
-  { path: B + "lowtech/charlie/int/prop/uee_lawless_prop_missilestack_large.cgf", w: 2, max: 3, square: true },
-  { path: B + "lowtech/charlie/int/prop/uee_lawless_prop_missilestack_medium.cgf", w: 2, n: [1, 2], square: true },
-  { path: "Objects/Spaceships/Ammo/Torpedoes/TALN/TALN_Argos_S9.cga", w: 1, max: 2 },
-  { path: B + "lowtech/charlie/int/prop/uee_lawless_prop_ammocrate_01.cgf", w: 2, n: [1, 3] },
-  { path: B + "lowtech/charlie/int/prop/uee_lawless_prop_toolcart.cgf", w: 2 },
-  { path: B + "shop/alpha/shippart/dumpersdepot/prop/prop_dumper_int_tool_chest_a.cgf", w: 2 },
-  { path: B + "lowtech/prop/workbench/workbench_mobile_1_a.cgf", w: 1 },
-  { path: B + "universal/prop/machine/trolley/trolley_pallet_powered_1_a.cgf", w: 2 },
-  { path: B + "hightech/prop/maintenance/ladder/ladder_mobile_1_a.cgf", w: 1, tall: true, max: 2 },
-  { path: B + "lowtech/prop/furniture/barrel/barrel_a.cgf", w: 2, n: [2, 4] },
-  { path: B + "universal/prop/maintenance/cone_1_a.cgf", w: 2, n: [3, 5], line: true },
-  { path: B + "lowtech/prop/barrier/barrier_foldable_1_a.cgf", w: 1, n: [1, 2], line: true },
-];
+// What the scene is made of: three working areas, each a few rows of things that belong together, the low ones
+// towards the model. An entry is one thing: p its model, n how many side by side (a number, or [min, max]), turn: a
+// quarter turn (long things lie along the row), set: several of it as one (stack: a block of boxes two wide with
+// more on top, line: spaced in a line), spin: parked at whatever angle, more: one more of it every so many metres of
+// model (bigger ships get bigger areas).
+const P = {
+  scu1: CARGO + "cargo_exp_1_125x125x125_a.cgf", scu2: CARGO + "cargo_liquid_2SCU_1_a.cgf",
+  scu8: CARGO + "cargo_liquid_8SCU_1_a.cgf", scu32: CARGO + "cargo_liquid_32SCU_1_a.cgf",
+  forklift: B + "universal/prop/uee/forklift/forklift_machine_1_a.cgf",
+  stacker: B + "universal/prop/uee/forklift/forklift_standing_1_a.cgf",
+  trolley: B + "universal/prop/machine/trolley/trolley_pallet_powered_1_a.cgf",
+  missilesL: B + "lowtech/charlie/int/prop/uee_lawless_prop_missilestack_large.cgf",
+  missilesM: B + "lowtech/charlie/int/prop/uee_lawless_prop_missilestack_medium.cgf",
+  torpedo: "Objects/Spaceships/Ammo/Torpedoes/TALN/TALN_Argos_S9.cga",
+  ammo: B + "lowtech/charlie/int/prop/uee_lawless_prop_ammocrate_01.cgf",
+  toolcart: B + "lowtech/charlie/int/prop/uee_lawless_prop_toolcart.cgf",
+  chest: B + "shop/alpha/shippart/dumpersdepot/prop/prop_dumper_int_tool_chest_a.cgf",
+  bench: B + "lowtech/prop/workbench/workbench_mobile_1_a.cgf",
+  ladder: B + "hightech/prop/maintenance/ladder/ladder_mobile_1_a.cgf",
+  barrel: B + "lowtech/prop/furniture/barrel/barrel_a.cgf",
+  cone: B + "universal/prop/maintenance/cone_1_a.cgf",
+  barrier: B + "lowtech/prop/barrier/barrier_foldable_1_a.cgf",
+};
+const ZONES = {
+  // ordnance: missiles and torpedoes laid out to be loaded, ammunition beside them, coned off
+  ordnance: [
+    [{ p: P.cone, set: { n: [4, 6], line: true } }, { p: P.ammo, n: [2, 3] }, { p: P.missilesM, n: [2, 3], more: 40 }],
+    [{ p: P.missilesL, n: [2, 3], more: 30 }, { p: P.torpedo, n: [1, 2], turn: 1, more: 50 }],
+  ],
+  // cargo: boxes stacked by size, the containers behind them, a forklift and a pallet truck at work
+  cargo: [
+    [{ p: P.scu1, set: { n: [4, 6], stack: true } }, { p: P.scu1, set: { n: [3, 5], stack: true }, more: 40 },
+      { p: P.scu2, n: [1, 2] }, { p: P.trolley, spin: 0.5 }, { p: P.forklift, spin: 0.7 }],
+    [{ p: P.scu32, turn: 1, more: 45 }, { p: P.scu8, n: [1, 2], more: 60 }],
+  ],
+  // tools: the mechanics' corner
+  tools: [
+    [{ p: P.barrel, set: { n: [2, 3] } }, { p: P.toolcart }, { p: P.chest }, { p: P.bench }],
+    [{ p: P.ladder, turn: 1 }, { p: P.stacker, spin: 0.4 }, { p: P.barrier, set: { n: [1, 2], line: true } }],
+  ],
+};
+const SCENERY = [...new Set(Object.values(P))].map((path) => ({ path }));
 
 const STEPS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
 const INK = {                      // lines, tick numbers, totals: on a dark floor and on a light one
@@ -207,70 +227,106 @@ export class ScaleRefs {
 
   // ------------------------------------------------------------------ the scene around the model
   scenery(props, box, size, mid, big, lay) {
-    const rnd = rng(`${this.key}#${this.salt}`), y0 = box.min.y, placed = [];
-    const margin = Math.max(1.5, big * 0.05), reach = Math.min(45, Math.max(9, big * 0.45));
+    const rnd = rng(`${this.key}#${this.salt}`), y0 = box.min.y, taken = [];
+    const margin = Math.max(1.5, big * 0.05);
     const pick = (a, b) => a + rnd() * (b - a);
-    // where nothing may stand: the model's footprint, the rulers with their writing, the pilot
+    // where nothing may stand ([x0, x1, z0, z1]): the model's footprint, the rulers with their writing, the pilot
     const keep = [
       [box.min.x - margin, box.max.x + margin, box.min.z - margin, box.max.z + margin],
       [lay.xl - lay.band, lay.xl + lay.tk * 2, box.min.z - lay.off, lay.zb + lay.ht * 4],
       [box.min.x - lay.off, box.max.x + lay.off, lay.zf - lay.band, lay.zf + lay.tk * 2],
       [lay.pilot.x - 3, lay.pilot.x + 1.5, lay.pilot.z - 1.5, lay.pilot.z + 1.5],
     ];
-    const free = (x, z, r) => keep.every(([x0, x1, z0, z1]) => x + r < x0 || x - r > x1 || z + r < z0 || z - r > z1)
-      && placed.every((p) => Math.hypot(p.x - x, p.z - z) > p.r + r + 0.35);
-    const front = (x, z) => x < box.min.x || z < box.min.z;       // between the default camera and the model
-    const put = (o, x, z, r) => { o.position.x += x; o.position.z += z; this.dress.add(o); placed.push({ x, z, r }); };
+    const apart = (a, b, gap) => a[1] + gap < b[0] || a[0] - gap > b[1] || a[3] + gap < b[2] || a[2] - gap > b[3];
+    const free = (r) => keep.every((k) => apart(r, k, 0)) && taken.every((k) => apart(r, k, 0.5));
 
-    // work lights first: around the model, a few metres off, looking at it
-    const lamps = LAMPS.filter((p) => props.get(p)), around = 2 * (size.x + size.z);
-    const heads = [];
-    for (let i = 0, n = lamps.length ? Math.min(8, Math.max(3, Math.round(around / 14))) : 0; i < n; i++) {
-      const path = lamps[Math.floor(rnd() * lamps.length)], b = this.boxes.get(path), s = b.getSize(new THREE.Vector3());
-      for (let tries = 0; tries < 30; tries++) {
-        const a = (i + pick(-0.3, 0.3)) / n * Math.PI * 2, d = margin + pick(1.2, 3.5);
-        // on the footprint's outline pushed out by d, at angle a
-        const dx = Math.sin(a), dz = Math.cos(a), k = Math.min((size.x / 2 + d) / Math.abs(dx || 1e-9), (size.z / 2 + d) / Math.abs(dz || 1e-9));
-        const x = mid.x + dx * k, z = mid.z + dz * k;
-        if (!free(x, z, 0.9)) continue;
+    // Work lights: in pairs, mirrored across the model's long axis and evenly spaced along it, just outside the
+    // rulers on both sides, each turned to the model. The front pair lights what the default camera sees.
+    const lamps = LAMPS.filter((p) => props.get(p)), heads = [];
+    const out = lay.off + lay.band + 1.5, pairs = lamps.length ? Math.min(6, Math.max(2, Math.round(size.z / 14))) : 0;
+    for (let i = 0; i < pairs; i++) {
+      const path = lamps[i % lamps.length], b = this.boxes.get(path), s = b.getSize(new THREE.Vector3());
+      const z = box.min.z + (i + 0.5) / pairs * size.z;
+      for (const side of [-1, 1]) {
+        const x = side < 0 ? box.min.x - out : box.max.x + out;
         const o = this.copy(props.get(path)), turn = new THREE.Group();
         o.position.set(-(b.min.x + b.max.x) / 2, y0 - b.min.y, -(b.min.z + b.max.z) / 2);
         turn.add(o);
         turn.rotation.y = Math.atan2(mid.x - x, mid.z - z) + Math.PI;      // the lamps' front is their -z
-        put(turn, x, z, 0.9);
-        heads.push({ x, z, y: y0 + s.y * 0.88 });
+        turn.position.set(x, 0, z);
+        this.dress.add(turn);
+        taken.push([x - 0.8, x + 0.8, z - 0.8, z + 0.8]);
+        heads.push({ x, z, y: y0 + s.y * 0.88, side, i });
         this.lampGlow(heads[heads.length - 1], mid, y0, big);
-        break;
       }
     }
-    // the two that light what the default camera sees: front-left and front
-    const toward = (ax, az) => heads.slice().sort((p, q) => ((q.x - mid.x) * ax + (q.z - mid.z) * az) - ((p.x - mid.x) * ax + (p.z - mid.z) * az))[0];
-    const lit = [toward(-1, -0.25), toward(0.35, -1)].filter(Boolean);
-    this.spots.forEach((s, i) => {
-      const h = lit[i];
-      if (!h || (i && h === lit[0])) return;
-      s.position.set(h.x, h.y, h.z);
-      s.target.position.set(mid.x, box.min.y + size.y * 0.45, mid.z);
-      s.target.updateMatrixWorld();
-      s.intensity = this.dark ? 0.9 : 2.0;
+    this.spots.forEach((sp, n) => {
+      const h = heads.find((q) => q.i === 0 && q.side === (n ? 1 : -1));
+      if (!h) return;
+      sp.position.set(h.x, h.y, h.z);
+      sp.target.position.set(mid.x, box.min.y + size.y * 0.45, mid.z);
+      sp.target.updateMatrixWorld();
+      sp.intensity = this.dark ? 0.9 : 2.0;
     });
 
-    // then the rest, wherever there is room
-    const count = Math.min(64, Math.max(9, Math.round(around / 4.5))), used = new Map(), more = Math.ceil(big / 30);
-    const pool = SCENERY.filter((s) => props.get(s.path)), weight = pool.reduce((w, s) => w + s.w, 0);
-    for (let i = 0, tries = 0; i < count && tries < count * 40; tries++) {
-      let w = rnd() * weight;
-      const kind = pool.find((s) => (w -= s.w) < 0) || pool[0];
-      if (!kind || (used.get(kind) || 0) >= (kind.max || 99) * more) continue;      // more of the big things around a big ship
-      const set = this.cluster(kind, props.get(kind.path), y0, rnd);
-      const x = pick(box.min.x - reach, box.max.x + reach), z = pick(box.min.z - reach, box.max.z + reach);
-      if (front(x, z) && (kind.tall || rnd() < 0.45)) continue;      // the view of the model stays open
-      if (!free(x, z, set.r)) continue;
-      set.obj.rotation.y = kind.square ? Math.round(rnd() * 4) * Math.PI / 2 + pick(-0.2, 0.2) : pick(0, Math.PI * 2);
-      put(set.obj, x, z, set.r);
-      used.set(kind, (used.get(kind) || 0) + 1);
-      i++;
+    // The working areas: on the far side of the model and behind it (the default camera looks from the front left),
+    // each parallel to the side it stands by, its low things towards the model. Which area goes where is drawn.
+    const slots = [{ side: "right", t: 0.27 }, { side: "right", t: 0.75 }, { side: "rear", t: 0.3 }, { side: "rear", t: 0.72 }];
+    for (let n = slots.length - 1; n > 0; n--) { const k = Math.floor(rnd() * (n + 1)); [slots[n], slots[k]] = [slots[k], slots[n]]; }
+    Object.keys(ZONES).forEach((name, n) => {
+      const zone = this.zone(ZONES[name], props, y0, big, rnd), slot = slots[n];
+      if (!zone) return;
+      const right = slot.side === "right", w = right ? zone.d : zone.w, d = right ? zone.w : zone.d;      // on the floor
+      for (let tries = 0; tries < 24; tries++) {
+        // first where it was drawn, then sliding along the side, then a step further out
+        const t = Math.min(0.95, Math.max(0.05, slot.t + [0, 0.12, -0.12, 0.24, -0.24, 0.36][tries % 6] + pick(-0.03, 0.03)));
+        const far = margin + 0.8 + Math.floor(tries / 6) * 2.5;
+        const x = right ? box.max.x + far + w / 2 : box.min.x + t * size.x;
+        const z = right ? box.min.z + t * size.z : box.max.z + far + d / 2;
+        const r = [x - w / 2, x + w / 2, z - d / 2, z + d / 2];
+        if (!free(r)) continue;
+        zone.obj.rotation.y = right ? Math.PI / 2 : 0;       // its front (-z) towards the model
+        zone.obj.position.set(x, 0, z);
+        this.dress.add(zone.obj);
+        taken.push(r);
+        break;
+      }
+    });
+  }
+
+  // one working area: its rows laid out side by side, front row first; { obj, w, d } centred on its origin, front at -z
+  zone(rows, props, y0, big, rnd) {
+    const inner = new THREE.Group(), box = new THREE.Box3(), one = new THREE.Box3();
+    let z = 0;
+    for (const row of rows) {
+      let x = 0, depth = 0;
+      for (const item of row) {
+        const src = props.get(item.p);
+        if (!src) continue;
+        const [lo, hi] = Array.isArray(item.n) ? item.n : [item.n || 1, item.n || 1];
+        const n = lo + Math.floor(rnd() * (hi - lo + 1)) + (item.more ? Math.floor(big / item.more) : 0);
+        for (let k = 0; k < n; k++) {
+          const o = this.cluster({ path: item.p, ...(item.set || {}) }, src, y0, rnd).obj;
+          o.rotation.y = (item.turn || 0) * Math.PI / 2 + (rnd() - 0.5) * (item.spin ? item.spin * 2 : 0.06);
+          o.updateMatrixWorld(true);
+          one.setFromObject(o);
+          o.position.x += x - one.min.x;
+          o.position.z += z - one.min.z + (rnd() - 0.5) * 0.12;
+          inner.add(o);
+          x += one.max.x - one.min.x + 0.45;
+          depth = Math.max(depth, one.max.z - one.min.z);
+        }
+        x += 0.5;                                  // a little more room between different things
+      }
+      z += depth + 0.9;
     }
+    if (!inner.children.length) return null;
+    inner.updateMatrixWorld(true);
+    box.setFromObject(inner);
+    inner.position.set(-(box.min.x + box.max.x) / 2, 0, -(box.min.z + box.max.z) / 2);
+    const obj = new THREE.Group();
+    obj.add(inner);
+    return { obj, w: box.max.x - box.min.x, d: box.max.z - box.min.z };
   }
 
   // one thing, or a few of it together (stacked boxes, a line of cones); centred on its own origin

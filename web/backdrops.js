@@ -651,9 +651,12 @@ export class Backdrops {
       map.repeat.set(n, 1);
       map.anisotropy = 8;
       mesh(g, new THREE.PlaneGeometry(len, H), std({ map, color: 0x7d858f }), 0, H / 2, 0);
-      for (let i = 0; i <= n; i++) mesh(g, new THREE.BoxGeometry(t, H, t * 1.4), steel, -len / 2 + i * len / n, H / 2, t * 0.7);      // ribs
+      const clear = extra?.(g, len) || 0;         // how wide the door or the writing in the middle is: no rib across it
+      for (let i = 0; i <= n; i++) {              // ribs
+        const x = -len / 2 + i * len / n;
+        if (Math.abs(x) > clear / 2 + t) mesh(g, new THREE.BoxGeometry(t, H, t * 1.4), steel, x, H / 2, t * 0.7);
+      }
       for (let i = 0; i < n; i++) mesh(g, new THREE.BoxGeometry(len / n * 0.55, t * 0.22, t * 0.22), lamp, -len / 2 + (i + 0.5) * len / n, H * 0.8, t * 0.2);
-      extra?.(g, len);
     };
     const far = (g, len) => {                      // the closed door in the far side wall
       const dw = Math.min(len * 0.5, Math.max(size.x, size.z) * 1.1 + 6), dh = Math.min(H * 0.78, Math.max(size.y * 1.3, 5));
@@ -668,6 +671,7 @@ export class Backdrops {
       mesh(g, new THREE.PlaneGeometry(dw, dh * 0.06), std({ map: hz }), 0, dh * 0.03, t * 0.16);
       mesh(g, new THREE.BoxGeometry(dw + t * 2, t, t * 1.2), steel, 0, dh + t / 2, t * 0.6);                    // frame
       for (const s of [-1, 1]) mesh(g, new THREE.BoxGeometry(t, dh, t * 1.2), steel, s * (dw + t) / 2, dh / 2, t * 0.6);
+      return dw + t * 2;
     };
     const back = (g, len) => {                     // the bay's number, painted large
       const [nc, ng] = canvas(1024, 256);
@@ -676,6 +680,7 @@ export class Backdrops {
       ng.fillText(`BAY ${String(Math.max(1, Math.round(big / 12))).padStart(2, "0")}`, 512, 138);
       const tw = Math.min(len * 0.4, H * 2.2);
       mesh(g, new THREE.PlaneGeometry(tw, tw / 4), new THREE.MeshBasicMaterial({ map: texture(nc), transparent: true, depthWrite: false, fog: false }), 0, H * 0.55, t * 0.05).receiveShadow = false;
+      return tw;
     };
     wall(L, c.x - W / 2, c.z, Math.PI / 2, new THREE.Vector3(1, 0, 0));
     wall(L, c.x + W / 2, c.z, -Math.PI / 2, new THREE.Vector3(-1, 0, 0), far);
