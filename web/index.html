@@ -162,17 +162,14 @@
               </div>
             </div>
             <div class="bg-wrap">
-              <button data-act="scale" class="tool toggle" title="Scale: a ruler on the floor and things from the game next to the model" data-t-title="scaleTitle" aria-haspopup="menu"><svg class="i"><use href="#i-ruler"/></svg><span data-t="scale">Scale</span></button>
+              <button data-act="scale" class="tool toggle" title="Scale: a ruler on the floor, a pilot and a hangar scene around the model" data-t-title="scaleTitle" aria-haspopup="menu"><svg class="i"><use href="#i-ruler"/></svg><span data-t="scale">Scale</span></button>
               <div id="scaleMenu" class="bg-menu hidden" role="menu" aria-label="Scale" data-t-aria="scale">
                 <div class="bg-head" data-t="scaleMeasure">Measure</div>
                 <button data-scale="ruler" role="menuitemcheckbox"><span class="ck"></span><span data-t="scaleRuler">Ruler on the floor</span></button>
-                <div class="bg-head" data-t="scaleThings">From the game</div>
                 <button data-scale="pilot" role="menuitemcheckbox"><span class="ck"></span><span data-t="scalePilot">Pilot</span></button>
-                <button data-scale="scu1" role="menuitemcheckbox"><span class="ck"></span><span data-t="scaleScu1">1 SCU box</span></button>
-                <button data-scale="scu32" role="menuitemcheckbox"><span class="ck"></span><span data-t="scaleScu32">32 SCU container</span></button>
-                <button data-scale="forklift" role="menuitemcheckbox"><span class="ck"></span><span data-t="scaleForklift">Forklift</span></button>
-                <button data-scale="missiles" role="menuitemcheckbox"><span class="ck"></span><span data-t="scaleMissiles">Missile stack</span></button>
-                <button data-scale="torpedo" role="menuitemcheckbox"><span class="ck"></span><span data-t="scaleTorpedo">Size 9 torpedo</span></button>
+                <div class="bg-head" data-t="scaleSceneHead">Scene · from the game</div>
+                <button data-scale="scene" role="menuitemcheckbox"><span class="ck"></span><span data-t="scaleScene">Hangar props and lights</span></button>
+                <button id="scaleShuffle" role="menuitem"><svg class="i"><use href="#i-rotate"/></svg><span data-t="scaleShuffle">Shuffle the scene</span></button>
               </div>
             </div>
             <div class="bg-wrap resin-wrap">

@@ -583,7 +583,7 @@ export class Backdrops {
     map.repeat.setScalar(2 * R / (cell * 5));
     map.anisotropy = 16;
     const floor = new THREE.Mesh(new THREE.CircleGeometry(R, 128),
-      new THREE.MeshStandardMaterial({ map, color: 0x26292e, roughness: 0.7, metalness: 0, transparent: true,
+      new THREE.MeshStandardMaterial({ map, color: 0x1c1e22, roughness: 0.7, metalness: 0, transparent: true,
         alphaMap: radialAlpha(0.08), depthWrite: false }));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(c.x, y, c.z);

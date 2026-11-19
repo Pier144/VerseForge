@@ -543,7 +543,7 @@ function fitBackdrop() {
   buildGrid(box);
   showSize(box);
   updateShadows();
-  return scaleRefs.fit(box, darkInk());
+  return scaleRefs.fit(box, darkInk(), state.current?.path || "");
 }
 // The model as it is drawn: its solid and glass pieces only. Decals, proxies and hidden helpers reach beyond the hull
 // (one stray decal of the Perseus hangs 8 m under it), and the sizes the server gives count them too.
@@ -1338,6 +1338,7 @@ document.addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#scaleMenu, [data-act=\"scale\"]")) $("#scaleMenu").classList.add("hidden");
 });
 document.querySelectorAll("#scaleMenu [data-scale]").forEach((b) => b.addEventListener("click", () => setScale(b.dataset.scale, !scaleRefs.on.has(b.dataset.scale))));
+$("#scaleShuffle").addEventListener("click", () => { if (!scaleRefs.on.has("scene")) setScale("scene", true); else scaleRefs.shuffle(); });
 syncScaleMenu();
 applyResin();
 // the space panoramas come from the game files: a saved one is put back once the catalogue is ready (pollStatus)

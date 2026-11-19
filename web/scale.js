@@ -1,22 +1,45 @@
-// Scale references: what tells how big the model is.
-//  - a ruler on the floor, drawn like a technical drawing: thin lines with ticks along the model's length and width,
-//    the numbers and the totals written flat on the floor, turned towards the default camera (at -x, -z), and a staff
-//    for the height with its value at its foot
-//  - things from the game standing in a row in front of the model: a pilot, cargo boxes, a forklift, missiles…
+// Scale references: what tells how big the model is, and dresses the floor around it.
+//  - "ruler": a ruler on the floor, drawn like a technical drawing: thin lines with ticks along the model's length and
+//    width, the numbers and the totals written flat on the floor, turned towards the default camera (at -x, -z), and
+//    a staff for the height with its value at its foot
+//  - "pilot": a pilot from the game standing by the nose, his height written beside him
+//  - "scene": a hangar floor in use: cargo boxes, containers, forklifts, missiles, tool carts, cones… from the game,
+//    scattered at random around the model (the same way for the same model, until shuffled), and work lights on
+//    tripods that light the hull
 // Everything sits on the model's floor (the bottom of its box) and is rebuilt when the model or the choice changes.
 import * as THREE from "three";
 
-const PROPS = "Objects/buildingsets/human/";
-// in the row from the camera's side to the far one: the small ones in front, so the big ones never hide them
-export const SCALE_ITEMS = [
-  { id: "pilot", path: "Objects/props/flair/flightsuit_locker/m_rsi_explorer_light_01_merged.cgf", says: "height" },
-  { id: "scu1", path: PROPS + "lowtech/prop/storage/cargo/cargo_exp_1_125x125x125_a.cgf", says: "1 SCU" },
-  { id: "torpedo", path: "Objects/Spaceships/Ammo/Torpedoes/TALN/TALN_Argos_S9.cga", says: "length" },
-  { id: "missiles", path: PROPS + "lowtech/charlie/int/prop/uee_lawless_prop_missilestack_large.cgf", says: "length" },
-  { id: "forklift", path: PROPS + "universal/prop/uee/forklift/forklift_machine_1_a.cgf", says: "length" },
-  { id: "scu32", path: PROPS + "lowtech/prop/storage/cargo/cargo_liquid_32SCU_1_a.cgf", says: "32 SCU" },
+export const SCALE_IDS = ["ruler", "pilot", "scene"];
+
+const PILOT = "Objects/props/flair/flightsuit_locker/m_rsi_explorer_light_01_merged.cgf";
+const B = "Objects/buildingsets/human/";
+const CARGO = B + "lowtech/prop/storage/cargo/";
+const LAMPS = [
+  B + "common/light/work/tripod/set_a/common_light_work_tripod_set_a_assembled_a.cgf",
+  B + "common/light/work/tripod/set_a/common_light_work_tripod_set_a_assembled_b.cgf",
 ];
-export const SCALE_IDS = ["ruler", ...SCALE_ITEMS.map((i) => i.id)];
+// what the scene is made of. w: how often it is picked; n: how many stand together; tall: never between the camera
+// and the model; max: how many in one scene; square: turned by quarter turns (with a little slack), like parked things
+const SCENERY = [
+  { path: CARGO + "cargo_exp_1_125x125x125_a.cgf", w: 5, n: [2, 6], stack: true, square: true },
+  { path: CARGO + "cargo_liquid_2SCU_1_a.cgf", w: 2, n: [1, 3], square: true },
+  { path: CARGO + "cargo_liquid_8SCU_1_a.cgf", w: 2, n: [1, 2], tall: true, square: true },
+  { path: CARGO + "cargo_liquid_32SCU_1_a.cgf", w: 2, tall: true, max: 3, square: true },
+  { path: B + "universal/prop/uee/forklift/forklift_machine_1_a.cgf", w: 2, tall: true, max: 2 },
+  { path: B + "universal/prop/uee/forklift/forklift_standing_1_a.cgf", w: 1, tall: true, max: 2 },
+  { path: B + "lowtech/charlie/int/prop/uee_lawless_prop_missilestack_large.cgf", w: 2, max: 3, square: true },
+  { path: B + "lowtech/charlie/int/prop/uee_lawless_prop_missilestack_medium.cgf", w: 2, n: [1, 2], square: true },
+  { path: "Objects/Spaceships/Ammo/Torpedoes/TALN/TALN_Argos_S9.cga", w: 1, max: 2 },
+  { path: B + "lowtech/charlie/int/prop/uee_lawless_prop_ammocrate_01.cgf", w: 2, n: [1, 3] },
+  { path: B + "lowtech/charlie/int/prop/uee_lawless_prop_toolcart.cgf", w: 2 },
+  { path: B + "shop/alpha/shippart/dumpersdepot/prop/prop_dumper_int_tool_chest_a.cgf", w: 2 },
+  { path: B + "lowtech/prop/workbench/workbench_mobile_1_a.cgf", w: 1 },
+  { path: B + "universal/prop/machine/trolley/trolley_pallet_powered_1_a.cgf", w: 2 },
+  { path: B + "hightech/prop/maintenance/ladder/ladder_mobile_1_a.cgf", w: 1, tall: true, max: 2 },
+  { path: B + "lowtech/prop/furniture/barrel/barrel_a.cgf", w: 2, n: [2, 4] },
+  { path: B + "universal/prop/maintenance/cone_1_a.cgf", w: 2, n: [3, 5], line: true },
+  { path: B + "lowtech/prop/barrier/barrier_foldable_1_a.cgf", w: 1, n: [1, 2], line: true },
+];
 
 const STEPS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
 const INK = {                      // lines, tick numbers, totals: on a dark floor and on a light one
@@ -24,28 +47,65 @@ const INK = {                      // lines, tick numbers, totals: on a dark flo
   dark: { line: 0x1d4f86, num: "#27507c", text: "#12304f" },
 };
 const FONT = "system-ui, 'Segoe UI', sans-serif";
+const SPOTS = [0xffd9a8, 0xcfe0ff];           // the two work lights that really light the hull: warm and cool
+
+// seeded random numbers: the same model gets the same scene every time
+function rng(text) {
+  let h = 1779033703 ^ text.length;
+  for (let i = 0; i < text.length; i++) { h = Math.imul(h ^ text.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return ((h ^= h >>> 16) >>> 0) / 4294967296;
+  };
+}
+
+function glowTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d"), r = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(0.25, "rgba(255,255,255,.45)"); r.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = r; g.fillRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
 export class ScaleRefs {
   constructor(scene, { loadProp, onChange }) {
     this.group = new THREE.Group();
     this.group.name = "__scale__";
+    this.core = new THREE.Group();        // ruler and pilot: what Frame keeps in view
+    this.dress = new THREE.Group();       // the scene around
+    this.group.add(this.core, this.dress);
     scene.add(this.group);
+    // The work lights that reach the hull. They stay in the scene for good, dark when the scene is off: adding or
+    // removing a light changes every shader of the model and has them all compiled again (a stall on big ships).
+    this.spots = SPOTS.map((color, i) => {
+      const s = new THREE.SpotLight(color, 0, 0, 0.85, 0.8, 0);
+      s.name = `__work_light_${i}__`;
+      s.castShadow = false;
+      scene.add(s, s.target);
+      return s;
+    });
     this.loadProp = loadProp;      // async (path) -> Object3D of a game object (shared: cloned here)
-    this.onChange = onChange;      // (arrived) something was drawn or changed; arrived: a game object came in later
-    this.on = new Set();           // "ruler" and item ids
+    this.onChange = onChange;      // something was drawn or changed
+    this.on = new Set();           // of SCALE_IDS
     this.box = null;
     this.dark = false;             // dark ink, for light floors
+    this.key = "";                 // what the scene's random numbers start from (the model's path)
+    this.salt = 0;                 // shuffled so many times
     this.generation = 0;
-    this.sizes = new Map();        // item id -> its box size, once loaded
+    this.boxes = new Map();        // path -> box of the loaded game object
+    this.glow = glowTexture();
   }
 
   get active() { return this.on.size > 0; }
 
-  // what frames the whole thing: the model's box and everything drawn around it
+  // what frames the picture: the model with the ruler and the pilot (the scene around is left to chance)
   bounds() {
-    if (!this.active || !this.box) return null;
-    this.group.updateMatrixWorld(true);
-    const b = new THREE.Box3().setFromObject(this.group);
+    if (!this.box || !this.core.children.length) return null;
+    this.core.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(this.core);
     return b.isEmpty() ? null : b.union(this.box);
   }
 
@@ -54,83 +114,219 @@ export class ScaleRefs {
     return this.build();
   }
 
-  // box: the model as it is drawn (metres, y up); dark: the floor is light
-  fit(box, dark = this.dark) {
+  shuffle() {
+    this.salt++;
+    return this.build();
+  }
+
+  // box: the model as it is drawn (metres, y up); dark: the floor is light; key: the model
+  fit(box, dark = this.dark, key = this.key) {
     this.box = box && !box.isEmpty() ? box.clone() : null;
     this.dark = dark;
+    this.key = key;
     return this.build();
   }
 
   clear() {
-    for (const o of [...this.group.children]) {
-      this.group.remove(o);
-      o.traverse((m) => {
-        if (!m.isMesh || m.userData.prop) return;      // game objects share their geometry and materials
-        m.geometry.dispose();
-        m.material.map?.dispose();
-        m.material.dispose();
-      });
+    for (const part of [this.core, this.dress]) {
+      for (const o of [...part.children]) {
+        part.remove(o);
+        o.traverse((m) => {
+          if (m.userData.prop || !(m.isMesh || m.isSprite)) return;      // game objects share geometry and materials
+          if (m.isMesh) m.geometry.dispose();
+          if (m.material.map !== this.glow) m.material.map?.dispose();
+          m.material.dispose();
+        });
+      }
     }
+    for (const s of this.spots) s.intensity = 0;
+  }
+
+  async load(path) {
+    const o = await this.loadProp(path).catch(() => null);      // missing in this game version: one thing less
+    if (o && !this.boxes.has(path)) this.boxes.set(path, new THREE.Box3().setFromObject(o));
+    return o;
+  }
+
+  copy(src) {
+    const o = src.clone(true);
+    o.traverse((m) => { if (m.isMesh) { m.userData.prop = true; m.castShadow = true; m.receiveShadow = true; } });
+    return o;
   }
 
   async build() {
     const gen = ++this.generation;
     this.clear();
-    if (!this.box || !this.active) { this.onChange?.(false); return; }
+    if (!this.box || !this.active) { this.onChange?.(); return; }
     const box = this.box, size = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
     const big = Math.max(size.x, size.y, size.z, 0.001);
-    const want = SCALE_ITEMS.filter((i) => this.on.has(i.id));
-    // the row's place is kept from the sizes known so far: the ruler moves out of its way at once
-    const row = this.row(want, box, big);
-    if (this.on.has("ruler")) this.ruler(box, size, mid, big, row.depth);
-    this.onChange?.(false);
-    const loaded = await Promise.all(want.map((i) => this.loadProp(i.path).catch(() => null)));
-    if (gen !== this.generation) return;
-    let fresh = false;
-    want.forEach((i, n) => {
-      if (!loaded[n]) return;
-      if (!this.sizes.has(i.id)) { this.sizes.set(i.id, new THREE.Box3().setFromObject(loaded[n])); fresh = true; }
-    });
-    if (fresh) return this.build();               // lay the row out again with the real sizes
-    want.forEach((i, n) => { if (loaded[n]) this.stand(i, loaded[n], row.at.get(i.id), box, big); });
-    this.onChange?.(true);
-  }
-
-  // where each item of the row stands: side by side in front of the nose, their backs on one line
-  row(want, box, big) {
-    const gap = 0.5, clear = Math.max(0.6, big * 0.04), at = new Map(), label = this.textSize(big) * 3.4;
-    const sizes = want.map((i) => this.sizes.get(i.id)?.getSize(new THREE.Vector3()) || new THREE.Vector3(1, 2, 1));
-    const slots = sizes.map((s) => Math.max(s.x, label));          // room for what is written in front of each
-    const total = slots.reduce((w, s) => w + s, 0) + gap * Math.max(want.length - 1, 0);
-    let x = (box.min.x + box.max.x) / 2 - total / 2, depth = 0;
-    want.forEach((i, n) => {
-      at.set(i.id, { x: x + slots[n] / 2, zBack: box.min.z - clear });
-      x += slots[n] + gap;
-      depth = Math.max(depth, sizes[n].z);
-    });
-    return { at, depth: want.length ? depth + clear + this.textSize(big) * 2.2 : 0 };
-  }
-
-  textSize(big) { return Math.min(1.6, Math.max(0.5, big * 0.03)); }
-
-  stand(item, src, at, box, big) {
-    const b = this.sizes.get(item.id), s = b.getSize(new THREE.Vector3()), y0 = box.min.y;
-    const o = src.clone(true);
-    o.traverse((m) => { if (m.isMesh) { m.userData.prop = true; m.castShadow = true; m.receiveShadow = true; } });
-    o.position.set(at.x - (b.min.x + b.max.x) / 2, y0 - b.min.y, at.zBack - b.max.z);
-    this.group.add(o);
-    const ink = INK[this.dark ? "dark" : "light"], h = this.textSize(big), zFront = at.zBack - s.z;
-    const says = item.says === "height" ? this.len(s.y) : item.says === "length" ? this.len(s.z) : item.says;
-    this.text(says, new THREE.Vector3(at.x, y0, zFront - h * 0.9), Math.PI, h, ink.text, big);
-    if (item.id === "pilot" && big > 40) {        // a ring on the floor finds the pilot next to a capital ship
-      const r = Math.max(0.9, big * 0.02);
-      const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.93, r, 64), this.flat(ink.line));
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.set(at.x, y0 + big * 0.0012, at.zBack - s.z / 2);
-      this.group.add(ring);
+    const lay = this.layout(box, size, big);
+    if (this.on.has("ruler")) this.ruler(box, size, mid, big, lay);
+    this.onChange?.();
+    if (this.on.has("pilot")) {
+      const src = await this.load(PILOT);
+      if (gen !== this.generation) return;
+      if (src) this.pilot(src, box, big, lay);
+      this.onChange?.();
+    }
+    if (this.on.has("scene") && big >= 2.5) {             // nothing to dress around a rifle
+      const paths = [...SCENERY.map((s) => s.path), ...LAMPS];
+      const loaded = await Promise.all(paths.map((p) => this.load(p)));
+      if (gen !== this.generation) return;
+      this.scenery(new Map(paths.map((p, i) => [p, loaded[i]])), box, size, mid, big, lay);
+      this.onChange?.();
     }
   }
 
+  // the measures everything is placed by
+  layout(box, size, big) {
+    const off = big * 0.08, tk = off * 0.2, hn = big * 0.036, ht = big * 0.075;
+    return { off, tk, hn, ht, fine: big * 0.0028, xl: box.min.x - off, zf: box.min.z - off, zb: box.max.z + off * 0.5,
+      band: tk + hn * 1.7 + ht * 1.4,                    // how far the writing reaches outside a ruler line
+      pilot: new THREE.Vector3((box.min.x + box.max.x) / 2 - Math.max(1.2, size.x * 0.22), box.min.y, box.min.z - Math.min(off * 0.45, 1.2)) };
+  }
+
+  textSize(big) { return Math.min(1.6, Math.max(0.45, big * 0.03)); }
+
+  pilot(src, box, big, lay) {
+    const b = this.boxes.get(PILOT), s = b.getSize(new THREE.Vector3()), at = lay.pilot, y0 = box.min.y;
+    const o = this.copy(src);
+    o.position.set(at.x - (b.min.x + b.max.x) / 2, y0 - b.min.y, at.z - (b.min.z + b.max.z) / 2);
+    this.core.add(o);
+    const ink = INK[this.dark ? "dark" : "light"], h = this.textSize(big);
+    // his height beside him, on the camera's side
+    this.text(this.len(s.y), new THREE.Vector3(at.x - s.x / 2 - h * 1.9, y0, at.z), Math.PI, h, ink.text, big);
+    if (big > 40) {               // a ring on the floor finds the pilot next to a capital ship
+      const r = Math.max(0.9, big * 0.02);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.93, r, 64), this.flat(ink.line));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(at.x, y0 + big * 0.0012, at.z);
+      this.core.add(ring);
+    }
+  }
+
+  // ------------------------------------------------------------------ the scene around the model
+  scenery(props, box, size, mid, big, lay) {
+    const rnd = rng(`${this.key}#${this.salt}`), y0 = box.min.y, placed = [];
+    const margin = Math.max(1.5, big * 0.05), reach = Math.min(45, Math.max(9, big * 0.45));
+    const pick = (a, b) => a + rnd() * (b - a);
+    // where nothing may stand: the model's footprint, the rulers with their writing, the pilot
+    const keep = [
+      [box.min.x - margin, box.max.x + margin, box.min.z - margin, box.max.z + margin],
+      [lay.xl - lay.band, lay.xl + lay.tk * 2, box.min.z - lay.off, lay.zb + lay.ht * 4],
+      [box.min.x - lay.off, box.max.x + lay.off, lay.zf - lay.band, lay.zf + lay.tk * 2],
+      [lay.pilot.x - 3, lay.pilot.x + 1.5, lay.pilot.z - 1.5, lay.pilot.z + 1.5],
+    ];
+    const free = (x, z, r) => keep.every(([x0, x1, z0, z1]) => x + r < x0 || x - r > x1 || z + r < z0 || z - r > z1)
+      && placed.every((p) => Math.hypot(p.x - x, p.z - z) > p.r + r + 0.35);
+    const front = (x, z) => x < box.min.x || z < box.min.z;       // between the default camera and the model
+    const put = (o, x, z, r) => { o.position.x += x; o.position.z += z; this.dress.add(o); placed.push({ x, z, r }); };
+
+    // work lights first: around the model, a few metres off, looking at it
+    const lamps = LAMPS.filter((p) => props.get(p)), around = 2 * (size.x + size.z);
+    const heads = [];
+    for (let i = 0, n = lamps.length ? Math.min(8, Math.max(3, Math.round(around / 14))) : 0; i < n; i++) {
+      const path = lamps[Math.floor(rnd() * lamps.length)], b = this.boxes.get(path), s = b.getSize(new THREE.Vector3());
+      for (let tries = 0; tries < 30; tries++) {
+        const a = (i + pick(-0.3, 0.3)) / n * Math.PI * 2, d = margin + pick(1.2, 3.5);
+        // on the footprint's outline pushed out by d, at angle a
+        const dx = Math.sin(a), dz = Math.cos(a), k = Math.min((size.x / 2 + d) / Math.abs(dx || 1e-9), (size.z / 2 + d) / Math.abs(dz || 1e-9));
+        const x = mid.x + dx * k, z = mid.z + dz * k;
+        if (!free(x, z, 0.9)) continue;
+        const o = this.copy(props.get(path)), turn = new THREE.Group();
+        o.position.set(-(b.min.x + b.max.x) / 2, y0 - b.min.y, -(b.min.z + b.max.z) / 2);
+        turn.add(o);
+        turn.rotation.y = Math.atan2(mid.x - x, mid.z - z) + Math.PI;      // the lamps' front is their -z
+        put(turn, x, z, 0.9);
+        heads.push({ x, z, y: y0 + s.y * 0.88 });
+        this.lampGlow(heads[heads.length - 1], mid, y0, big);
+        break;
+      }
+    }
+    // the two that light what the default camera sees: front-left and front
+    const toward = (ax, az) => heads.slice().sort((p, q) => ((q.x - mid.x) * ax + (q.z - mid.z) * az) - ((p.x - mid.x) * ax + (p.z - mid.z) * az))[0];
+    const lit = [toward(-1, -0.25), toward(0.35, -1)].filter(Boolean);
+    this.spots.forEach((s, i) => {
+      const h = lit[i];
+      if (!h || (i && h === lit[0])) return;
+      s.position.set(h.x, h.y, h.z);
+      s.target.position.set(mid.x, box.min.y + size.y * 0.45, mid.z);
+      s.target.updateMatrixWorld();
+      s.intensity = this.dark ? 0.9 : 2.0;
+    });
+
+    // then the rest, wherever there is room
+    const count = Math.min(64, Math.max(9, Math.round(around / 4.5))), used = new Map(), more = Math.ceil(big / 30);
+    const pool = SCENERY.filter((s) => props.get(s.path)), weight = pool.reduce((w, s) => w + s.w, 0);
+    for (let i = 0, tries = 0; i < count && tries < count * 40; tries++) {
+      let w = rnd() * weight;
+      const kind = pool.find((s) => (w -= s.w) < 0) || pool[0];
+      if (!kind || (used.get(kind) || 0) >= (kind.max || 99) * more) continue;      // more of the big things around a big ship
+      const set = this.cluster(kind, props.get(kind.path), y0, rnd);
+      const x = pick(box.min.x - reach, box.max.x + reach), z = pick(box.min.z - reach, box.max.z + reach);
+      if (front(x, z) && (kind.tall || rnd() < 0.45)) continue;      // the view of the model stays open
+      if (!free(x, z, set.r)) continue;
+      set.obj.rotation.y = kind.square ? Math.round(rnd() * 4) * Math.PI / 2 + pick(-0.2, 0.2) : pick(0, Math.PI * 2);
+      put(set.obj, x, z, set.r);
+      used.set(kind, (used.get(kind) || 0) + 1);
+      i++;
+    }
+  }
+
+  // one thing, or a few of it together (stacked boxes, a line of cones); centred on its own origin
+  cluster(kind, src, y0, rnd) {
+    const b = this.boxes.get(kind.path), s = b.getSize(new THREE.Vector3()), obj = new THREE.Group();
+    const n = kind.n ? kind.n[0] + Math.floor(rnd() * (kind.n[1] - kind.n[0] + 1)) : 1;
+    const one = (x, y, z, yaw) => {
+      const o = this.copy(src), t = new THREE.Group();
+      o.position.set(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2);
+      t.add(o);
+      t.position.set(x, y0 + y, z);
+      t.rotation.y = yaw;
+      obj.add(t);
+    };
+    const gap = 0.12, stepX = s.x + gap, stepZ = s.z + gap;
+    let rx = s.x / 2, rz = s.z / 2;
+    if (kind.line) {
+      const step = Math.max(s.x, s.z) * (s.x < 0.6 ? 3 : 1.15);
+      for (let i = 0; i < n; i++) one((i - (n - 1) / 2) * step, 0, (rnd() - 0.5) * 0.15, (rnd() - 0.5) * 0.3);
+      rx = step * n / 2;
+    } else if (kind.stack) {
+      // a block two wide, the last ones on top of the first
+      const ground = Math.min(n, 4), cols = Math.min(2, ground), rows = Math.ceil(ground / cols);
+      for (let i = 0; i < n; i++) {
+        const j = i % ground, up = Math.floor(i / ground);
+        one((j % cols - (cols - 1) / 2) * stepX + (rnd() - 0.5) * 0.06, up * s.y, (Math.floor(j / cols) - (rows - 1) / 2) * stepZ + (rnd() - 0.5) * 0.06, (rnd() - 0.5) * 0.08);
+      }
+      rx = cols * stepX / 2; rz = rows * stepZ / 2;
+    } else {
+      for (let i = 0; i < n; i++) one((i - (n - 1) / 2) * (stepX + 0.25), 0, (rnd() - 0.5) * 0.3, (rnd() - 0.5) * 0.5);
+      rx = n * (stepX + 0.25) / 2;
+    }
+    return { obj, r: Math.hypot(rx, rz) };
+  }
+
+  // what a lit lamp looks like without costing a real light: a glare at its head and a pool of light on the floor
+  lampGlow(head, mid, y0, big) {
+    const warm = 0xffe6c0, k = this.dark ? 0.35 : 1;
+    const glare = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glow, color: warm, blending: THREE.AdditiveBlending,
+      transparent: true, opacity: 0.9 * k, depthWrite: false, fog: false }));
+    glare.scale.setScalar(Math.max(1.6, big * 0.035));
+    glare.position.set(head.x, head.y, head.z);
+    this.dress.add(glare);
+    const len = Math.min(16, Math.max(6, big * 0.3));
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(len * 0.75, len),
+      new THREE.MeshBasicMaterial({ map: this.glow, color: warm, blending: THREE.AdditiveBlending, transparent: true,
+        opacity: 0.36 * k, depthWrite: false, fog: false }));
+    pool.rotation.x = -Math.PI / 2;
+    const turn = new THREE.Group(), dx = mid.x - head.x, dz = mid.z - head.z, d = Math.hypot(dx, dz) || 1;
+    turn.rotation.y = Math.atan2(dx, dz);
+    turn.position.set(head.x + dx / d * len * 0.38, y0 + big * 0.0008, head.z + dz / d * len * 0.38);
+    turn.add(pool);
+    this.dress.add(turn);
+  }
+
+  // ------------------------------------------------------------------ drawing
   // lengths as the panel writes them: metres, or millimetres for small things
   len(m) {
     if (m >= 10) return `${m.toFixed(1)} m`;
@@ -143,13 +339,13 @@ export class ScaleRefs {
     return new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, depthWrite: opacity === 1, fog: false });
   }
 
-  // a flat strip on the floor from a to b (or a thin post when it goes up)
+  // a flat strip on the floor from a to b (post: as thick as wide, for what stands up)
   bar(a, b, t, mat, post = false) {
     const d = new THREE.Vector3().subVectors(b, a);
     const m = new THREE.Mesh(new THREE.BoxGeometry(t, post ? t : t * 0.25, d.length()), mat);
     m.position.copy(a).addScaledVector(d, 0.5);
     m.lookAt(b);
-    this.group.add(m);
+    this.core.add(m);
     return m;
   }
 
@@ -170,16 +366,15 @@ export class ScaleRefs {
     turn.rotation.y = yaw;
     turn.position.set(at.x, at.y + big * 0.0012, at.z);
     turn.add(m);
-    this.group.add(turn);
+    this.core.add(turn);
     return turn;
   }
 
-  ruler(box, size, mid, big, rowDepth) {
+  ruler(box, size, mid, big, lay) {
     const ink = INK[this.dark ? "dark" : "light"], P = (x, y, z) => new THREE.Vector3(x, y, z);
     const mm = big < 1, step = STEPS.find((s) => big / s <= 12) || 1000, minor = step / 5;
-    const off = big * 0.08, tk = off * 0.2, hn = big * 0.036, ht = big * 0.075, fine = big * 0.0028;
+    const { tk, hn, ht, fine, xl, zf, zb } = lay;
     const y0 = box.min.y, yl = y0 + big * 0.001;
-    const xl = box.min.x - off, zf = box.min.z - off - rowDepth, zb = box.max.z + off * 0.5;
     const line = this.flat(ink.line), faint = this.flat(ink.line, 0.4);
     const num = (d) => String(+(mm ? d * 1000 : d).toFixed(mm ? 0 : 1));
     const ticks = (len, each) => { for (let i = 0; i * minor <= len + 1e-9; i++) each(i * minor, i % 5 === 0); };
@@ -196,7 +391,7 @@ export class ScaleRefs {
     });
     this.text(this.len(size.z), P(xl - tk - hn * 1.7 - ht * 0.7, y0, mid.z), -Math.PI / 2, ht, ink.text, big);
 
-    // width: in front of the nose (beyond the row of game objects), read from the front
+    // width: in front of the nose, read from the front
     this.bar(P(box.min.x, yl, zf), P(box.max.x, yl, zf), fine, line);
     for (const x of [box.min.x, box.max.x]) {
       this.bar(P(x, yl, zf - tk * 1.6), P(x, yl, zf + tk * 1.6), fine, line);

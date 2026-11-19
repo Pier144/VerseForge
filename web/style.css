@@ -583,6 +583,7 @@ textarea::placeholder { color: var(--faint); }
 /* scale menu: several can be on */
 .bg-menu .ck { width: 14px; height: 14px; flex: none; border-radius: 4px; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .bg-menu button.on .ck { background: var(--accent); box-shadow: none; }
+.bg-menu button > .i { width: 14px; height: 14px; flex: none; }
 .sw-resin-grey { background: linear-gradient(135deg, #b4b8bb, #6f7477); }
 .sw-resin-white { background: linear-gradient(135deg, #f4f2ec, #c9c6be); }
 .sw-resin-black { background: linear-gradient(135deg, #4a4d52, #15171a); }
