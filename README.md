@@ -139,14 +139,14 @@ at all, add `--appimage-extract-and-run` at the end of the command.
   ("Gladius", "Cutlass") and file names ("brfl_fps_behr") all work. Dashes and spaces are ignored; with several
   words, all of them must match.
 - **Categories**: the tiles under the search box filter by type, grouped as ships and vehicles, personal gear and the
-  rest (the full name and exact count are in each tile's tooltip). Picking a category shows a second row with its
-  sub-categories (pistols, shotguns, LMGs… for weapons; helmets, light/medium/heavy armor… for armor; manufacturers
+  rest. Picking a category shows a menu with its sub-categories (pistols, shotguns, LMGs… for weapons; helmets, light/medium/heavy armor… for armor; manufacturers
   for ships). The "Main models" switch hides LODs, decals, physics proxies and ship interior parts: turn it off to see
   every single file.
 - **Viewer**: drag to rotate, wheel to zoom, right button to pan.
   Keys: `F` frame, `W` wireframe, `R` auto-rotate, `G` grid (also in the toolbar at the bottom).
-  Textures, decals, glass, screens and proxies are toggled at the top right of the viewer; single materials can be
-  hidden from the right panel. *Screens* (shown on models that have them) switches the cockpit and weapon screens and
+  Textures, decals, glass, screens and proxies are toggled from the *Layers* menu at the top right of the viewer;
+  single materials can be hidden from the right panel, which is split into tabs. `H` hides every panel and leaves the
+  model alone (`Esc` brings them back). *Screens* (shown on models that have them) switches the cockpit and weapon screens and
   the holographic HUDs; *Proxy* shows what the game never draws (collision shapes, shields, placeholders).
 - **Backdrop** (toolbar): plain (default or inverted); *Pyro nebula* and *Stanton · Crusader*, 360° space panoramas
   made from the game's own sky textures (the Pyro skybox, Stanton's nebula layers and the gas giant Crusader); a
@@ -155,8 +155,10 @@ at all, add `--appimage-extract-and-run` at the end of the command.
   action figures and ship miniatures, and a window in the side wall looks onto Stanton's sky. The model stands on the
   mat as a scale model (1:72, 1:144… so a ship is 20-40 cm long; weapons and armour at real size, the scale is printed
   on the mat); a seamless *Photo studio* floor. Each backdrop sets its own light and shadows, and snapshots include it.
-- **Variant / paint**: for weapons, armor, ships and items that have several skins or liveries in the game, a menu
-  appears in the right panel (e.g. Quartz "Jungle Camo", Gladius liveries). Colours and materials come from the
+- **Variant / paint**: for weapons, armor, ships and items that have several skins or liveries in the game, a grid
+  of colour tiles appears in the right panel (e.g. Quartz "Jungle Camo", Gladius liveries): each tile shows the
+  paint's three colours, and on most models the paint changes at once, without reloading; *Compare with stock* flips
+  between the chosen paint and the default one. Colours and materials come from the
   game database (`Game2.dcb`); the first entry is the default paint. Exports use the selected variant too.
 - **Same folder**: list of the related parts (e.g. stock, magazines, wheels, interiors).
 - **Animations**: when the game links animations to the object (weapons firing and reloading, multi-tools, ship
