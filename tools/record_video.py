@@ -399,8 +399,8 @@ async def scene_export(p):
 
 
 async def pick_variant(p, label):
-    """Choose a paint from the variant menu (a native <select> cannot be driven with mouse events in headless mode)."""
-    await p.move(*await p.center("#variantSel"), 0.6)
+    """Choose a paint: the pointer goes to the paint tiles, the choice is made through the hidden <select> behind them."""
+    await p.move(*await p.center("#paintGrid"), 0.6)
     await p.wait(0.4)
     await p.js(f"""(() => {{ const s = document.getElementById('variantSel');
         s.value = [...s.options].find(o => o.text.includes({json.dumps(label)})).value;

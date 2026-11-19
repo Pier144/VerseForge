@@ -330,7 +330,22 @@ button.ghost:hover { background: var(--hover); }
 .variant { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 11.5px; color: var(--muted); }
 .variant select { width: 100%; font-size: 13px; color: var(--text); }
 /* a paint change that takes long (the first one builds the interior): quiet sign, no loading screen */
-.variant.busy .dd-btn { cursor: progress; animation: pulse 1s ease-in-out infinite; }
+.variant.busy .paint-sw.on { cursor: progress; animation: pulse 1s ease-in-out infinite; }
+/* paints: a grid of tiles in each paint's three colours, the name of the chosen (or pointed) one above it */
+.paint-head { display: flex; align-items: baseline; gap: 8px; }
+.paint-head span { flex: none; }
+.paint-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right;
+  font-size: 13px; font-weight: 600; color: var(--text); }
+.paint-head b.peek { color: var(--accent-text); }
+.paint-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; max-height: 170px; margin: 2px -4px 0; padding: 4px;
+  overflow-y: auto; scrollbar-width: thin; }
+.paint-sw { height: 34px; padding: 0; border: 0; border-radius: 9px; box-shadow: inset 0 0 0 1px var(--swatch-ring); cursor: pointer;
+  transition: transform .12s; }
+.paint-sw:hover { transform: scale(1.06); }
+.paint-sw.stock { box-shadow: none; border: 1.5px dashed var(--muted);
+  background: repeating-linear-gradient(135deg, transparent 0 5px, var(--swatch-ring) 5px 10px); }
+.paint-sw.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+.paint-sw:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 /* paint menu: three swatches of the paint's colours before its name (dashed: no colours of its own) */
 .dd-btn.sw, .dd-list li.sw { display: flex; align-items: center; gap: 9px; }
 .dots { display: inline-flex; flex: none; gap: 3px; }
@@ -597,12 +612,8 @@ textarea::placeholder { color: var(--faint); }
 }
 #tip.hidden { display: none; }
 
-/* categories: a grid of icons, name and count in the tip */
-.catgrid { grid-template-columns: repeat(7, 1fr); gap: 4px; }
-.catgrid .chip { justify-content: center; height: 32px; padding: 0; }
-.catgrid .chip.all { grid-column: auto; }
-.catgrid .chip .l, .catgrid .chip .n { display: none; }
-.catgrid .chip .i { width: 16px; height: 16px; }
+/* categories: icon and full name, two per row; the count is in the tip and above the list (it cut the names short) */
+.catgrid .chip:not(.all) .n { display: none; }
 
 /* sub-categories: one menu */
 .subcats { display: block; margin: 0; padding: 0; border: 0; }

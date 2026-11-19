@@ -970,16 +970,49 @@ function showInfo(item, info) {
     <div class="specs" title="${esc(sizes)}">
       <b>${fmtSize(s.size_m)}</b>${T("triangles")} ${num(s.triangles)} · ${T("parts")} ${num(s.parts)} · ${T("materials")} ${s.materials.length}
     </div>
-    ${info.variants.length > 1 ? `<div class="variant"><span>${T("variant")}</span>
-      <select id="variantSel">${info.variants.map((v) => `<option value="${esc(v.tag)}"${v.tag === info.variant ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>` : ""}
+    ${info.variants.length > 1 ? `<div class="variant"><div class="paint-head"><span>${T("variant")}</span><b id="paintName"></b></div>
+      <div id="paintGrid" class="paint-grid" role="radiogroup" aria-label="${esc(T("variant"))}"></div>
+      <select id="variantSel" hidden>${info.variants.map((v) => `<option value="${esc(v.tag)}"${v.tag === info.variant ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>` : ""}
     ${info.warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join("")}`;
   const variantSel = $("#variantSel");
   if (variantSel) {
-    info.variants.forEach((v, i) => {
-      variantSel.options[i].dataset.colors = v.colors ? v.colors.map((c) => c.join(",")).join(";") : "";
+    // one tile per paint, in the paint's three colours (hatched: no colours of its own); the hidden <select> stays
+    // the value everything else reads and drives (tools/, the change event)
+    const grid = $("#paintGrid"), name = $("#paintName");
+    const label = (tag) => info.variants.find((v) => v.tag === tag)?.label || "";
+    const mark = () => {
+      grid.querySelectorAll(".paint-sw").forEach((b) => {
+        b.classList.toggle("on", b.dataset.tag === variantSel.value);
+        b.setAttribute("aria-checked", b.dataset.tag === variantSel.value);
+      });
+      name.textContent = name.title = label(variantSel.value);
+      name.classList.remove("peek");
+    };
+    info.variants.forEach((v) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "paint-sw" + (v.colors ? "" : " stock");
+      b.dataset.tag = v.tag;
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-label", v.label);
+      if (v.colors) {
+        const [c1, c2, c3] = v.colors.map((c) => `rgb(${c[0]},${c[1]},${c[2]})`);
+        b.style.background = `linear-gradient(135deg, ${c1} 0 52%, ${c2} 52% 80%, ${c3} 80%)`;
+      }
+      // the name of the paint under the pointer takes the place of the chosen one's while it is there
+      b.addEventListener("pointerenter", () => { name.textContent = v.label; name.classList.toggle("peek", v.tag !== variantSel.value); });
+      b.addEventListener("click", () => {
+        if (variantSel.value === v.tag && !state.comparing) return;
+        variantSel.value = v.tag;
+        variantSel.dispatchEvent(new Event("change"));
+      });
+      grid.append(b);
     });
-    dropdown(variantSel);
+    grid.addEventListener("pointerleave", mark);
+    mark();
+    grid.querySelector(".paint-sw.on")?.scrollIntoView({ block: "nearest" });
     variantSel.addEventListener("change", (e) => {
+      mark();
       state.comparing = false;
       changePaint(e.target.value);
       showCompare(info);
@@ -1244,7 +1277,7 @@ function showPanels(on) {
 // Icon-only buttons say their name at once on hover, in a tip drawn here: the browser's own tooltip takes a second.
 // The text is the element's title (kept in the page's language by i18n.js), moved aside while the tip is used.
 const tip = document.body.appendChild(Object.assign(document.createElement("div"), { id: "tip", className: "hidden" }));
-const TIPPED = ".toolbar .tool, .catgrid .chip, .ptabs button:not(.on)";
+const TIPPED = ".toolbar .tool, .ptabs button:not(.on)";
 document.addEventListener("pointerover", (e) => {
   const el = e.target.closest?.(TIPPED);
   if (!el) { tip.classList.add("hidden"); return; }
