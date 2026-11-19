@@ -152,3 +152,30 @@ def test_decks_found_in_the_interior(archive, index):
     m = assembly.load_interior(archive, base, entities.vehicle_for(index, PERSEUS), entities.classes_of(index))
     d = assembly.decks(m)
     assert 3 <= len(d) <= 6 and all(b - a >= assembly.DECK_MIN_GAP for a, b in zip(d, d[1:]))
+
+
+def test_port_and_file_names_that_differ_slightly():
+    # a port and its node may differ by underscores; ambiguous or unrelated names are still not matched
+    lookup = {"hardpoint_life_support": 3, "hardpoint_cooler_1": 4, "a_b": 5, "ab_": 6}
+    assert assembly.find_port(lookup, "hardpoint_cooler_1") == 4
+    assert assembly.find_port(lookup, "hardpoint_lifesupport") == 3
+    assert assembly.find_port(lookup, "ab") is None and assembly.find_port(lookup, "hardpoint_radar") is None
+
+    class Files:
+        def exists(self, path):
+            return path in ("a/screen.cgf", "a/door.cga", "a/both.cga", "a/both.cgf")
+    assert assembly.twin(Files(), "a/screen.cga") == "a/screen.cgf"      # only the sibling exists
+    assert assembly.twin(Files(), "a/door.cgf") == "a/door.cga"
+    assert assembly.twin(Files(), "a/both.cga") == "a/both.cga"          # the named file wins
+    assert assembly.twin(Files(), "a/none.cga") == "a/none.cga" and assembly.twin(Files(), "") == ""
+
+
+def test_perseus_mounts_everything(archive, index):
+    # the life support hangs from port hardpoint_lifesupport, a node spelled hardpoint_life_support; three screens of
+    # the habs are placed as .cga and exist as .cgf: both used to be skipped, with a warning each
+    v = entities.vehicle_for(index, PERSEUS)
+    full = assembly.load_full(archive, PERSEUS, v, entities.adb_for(index, PERSEUS))
+    assert not [w for w in full.warnings if w[0] == "warn_ports_missing"]
+    assert any(p.name.startswith("hardpoint_lifesupport / ") for p in full.parts)
+    m = assembly.load_interior(archive, full, v, entities.classes_of(index))
+    assert not [w for w in m.warnings if w[0] == "warn_interior_missing"]

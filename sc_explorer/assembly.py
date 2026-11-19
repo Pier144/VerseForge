@@ -24,6 +24,28 @@ def _ensure_skeleton(archive, m):
     return replace(m, parts=parts, skeleton=bones)
 
 
+def twin(archive, path):
+    """`path` if the archive has it, else the same geometry under the sibling extension when only that one exists:
+    the game data sometimes names a .cgf as .cga and the reverse (three screens in the Perseus' habs)."""
+    if not path or archive.exists(path):
+        return path
+    stem, dot, ext = path.rpartition(".")
+    other = {"cga": "cgf", "cgf": "cga"}.get(ext.lower())
+    return f"{stem}.{other}" if dot and other and archive.exists(f"{stem}.{other}") else path
+
+
+def find_port(lookup, name):
+    """Index of the node an item port names (`lookup`: lowercase node name -> index), or None. A port and its node
+    may differ by underscores only (Perseus: port hardpoint_lifesupport, node hardpoint_life_support): accepted when
+    exactly one node matches that way."""
+    i = lookup.get(name)
+    if i is not None:
+        return i
+    key = name.replace("_", "")
+    hits = {i for n, i in lookup.items() if n.replace("_", "") == key}
+    return hits.pop() if len(hits) == 1 else None
+
+
 INVISIBLE_MATERIALS = ("objects/vfx/mesheffects/particle_transparent_meshes/",)
 
 
@@ -64,12 +86,12 @@ def load_full(archive, path, vehicle, adb_path=None):
                          for st in out.anim_sets]
 
     def mount(node, prefix, depth, parent_i=None, gear=False):
-        port_i = lookup.get((prefix + node["port"]).lower())
+        port_i = find_port(lookup, (prefix + node["port"]).lower())
         if port_i is None and parent_i is not None:
             # modular items (gun barrels, jump module in a quantum drive) are modelled in their parent's space and
             # their ports are not geometry nodes: hang them from the parent's origin
             port_i = parent_i
-        geo = node["geometry"]
+        geo = twin(archive, node["geometry"])
         if port_i is None or not archive.exists(geo):
             stats["missing"] += 1
             return
@@ -245,6 +267,7 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
         key = (path.lower(), (mtl or "").lower())
         if key not in geo_cache:
             try:
+                path = twin(archive, path)
                 # LOD1 when the game has one: about half the triangles (7.1 -> 3.1 M on the Perseus), same look
                 stem, ext = path.rsplit(".", 1)
                 lod1 = f"{stem}_lod1.{ext}"
