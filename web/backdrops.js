@@ -6,10 +6,12 @@
 //    in the side wall. Big models sit on the mat as a scale
 //    model (1:72, 1:144…, chosen so they are 20-40 cm long); small ones (weapons, helmets) at real size
 //  - "studio": a seamless photo-studio floor that fades into the background
-//  - "deck": a dark floor without an end, faintly lined in metres, under a dark sky
+//  - "hangar": a hangar built around the model and sized on it: plated floor, ribbed walls, trussed roof, lights
 import * as THREE from "three";
 
-export const BACKDROPS = ["plain", "inverted", "pyro", "stanton", "workbench", "studio", "deck"];
+const _v = new THREE.Vector3();
+
+export const BACKDROPS = ["plain", "inverted", "pyro", "stanton", "workbench", "studio", "hangar"];
 
 // light per backdrop, relative to the chosen lighting (hangar / studio): sun colour and strength, sky/ground fill,
 // and where the key light comes from (in model radii from the centre; the default camera is at -x, -z)
@@ -18,7 +20,7 @@ const LIGHT = {
   stanton: { sun: 0xfff2e2, sunK: 1.25, sky: 0x3a6066, ground: 0x05080a, hemiK: 0.7, dir: [2, 3, 2.5] },
   workbench: { sun: 0xffdcb0, sunK: 1.3, sky: 0xfff0dc, ground: 0x4a3626, hemiK: 0.9, dir: [-2.6, 3.2, -0.4] },
   studio: { sun: 0xffffff, sunK: 1.2, sky: 0xffffff, ground: 0xa0a6ae, hemiK: 1.0, dir: [-2.4, 3.4, -1.6] },
-  deck: { sun: 0xf2f6ff, sunK: 1.3, sky: 0x8496aa, ground: 0x0c0f14, hemiK: 0.75, dir: [-2.4, 3.4, -1.6] },
+  hangar: { sun: 0xeef3ff, sunK: 1.25, sky: 0xa9b8cc, ground: 0x23272e, hemiK: 1.0, dir: [-1.3, 3.6, -1.5] },
 };
 
 // the workshop, in metres around the table top (y = 0, floor 76 cm below). The default camera looks from -x, -z:
@@ -340,11 +342,16 @@ export class Backdrops {
     this.box = null;
     this.scale = 1;
     this.generation = 0;     // bumped on every rebuild: props still loading for an old room are dropped
+    this.sides = [];         // the hangar's walls and roof (see look())
+    this.camera = null;
+    // before each frame: which sides of the hangar the camera looks at from inside
+    const before = scene.onBeforeRender;
+    scene.onBeforeRender = (r, sc, camera, ...rest) => { before.call(scene, r, sc, camera, ...rest); if (this.sides.length && camera.isPerspectiveCamera) this.look(camera); };
     this.loadProp = null;    // async (path) -> Object3D, set by the viewer (game props of the workshop)
     this.onChange = null;    // called when the backdrop's look changed (full = false: only a prop was added)
   }
 
-  get hasGround() { return this.kind === "workbench" || this.kind === "studio" || this.kind === "deck"; }
+  get hasGround() { return this.kind === "workbench" || this.kind === "studio" || this.kind === "hangar"; }
   get light() { return LIGHT[this.kind] || null; }
 
   async set(kind) {
@@ -366,7 +373,7 @@ export class Backdrops {
       this.scene.backgroundIntensity = sky === "pyro" ? 1.15 : 1.35;
     } else if (kind === "studio") {
       this.scene.background = gradient("#9aa0a8", "#c3c8cf", "#d4d8dd");
-    } else if (kind === "deck") {
+    } else if (kind === "hangar") {
       this.scene.background = gradient("#010203", "#06080b", "#090c10");
     }
     this.fit(this.box);
@@ -390,11 +397,12 @@ export class Backdrops {
       });
     }
     this.day.intensity = 0;
+    this.sides = [];
     if (!box || box.isEmpty() || !this.hasGround) return;
     const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
     const y = box.min.y - Math.max(size.y, 0.001) * 0.002;   // a hair below the landing gear / feet
     if (this.kind === "workbench") this.workbench(size, c, y);
-    else if (this.kind === "deck") this.deck(size, c, y);
+    else if (this.kind === "hangar") this.hangar(size, c, y);
     else this.studio(size, c, y);
   }
 
@@ -565,30 +573,131 @@ export class Backdrops {
     this.group.add(floor);
   }
 
-  // a dark floor as far as the eye goes: fine lines every cell (1 m under a fighter, 10 m under a capital ship) and
-  // a stronger one every five, melting into the dark sky far away
-  deck(size, c, y) {
-    const big = Math.max(size.x, size.y, size.z), R = big * 40;
-    const cell = Math.pow(10, Math.floor(Math.log10(Math.max(big, 1e-6) / 4)));
-    const [cv, g] = canvas(1024, 1024);
-    g.fillStyle = "#0b0e12"; g.fillRect(0, 0, 1024, 1024);
-    const k = 1024 / 5;
-    for (let i = 0; i < 5; i++) {
-      g.fillStyle = i ? "rgba(150,175,205,.07)" : "rgba(150,175,205,.18)";
-      g.fillRect(i * k - (i ? 1 : 1.5), 0, i ? 2 : 3, 1024);
-      g.fillRect(0, i * k - (i ? 1 : 1.5), 1024, i ? 2 : 3);
+  // A hangar built around the model: the floor, four walls and a roof sized on it (a fighter gets a small bay, a
+  // capital ship a hall), with ribs every bay, roof trusses, strips of light, a closed door in the far side wall, a
+  // painted pad outline under the model and a bay number on the back wall. A wall or the roof is drawn only while
+  // the camera is on its inner side (see look()), so the hangar never hides the model from outside.
+  hangar(size, c, y) {
+    const big = Math.max(size.x, size.y, size.z, 0.5);
+    const pad = Math.min(45, Math.max(9, big * 0.45)) * 1.15 + 4;      // room for the scale references' scene
+    const W = size.x + pad * 2, L = size.z + pad * 2, H = Math.max(size.y * 1.8, size.y + big * 0.25, 8);
+    const bays = Math.min(10, Math.max(4, Math.round(L / Math.max(6, big * 0.35))));
+    const t = Math.min(3, Math.max(0.35, L / bays * 0.07));              // how thick ribs and trusses are
+    const rnd = rng(7);
+    const std = (o) => new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.1, ...o });
+    const lamp = new THREE.MeshBasicMaterial({ color: 0xdcebff, fog: false });
+    const steel = std({ color: 0x1b1f25, roughness: 0.6, metalness: 0.5 });
+    const part = (inward, at) => {                  // a wall or the roof: its inner side and a point on it
+      const g = new THREE.Group();
+      g.userData.inward = inward; g.userData.at = at;
+      this.group.add(g);
+      this.sides.push(g);
+      return g;
+    };
+    const mesh = (g, geo, mat, x, yy, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, yy, z); m.receiveShadow = true; g.add(m); return m; };
+
+    // floor: dark plates, a seam every cell and a stronger one every five
+    const cell = Math.pow(10, Math.floor(Math.log10(big / 4)));
+    const [fc, fg] = canvas(1024, 1024);
+    fg.fillStyle = "#33383f"; fg.fillRect(0, 0, 1024, 1024);
+    for (let i = 0; i < 260; i++) {                 // wear
+      fg.fillStyle = `rgba(${rnd() < 0.5 ? "0,0,0" : "255,255,255"},${0.008 + rnd() * 0.018})`;
+      fg.beginPath(); fg.ellipse(rnd() * 1024, rnd() * 1024, 20 + rnd() * 120, 10 + rnd() * 60, rnd() * 3, 0, 7); fg.fill();
     }
-    const map = texture(cv);
-    map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.repeat.setScalar(2 * R / (cell * 5));
-    map.anisotropy = 16;
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(R, 128),
-      new THREE.MeshStandardMaterial({ map, color: 0x1c1e22, roughness: 0.7, metalness: 0, transparent: true,
-        alphaMap: radialAlpha(0.08), depthWrite: false }));
+    for (let i = 0; i < 5; i++) {
+      fg.fillStyle = i ? "rgba(0,0,0,.28)" : "rgba(0,0,0,.55)";
+      fg.fillRect(i * 204.8 - (i ? 1 : 2), 0, i ? 2 : 4, 1024);
+      fg.fillRect(0, i * 204.8 - (i ? 1 : 2), 1024, i ? 2 : 4);
+    }
+    const floorMap = texture(fc);
+    floorMap.wrapS = floorMap.wrapT = THREE.RepeatWrapping;
+    floorMap.repeat.set(W / (cell * 5), L / (cell * 5));
+    floorMap.anisotropy = 16;
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L), std({ map: floorMap, color: 0x8a8f98, roughness: 0.78 }));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(c.x, y, c.z);
     floor.receiveShadow = true;
-    floor.renderOrder = -1;
     this.group.add(floor);
+
+    // painted on the floor: the pad's outline around the model, hazard stripes along the door
+    const paint = std({ color: 0xc9981e, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const lw = Math.max(0.12, big * 0.007), m = Math.max(1.5, big * 0.05) * 0.55, up = y + big * 0.0004;
+    const px = size.x / 2 + m, pz = size.z / 2 + m, corner = Math.min(px, pz) * 0.35;
+    const strip = (w, l, x, z) => { const s = new THREE.Mesh(new THREE.PlaneGeometry(w, l), paint); s.rotation.x = -Math.PI / 2; s.position.set(x, up, z); s.receiveShadow = true; this.group.add(s); };
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {            // four corner brackets
+      strip(corner, lw, c.x + sx * (px - corner / 2), c.z + sz * pz);
+      strip(lw, corner, c.x + sx * px, c.z + sz * (pz - corner / 2));
+    }
+
+    // walls: plates with a darker skirting and an orange line, one tile per bay
+    const [wc, wg] = canvas(512, 512);
+    wg.fillStyle = "#59616c"; wg.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 6; i++) { wg.fillStyle = "rgba(0,0,0,.22)"; wg.fillRect(0, i * 85.3, 512, 3); }
+    for (const x of [0, 170, 341]) { wg.fillStyle = "rgba(0,0,0,.18)"; wg.fillRect(x, 0, 3, 512); }
+    for (let i = 0; i < 60; i++) { wg.fillStyle = `rgba(0,0,0,${0.02 + rnd() * 0.05})`; wg.fillRect(rnd() * 512, rnd() * 512, 20 + rnd() * 90, 4 + rnd() * 40); }
+    wg.fillStyle = "#2c3138"; wg.fillRect(0, 440, 512, 72);
+    wg.fillStyle = "#c2671d"; wg.fillRect(0, 428, 512, 8);
+    const [hc, hg] = canvas(256, 64);              // hazard stripes
+    hg.fillStyle = "#d1a11f"; hg.fillRect(0, 0, 256, 64);
+    hg.fillStyle = "#15171a";
+    for (let x = -64; x < 256; x += 64) { hg.beginPath(); hg.moveTo(x, 64); hg.lineTo(x + 32, 64); hg.lineTo(x + 96, 0); hg.lineTo(x + 64, 0); hg.fill(); }
+    const wall = (len, x, z, yaw, inward, extra) => {
+      const g = part(inward, new THREE.Vector3(x, y, z));
+      g.position.set(x, y, z);
+      g.rotation.y = yaw;
+      const map = texture(wc);
+      map.wrapS = THREE.RepeatWrapping;
+      const n = Math.max(2, Math.round(len / (L / bays)));
+      map.repeat.set(n, 1);
+      map.anisotropy = 8;
+      mesh(g, new THREE.PlaneGeometry(len, H), std({ map, color: 0x7d858f }), 0, H / 2, 0);
+      for (let i = 0; i <= n; i++) mesh(g, new THREE.BoxGeometry(t, H, t * 1.4), steel, -len / 2 + i * len / n, H / 2, t * 0.7);      // ribs
+      for (let i = 0; i < n; i++) mesh(g, new THREE.BoxGeometry(len / n * 0.55, t * 0.22, t * 0.22), lamp, -len / 2 + (i + 0.5) * len / n, H * 0.8, t * 0.2);
+      extra?.(g, len);
+    };
+    const far = (g, len) => {                      // the closed door in the far side wall
+      const dw = Math.min(len * 0.5, Math.max(size.x, size.z) * 1.1 + 6), dh = Math.min(H * 0.78, Math.max(size.y * 1.3, 5));
+      const [dc, dg] = canvas(512, 512);
+      dg.fillStyle = "#454c56"; dg.fillRect(0, 0, 512, 512);
+      for (let i = 0; i < 8; i++) { dg.fillStyle = "rgba(0,0,0,.35)"; dg.fillRect(0, i * 64, 512, 5); dg.fillStyle = "rgba(255,255,255,.05)"; dg.fillRect(0, i * 64 + 5, 512, 3); }
+      dg.fillStyle = "rgba(0,0,0,.5)"; dg.fillRect(253, 0, 6, 512);
+      mesh(g, new THREE.PlaneGeometry(dw, dh), std({ map: texture(dc), color: 0x8a919b, metalness: 0.3 }), 0, dh / 2, t * 0.12);
+      const hz = texture(hc);
+      hz.wrapS = THREE.RepeatWrapping;
+      hz.repeat.set(Math.max(2, Math.round(dw / (dh * 0.06) / 4)), 1);
+      mesh(g, new THREE.PlaneGeometry(dw, dh * 0.06), std({ map: hz }), 0, dh * 0.03, t * 0.16);
+      mesh(g, new THREE.BoxGeometry(dw + t * 2, t, t * 1.2), steel, 0, dh + t / 2, t * 0.6);                    // frame
+      for (const s of [-1, 1]) mesh(g, new THREE.BoxGeometry(t, dh, t * 1.2), steel, s * (dw + t) / 2, dh / 2, t * 0.6);
+    };
+    const back = (g, len) => {                     // the bay's number, painted large
+      const [nc, ng] = canvas(1024, 256);
+      ng.font = "700 190px system-ui, 'Segoe UI', sans-serif";
+      ng.fillStyle = "rgba(225,232,240,.55)"; ng.textBaseline = "middle"; ng.textAlign = "center";
+      ng.fillText(`BAY ${String(Math.max(1, Math.round(big / 12))).padStart(2, "0")}`, 512, 138);
+      const tw = Math.min(len * 0.4, H * 2.2);
+      mesh(g, new THREE.PlaneGeometry(tw, tw / 4), new THREE.MeshBasicMaterial({ map: texture(nc), transparent: true, depthWrite: false, fog: false }), 0, H * 0.55, t * 0.05).receiveShadow = false;
+    };
+    wall(L, c.x - W / 2, c.z, Math.PI / 2, new THREE.Vector3(1, 0, 0));
+    wall(L, c.x + W / 2, c.z, -Math.PI / 2, new THREE.Vector3(-1, 0, 0), far);
+    wall(W, c.x, c.z - L / 2, 0, new THREE.Vector3(0, 0, 1));
+    wall(W, c.x, c.z + L / 2, Math.PI, new THREE.Vector3(0, 0, -1), back);
+
+    // roof: a dark ceiling, a truss across every bay, light panels between them
+    const roof = part(new THREE.Vector3(0, -1, 0), new THREE.Vector3(c.x, y + H, c.z));
+    const ceil = mesh(roof, new THREE.PlaneGeometry(W, L), std({ color: 0x2a2f37 }), c.x, y + H, c.z);
+    ceil.rotation.x = Math.PI / 2;
+    for (let i = 0; i <= bays; i++) mesh(roof, new THREE.BoxGeometry(W, t * 1.3, t), steel, c.x, y + H - t * 0.65, c.z - L / 2 + i * L / bays);
+    for (let i = 0; i < bays; i++) for (const k of [-0.3, 0, 0.3]) {
+      const p = mesh(roof, new THREE.PlaneGeometry(W * 0.16, L / bays * 0.12), lamp, c.x + k * W, y + H - t * 0.08, c.z - L / 2 + (i + 0.5) * L / bays);
+      p.rotation.x = Math.PI / 2;
+    }
+    this.look(this.camera);
+  }
+
+  // a wall or the roof of the hangar shows only from its inner side: seen from outside it would hide the model
+  look(camera) {
+    if (!camera) return;
+    this.camera = camera;
+    for (const g of this.sides) g.visible = _v.subVectors(camera.position, g.userData.at).dot(g.userData.inward) > 0;
   }
 }

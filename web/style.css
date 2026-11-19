@@ -579,7 +579,7 @@ textarea::placeholder { color: var(--faint); }
 .sw-stanton { background: radial-gradient(circle at 68% 50%, #b9c3d6 0 22%, transparent 24%), radial-gradient(circle at 35% 55%, #2f7a72 0, #0c2224 50%, #03070a 85%); }
 .sw-bench { background: linear-gradient(#2f6e57, #2f6e57) 4px 3px / 14px 10px no-repeat, #7a5233; }
 .sw-studio { background: linear-gradient(#9aa0a8, #d4d8dd); }
-.sw-deck { background: linear-gradient(#05070a 45%, #1b222b 46%, #10141a); }
+.sw-hangar { background: linear-gradient(90deg, transparent 46%, #dcebff 46% 54%, transparent 54%) 0 2px / 100% 2px no-repeat, linear-gradient(#3d444d 62%, #23272d 62%); }
 /* scale menu: several can be on */
 .bg-menu .ck { width: 14px; height: 14px; flex: none; border-radius: 4px; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .bg-menu button.on .ck { background: var(--accent); box-shadow: none; }

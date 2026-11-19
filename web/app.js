@@ -359,7 +359,7 @@ window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { r
   camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting,
   get backdrop() { return backdrop; }, get batches() { return batches; },
   get batching() { return BATCH_ON; }, set batching(on) { BATCH_ON = !!on; }, get look() { return gameLook; }, stats,
-  get paint() { return paintSwap; }, get info() { return currentInfo; }, changePaint: (tag, o) => changePaint(tag, o), invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
+  get paint() { return paintSwap; }, get scale() { return scaleRefs; }, get info() { return currentInfo; }, changePaint: (tag, o) => changePaint(tag, o), invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
 // Render on demand: a frame is drawn only when something changed (camera moving or settling, an animation or the
 // auto-rotate running, a texture/material update, a shadow redraw request, an explicit invalidate()), plus once a
 // second as a safety net. A still model leaves the GPU idle instead of redrawing it 60 times a second.
@@ -538,7 +538,7 @@ async function warmUp(root, cancelled) {
 // the backdrop's floor goes under the model as it stands now (a full ship has its landing gear down by then)
 function fitBackdrop() {
   if (!modelRoot) return Promise.resolve();
-  const box = drawnBox();
+  const box = drawnBox(true);
   backdrop.fit(box);
   buildGrid(box);
   showSize(box);
@@ -547,15 +547,23 @@ function fitBackdrop() {
 }
 // The model as it is drawn: its solid and glass pieces only. Decals, proxies and hidden helpers reach beyond the hull
 // (one stray decal of the Perseus hangs 8 m under it), and the sizes the server gives count them too.
-function drawnBox() {
-  const box = new THREE.Box3(), one = new THREE.Box3();
+// Measured on the vertices, not on each piece's own box: a tilted landing gear leg has a box that reaches well under
+// its foot (2.4 m on the Perseus), and the ship stood that much above its floor. `fresh`: measure again (the pose
+// changed); otherwise the last measure of this model is given back.
+let drawn = null;               // { root, box }
+function drawnBox(fresh = false) {
+  if (!fresh && drawn?.root === modelRoot) return drawn.box.clone();
+  const box = new THREE.Box3(), one = new THREE.Box3(), shown = (o) => ["solid", "glass"].includes(meshKind(o));
   modelRoot.updateMatrixWorld(true);
   modelRoot.traverse((o) => {
-    if (!o.isMesh || !["solid", "glass"].includes(meshKind(o))) return;
+    if (!o.isMesh || o.isBatchedMesh || !shown(o)) return;
     for (let p = o; p; p = p.parent) if (!p.visible) return;
-    box.union(one.setFromObject(o));
+    box.union(one.setFromObject(o, true));
   });
-  return box.isEmpty() ? box.setFromObject(modelRoot) : box;
+  if (batches?.nodes?.length) batches.exactBox(box, shown);
+  if (box.isEmpty()) box.setFromObject(modelRoot);
+  drawn = { root: modelRoot, box };
+  return box.clone();
 }
 // what Frame shows: the model, and the scale references around it when they are on
 function viewBox() {

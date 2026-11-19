@@ -170,6 +170,28 @@ export class Batches {
     return target;
   }
 
+  // World box around the drawn pieces of the batches `want(batch)` chooses, from their vertices: the box of a tilted
+  // piece (a landing gear leg) reaches further than the piece does, and a ship stood on it floats above its floor.
+  exactBox(target, want) {
+    const v = new THREE.Vector3();
+    for (const [, batch, id] of this.nodes) {
+      if (!batch.visible || !batch.getVisibleAt(id) || !want(batch)) continue;
+      batch.getMatrixAt(id, _m);
+      _m.premultiply(batch.matrixWorld);
+      const range = batch._reservedRanges?.[id], pos = batch.geometry.attributes.position;
+      if (!range || pos.isInterleavedBufferAttribute) {       // another three.js: the piece's own box will do
+        target.union(batch.getBoundingBoxAt(id, _box).applyMatrix4(_m));
+        continue;
+      }
+      const a = pos.array, e = _m.elements;
+      for (let i = range.vertexStart * 3, n = (range.vertexStart + range.vertexCount) * 3; i < n; i += 3) {
+        const x = a[i], y = a[i + 1], z = a[i + 2];
+        target.expandByPoint(v.set(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]));
+      }
+    }
+    return target;
+  }
+
   // the batches of one paint group (paint.js)
   byGroup(g) {
     return this.groups.get(g) || [];
