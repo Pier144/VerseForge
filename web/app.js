@@ -8,6 +8,7 @@ import { GameLook } from "./gamelook.js";
 import { hangarTexture } from "./hangar.js";
 import { Backdrops, BACKDROPS } from "./backdrops.js";
 import { Batches } from "./batching.js";
+import { ScaleRefs, SCALE_IDS } from "./scale.js";
 import { PaintSwap, groupOf } from "./paint.js";
 
 const $ = (s) => document.querySelector(s);
@@ -258,6 +259,16 @@ backdrop.loadProp = (path) => {
   }
   return propCache.get(path);
 };
+// scale references (scale.js): a ruler on the floor and game objects next to the model; the choice is remembered
+const scaleRefs = new ScaleRefs(scene, {
+  loadProp: (path) => backdrop.loadProp(path),
+  onChange: () => { renderer.shadowMap.needsUpdate = true; invalidate(300); },
+});
+try {
+  for (const id of JSON.parse(localStorage.getItem("vf.scale") || "[]")) if (SCALE_IDS.includes(id)) scaleRefs.on.add(id);
+} catch { /* storage unavailable */ }
+let userMoved = false;          // the camera was moved by hand since the last frame()
+let shownSize = null;           // { root, size }: the model's size as drawn (width, length, height), for the panel
 let grid = null;
 let modelRoot = null;
 let wireframe = false;
@@ -424,6 +435,7 @@ function tick() {
 }
 renderer.setAnimationLoop(tick);
 controls.addEventListener("start", markMotion);
+controls.addEventListener("start", () => { userMoved = true; });
 function syncPose() {
   poseDirty = false;
   batches.sync();
@@ -442,7 +454,8 @@ for (const ev of ["click", "input", "change", "keydown"]) document.addEventListe
 
 function frame(around = null) {
   if (!modelRoot) return;
-  const box = around || new THREE.Box3().setFromObject(modelRoot);
+  const box = around || viewBox();
+  userMoved = false;
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(size.length() / 2, 0.01);
@@ -524,10 +537,61 @@ async function warmUp(root, cancelled) {
 
 // the backdrop's floor goes under the model as it stands now (a full ship has its landing gear down by then)
 function fitBackdrop() {
-  if (!modelRoot) return;
-  modelRoot.updateMatrixWorld(true);
-  backdrop.fit(new THREE.Box3().setFromObject(modelRoot));
+  if (!modelRoot) return Promise.resolve();
+  const box = drawnBox();
+  backdrop.fit(box);
+  buildGrid(box);
+  showSize(box);
   updateShadows();
+  return scaleRefs.fit(box, darkInk());
+}
+// The model as it is drawn: its solid and glass pieces only. Decals, proxies and hidden helpers reach beyond the hull
+// (one stray decal of the Perseus hangs 8 m under it), and the sizes the server gives count them too.
+function drawnBox() {
+  const box = new THREE.Box3(), one = new THREE.Box3();
+  modelRoot.updateMatrixWorld(true);
+  modelRoot.traverse((o) => {
+    if (!o.isMesh || !["solid", "glass"].includes(meshKind(o))) return;
+    for (let p = o; p; p = p.parent) if (!p.visible) return;
+    box.union(one.setFromObject(o));
+  });
+  return box.isEmpty() ? box.setFromObject(modelRoot) : box;
+}
+// what Frame shows: the model, and the scale references around it when they are on
+function viewBox() {
+  return scaleRefs.bounds() || drawnBox();
+}
+// the scale references are drawn in dark ink on a light floor
+function darkInk() {
+  if (backdrop.kind === "studio") return true;
+  if (!["plain", "inverted"].includes(backdrop.kind)) return false;
+  return (document.documentElement.dataset.mode === "light") !== (backdrop.kind === "inverted");
+}
+// the panel's size line follows what is drawn (landing gear down on a full ship), like the ruler on the floor
+function showSize(box) {
+  const s = box.getSize(new THREE.Vector3());
+  shownSize = { root: modelRoot, size: [s.x, s.z, s.y] };
+  const el = $("#info .specs");
+  if (!el?.querySelector("b")) return;
+  el.querySelector("b").textContent = fmtSize(shownSize.size);
+  el.title = sizeTitle(shownSize.size);
+}
+// scale references on or off (toolbar menu): the view is framed again around them when one is added
+function setScale(id, on) {
+  const done = scaleRefs.set(id, on);
+  try { localStorage.setItem("vf.scale", JSON.stringify([...scaleRefs.on])); } catch { /* storage unavailable */ }
+  syncScaleMenu();
+  if (!on || !modelRoot) return;
+  frame();
+  done.then(() => { if (!userMoved && modelRoot) frame(); });
+}
+function syncScaleMenu() {
+  document.querySelectorAll("#scaleMenu [data-scale]").forEach((b) => {
+    const on = scaleRefs.on.has(b.dataset.scale);
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", on);
+  });
+  $('[data-act="scale"]').classList.toggle("on", scaleRefs.active);
 }
 backdrop.onChange = (full = true) => {
   if (!full) { renderer.shadowMap.needsUpdate = true; return; }      // a workshop prop arrived
@@ -535,6 +599,7 @@ backdrop.onChange = (full = true) => {
   if (modelRoot) {
     const box = new THREE.Box3().setFromObject(modelRoot);
     placeSun(box.getCenter(new THREE.Vector3()), Math.max(box.getSize(new THREE.Vector3()).length() / 2, 0.01));
+    if (scaleRefs.dark !== darkInk()) scaleRefs.fit(scaleRefs.box, darkInk());
     if (grid) grid.visible = $('[data-act="grid"]').classList.contains("on") && !backdrop.hasGround;
   }
   document.querySelectorAll("#bgMenu [data-bg]").forEach((b) => b.classList.toggle("on", b.dataset.bg === backdrop.kind));
@@ -766,6 +831,7 @@ async function loadModel(item, keepView = false, opts = {}) {
     retiredSwap = null;
     if (modelRoot) {
       scene.remove(modelRoot);
+      scaleRefs.fit(null);
       modelRoot.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); (o.userData.gameMaterial || o.material).dispose(); } });
     }
     batches.dispose();
@@ -832,7 +898,11 @@ async function loadModel(item, keepView = false, opts = {}) {
     showAnimations(info.animations || []);
     anim.landed = info.full ? anim.list.find((a) => /land/i.test(a.group) && /^(deploy|extend|open)$/i.test(a.label)) : null;
     settleLanded();
-    fitBackdrop();
+    const refs = fitBackdrop();
+    if (scaleRefs.active && !keepView) {       // the ruler and the game objects are part of the picture
+      frame();
+      refs.then(() => { if (state.current === item && !userMoved) frame(); });
+    }
     // the section plane cuts the whole scene: the backdrop's room (rebuilt for each model) and the grid need their
     // section shaders too
     if (info.interior) for (const o of [backdrop.group, grid]) compileShaders(o, true).catch(() => {});
@@ -956,6 +1026,8 @@ function fmtSize(size) {
   return `${size.map(one).join(" × ")} ${mm ? "mm" : "m"}`;
 }
 
+const sizeTitle = ([x, y, z]) => `${T("width")} ${plainLen(x)} · ${T("length")} ${plainLen(y)} · ${T("height")} ${plainLen(z)}`;
+
 function infoHead(item) {
   const sub = item.subtitle || CAT_LABELS[item.category] || "";
   return `<div class="info-head">
@@ -966,11 +1038,11 @@ function infoHead(item) {
 
 function showInfo(item, info) {
   const s = info.stats;
-  const [x, y, z] = s.size_m;
-  const sizes = `${T("width")} ${plainLen(x)} · ${T("length")} ${plainLen(y)} · ${T("height")} ${plainLen(z)}`;
+  const size = shownSize?.root === modelRoot ? shownSize.size : s.size_m;
+  const sizes = sizeTitle(size);
   $("#info").innerHTML = `${infoHead(item)}
     <div class="specs" title="${esc(sizes)}">
-      <b>${fmtSize(s.size_m)}</b>${T("triangles")} ${num(s.triangles)} · ${T("parts")} ${num(s.parts)} · ${T("materials")} ${s.materials.length}
+      <b>${fmtSize(size)}</b>${T("triangles")} ${num(s.triangles)} · ${T("parts")} ${num(s.parts)} · ${T("materials")} ${s.materials.length}
     </div>
     ${info.variants.length > 1 ? `<div class="variant"><div class="paint-head"><span>${T("variant")}</span><b id="paintName"></b></div>
       <div id="paintGrid" class="paint-grid" role="radiogroup" aria-label="${esc(T("variant"))}"></div>
@@ -1025,7 +1097,7 @@ function showInfo(item, info) {
   $("#printBox").classList.remove("hidden");
   $("#decalBox").classList.toggle("hidden", !info.stickers);
   $("#decalStatus").textContent = "";
-  decalLength = Math.max(x, y, z);
+  decalLength = Math.max(...s.size_m);
   showDecalSize();
 }
 
@@ -1263,7 +1335,10 @@ document.addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#layersWrap")) { $("#layersMenu").classList.add("hidden"); $("#layersBtn").classList.remove("on"); }
   if (!e.target.closest("#bgMenu, [data-act=\"bg\"]")) $("#bgMenu").classList.add("hidden");
   if (!e.target.closest("#resinMenu, [data-act=\"resin\"]")) $("#resinMenu").classList.add("hidden");
+  if (!e.target.closest("#scaleMenu, [data-act=\"scale\"]")) $("#scaleMenu").classList.add("hidden");
 });
+document.querySelectorAll("#scaleMenu [data-scale]").forEach((b) => b.addEventListener("click", () => setScale(b.dataset.scale, !scaleRefs.on.has(b.dataset.scale))));
+syncScaleMenu();
 applyResin();
 // the space panoramas come from the game files: a saved one is put back once the catalogue is ready (pollStatus)
 const savedBackdrop = backdrop.kind;
@@ -1332,6 +1407,7 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
   if (a === "panels") showPanels(document.documentElement.classList.contains("vf-bare"));
   if (a === "bg") $("#bgMenu").classList.toggle("hidden");
   if (a === "resin") $("#resinMenu").classList.toggle("hidden");
+  if (a === "scale") $("#scaleMenu").classList.toggle("hidden");
   if (a === "shot") {
     const link = document.createElement("a");
     link.download = `${(state.current?.path.split("/").pop() || "model").replace(/\.\w+$/, "")}.png`;
@@ -1828,7 +1904,7 @@ function applyAppearance(pref) {
   document.documentElement.dataset.mode = mode;
   $("#btnMode use").setAttribute("href", mode === "dark" ? "#i-sun" : "#i-moon");
   $("#btnMode").title = T(mode === "dark" ? "modeToLight" : "modeToDark");
-  if (modelRoot) buildGrid(new THREE.Box3().setFromObject(modelRoot));
+  if (modelRoot) { buildGrid(drawnBox()); if (scaleRefs.dark !== darkInk()) scaleRefs.fit(scaleRefs.box, darkInk()); }
 }
 systemDark.addEventListener("change", () => { if (appearance === "system") applyAppearance("system"); });
 applyAppearance(appearance);

@@ -6,9 +6,10 @@
 //    in the side wall. Big models sit on the mat as a scale
 //    model (1:72, 1:144…, chosen so they are 20-40 cm long); small ones (weapons, helmets) at real size
 //  - "studio": a seamless photo-studio floor that fades into the background
+//  - "deck": a dark floor without an end, faintly lined in metres, under a dark sky
 import * as THREE from "three";
 
-export const BACKDROPS = ["plain", "inverted", "pyro", "stanton", "workbench", "studio"];
+export const BACKDROPS = ["plain", "inverted", "pyro", "stanton", "workbench", "studio", "deck"];
 
 // light per backdrop, relative to the chosen lighting (hangar / studio): sun colour and strength, sky/ground fill,
 // and where the key light comes from (in model radii from the centre; the default camera is at -x, -z)
@@ -17,6 +18,7 @@ const LIGHT = {
   stanton: { sun: 0xfff2e2, sunK: 1.25, sky: 0x3a6066, ground: 0x05080a, hemiK: 0.7, dir: [2, 3, 2.5] },
   workbench: { sun: 0xffdcb0, sunK: 1.3, sky: 0xfff0dc, ground: 0x4a3626, hemiK: 0.9, dir: [-2.6, 3.2, -0.4] },
   studio: { sun: 0xffffff, sunK: 1.2, sky: 0xffffff, ground: 0xa0a6ae, hemiK: 1.0, dir: [-2.4, 3.4, -1.6] },
+  deck: { sun: 0xf2f6ff, sunK: 1.3, sky: 0x8496aa, ground: 0x0c0f14, hemiK: 0.75, dir: [-2.4, 3.4, -1.6] },
 };
 
 // the workshop, in metres around the table top (y = 0, floor 76 cm below). The default camera looks from -x, -z:
@@ -342,7 +344,7 @@ export class Backdrops {
     this.onChange = null;    // called when the backdrop's look changed (full = false: only a prop was added)
   }
 
-  get hasGround() { return this.kind === "workbench" || this.kind === "studio"; }
+  get hasGround() { return this.kind === "workbench" || this.kind === "studio" || this.kind === "deck"; }
   get light() { return LIGHT[this.kind] || null; }
 
   async set(kind) {
@@ -364,6 +366,8 @@ export class Backdrops {
       this.scene.backgroundIntensity = sky === "pyro" ? 1.15 : 1.35;
     } else if (kind === "studio") {
       this.scene.background = gradient("#9aa0a8", "#c3c8cf", "#d4d8dd");
+    } else if (kind === "deck") {
+      this.scene.background = gradient("#010203", "#06080b", "#090c10");
     }
     this.fit(this.box);
     this.onChange?.();
@@ -390,6 +394,7 @@ export class Backdrops {
     const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
     const y = box.min.y - Math.max(size.y, 0.001) * 0.002;   // a hair below the landing gear / feet
     if (this.kind === "workbench") this.workbench(size, c, y);
+    else if (this.kind === "deck") this.deck(size, c, y);
     else this.studio(size, c, y);
   }
 
@@ -553,6 +558,33 @@ export class Backdrops {
     const floor = new THREE.Mesh(new THREE.CircleGeometry(R, 96),
       new THREE.MeshStandardMaterial({ color: 0xd2d6db, roughness: 0.95, metalness: 0, transparent: true,
         alphaMap: radialAlpha(0.18), depthWrite: false }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(c.x, y, c.z);
+    floor.receiveShadow = true;
+    floor.renderOrder = -1;
+    this.group.add(floor);
+  }
+
+  // a dark floor as far as the eye goes: fine lines every cell (1 m under a fighter, 10 m under a capital ship) and
+  // a stronger one every five, melting into the dark sky far away
+  deck(size, c, y) {
+    const big = Math.max(size.x, size.y, size.z), R = big * 40;
+    const cell = Math.pow(10, Math.floor(Math.log10(Math.max(big, 1e-6) / 4)));
+    const [cv, g] = canvas(1024, 1024);
+    g.fillStyle = "#0b0e12"; g.fillRect(0, 0, 1024, 1024);
+    const k = 1024 / 5;
+    for (let i = 0; i < 5; i++) {
+      g.fillStyle = i ? "rgba(150,175,205,.07)" : "rgba(150,175,205,.18)";
+      g.fillRect(i * k - (i ? 1 : 1.5), 0, i ? 2 : 3, 1024);
+      g.fillRect(0, i * k - (i ? 1 : 1.5), 1024, i ? 2 : 3);
+    }
+    const map = texture(cv);
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.setScalar(2 * R / (cell * 5));
+    map.anisotropy = 16;
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(R, 128),
+      new THREE.MeshStandardMaterial({ map, color: 0x26292e, roughness: 0.7, metalness: 0, transparent: true,
+        alphaMap: radialAlpha(0.08), depthWrite: false }));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(c.x, y, c.z);
     floor.receiveShadow = true;

@@ -579,6 +579,10 @@ textarea::placeholder { color: var(--faint); }
 .sw-stanton { background: radial-gradient(circle at 68% 50%, #b9c3d6 0 22%, transparent 24%), radial-gradient(circle at 35% 55%, #2f7a72 0, #0c2224 50%, #03070a 85%); }
 .sw-bench { background: linear-gradient(#2f6e57, #2f6e57) 4px 3px / 14px 10px no-repeat, #7a5233; }
 .sw-studio { background: linear-gradient(#9aa0a8, #d4d8dd); }
+.sw-deck { background: linear-gradient(#05070a 45%, #1b222b 46%, #10141a); }
+/* scale menu: several can be on */
+.bg-menu .ck { width: 14px; height: 14px; flex: none; border-radius: 4px; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.bg-menu button.on .ck { background: var(--accent); box-shadow: none; }
 .sw-resin-grey { background: linear-gradient(135deg, #b4b8bb, #6f7477); }
 .sw-resin-white { background: linear-gradient(135deg, #f4f2ec, #c9c6be); }
 .sw-resin-black { background: linear-gradient(135deg, #4a4d52, #15171a); }
