@@ -2,7 +2,8 @@
 
 - "adb": which Mannequin animation database (.adb) gives an object's clips their meaning;
 - "vehicles": for ships and ground vehicles, the factory loadout as a tree of {port, geometry, adb, children, and
-  hidden: true when the port is flagged "invisible"}
+  hidden: true when the port is flagged "invisible"}; the geometry is the item's variant for the port's tags when
+  it has one (a "right" flap on a port flagged "right")
   plus the landing-gear legs ({port: hull bone, geometry}), used by the "Full ship" assembly, and the object
   containers of the interior ({file: .socpak, bone, pos, rot});
 - "classes": entity class GUID -> [geometry, material], for the entities placed inside object containers;
@@ -33,10 +34,12 @@ def _adb_path(adb):
 
 
 class _Index:
-    def __init__(self, dc):
+    def __init__(self, dc, exists=None):
         self.dc = dc
+        self.exists = exists        # exists(path) -> bool, or None when the archive is not at hand
         self.by_name = {}
         self._info = {}
+        self._tagged = {}
         for ri in dc.records_of("EntityClassDefinition"):
             self.by_name.setdefault(dc.record_name(ri).split(".", 1)[-1].lower(), ri)
 
@@ -54,6 +57,34 @@ class _Index:
             self._info[ri] = (geo, adb, comps)
         return self._info[ri]
 
+    def tagged(self, ri, tags):
+        """(geometry, material) of the variant of an item for a port with these tags, or None: the first SubGeometry
+        of its record whose Tags are all among them. One item serves both sides of a ship this way: the Avenger's
+        retro thruster is the left flap, with the mirrored one as a SubGeometry tagged "right"."""
+        if not tags:
+            return None
+        if ri not in self._tagged:
+            subs = []
+            for c in self.info(ri)[2]:
+                if c.type != "SGeometryResourceParams":
+                    continue
+                try:
+                    node = c["Geometry"]
+                    for s in (node["SubGeometry"] if node.has("SubGeometry") else None) or []:
+                        want = frozenset((s["Tags"] or "").lower().split()) if s is not None else None
+                        data = s["Geometry"] if want else None
+                        geo = _data_path(data["Geometry"]["path"]) if data is not None else ""
+                        # a variant whose file the game no longer ships leaves the item as it is (Javelin:
+                        # aegs_javelin_support_engine_lower.cga)
+                        if geo and (self.exists is None or self.exists(geo)):
+                            mtl = data["Material"]
+                            subs.append((want, geo, _data_path(mtl["path"]) if mtl is not None else ""))
+                except (KeyError, TypeError):
+                    pass
+                break
+            self._tagged[ri] = subs
+        return next(((geo, mtl) for want, geo, mtl in self._tagged[ri] if want <= tags), None)
+
     def entries(self, comps):
         for c in comps:
             if c.type == "SEntityComponentDefaultLoadoutParams":
@@ -61,8 +92,9 @@ class _Index:
                 return lo["entries"] if lo is not None and lo.has("entries") else []
         return []
 
-    def tree(self, entries, depth=0, hidden=frozenset()):
-        """hidden: lower-case names of the ports flagged "invisible" (the game does not draw what they carry)."""
+    def tree(self, entries, depth=0, hidden=frozenset(), tags=None):
+        """hidden: lower-case names of the ports flagged "invisible" (the game does not draw what they carry).
+        tags: {lower-case port name: its tags}, which choose the variant of the item mounted there (tagged)."""
         out = []
         if depth >= MAX_DEPTH:
             return out
@@ -82,13 +114,17 @@ class _Index:
             geo, adb, comps = self.info(ri)
             if not geo:
                 continue
-            nested = e["loadout"]
-            sub = nested["entries"] if nested is not None and nested.has("entries") else None
-            children = self.tree(sub if sub else self.entries(comps), depth + 1, _invisible_item_ports(comps))
             # the record's material override: variant paints, and invisible stand-ins (an effects material that the
             # game draws transparent, e.g. the Nox's retro thrusters reuse the Vanduul Scythe's thruster model)
-            node = {"port": port, "geometry": geo, "adb": adb, "material": _geometry_material(comps),
-                    "children": children}
+            mtl = _geometry_material(comps)
+            side = self.tagged(ri, (tags or {}).get(port.lower()))
+            if side:
+                geo, mtl = side[0], side[1] or mtl
+            nested = e["loadout"]
+            sub = nested["entries"] if nested is not None and nested.has("entries") else None
+            children = self.tree(sub if sub else self.entries(comps), depth + 1, _invisible_item_ports(comps),
+                                 _item_port_tags(comps))
+            node = {"port": port, "geometry": geo, "adb": adb, "material": mtl, "children": children}
             if port.lower() in hidden:
                 node["hidden"] = True
             out.append(node)
@@ -110,6 +146,20 @@ def _invisible_item_ports(comps):
     return frozenset(out)
 
 
+def _item_port_tags(comps):
+    """{lower-case port name: its tags} of an item's own ports (DataCore: the words of Flags, PortTags and Tags)."""
+    out = {}
+    for c in comps:
+        if c.type == "SItemPortContainerComponentParams" and c.has("Ports"):
+            for p in c["Ports"] or []:
+                if p is None:
+                    continue
+                words = " ".join(str(p[k] or "") for k in ("Flags", "PortTags", "Tags") if p.has(k))
+                if words.strip():
+                    out[(p["Name"] or "").lower()] = frozenset(words.lower().split())
+    return out
+
+
 def _vehicle_definition(comps):
     for c in comps:
         if c.type == "VehicleComponentParams" and c.has("vehicleDefinition"):
@@ -129,6 +179,21 @@ def invisible_vehicle_ports(xml_bytes):
         if ip is not None and _flagged_invisible(ip.get("flags")):
             out.add((part.get("name") or "").lower())
     return frozenset(out)
+
+
+def vehicle_port_tags(xml_bytes):
+    """{lower-case port name: its tags} of a vehicle implementation XML: the words of each item port's flags
+    ("maneuver orientation retro uneditable right"). Ports without flags are left out."""
+    out = {}
+    root = cryxml.parse(xml_bytes)
+    for part in root.iter("Part"):
+        if (part.get("class") or "").lower() != "itemport":
+            continue
+        ip = part.find("ItemPort")
+        words = (ip.get("flags") or "").lower().split() if ip is not None else []
+        if words:
+            out[(part.get("name") or "").lower()] = frozenset(words)
+    return out
 
 
 def vehicle_parts(xml_bytes):
@@ -245,23 +310,23 @@ def build(data: bytes, read=None):
     """read(path) -> bytes or None: reads the vehicle implementation XMLs (port flags); without it no port is
     known to be invisible."""
     dc = DataCore(data)
-    idx = _Index(dc)
+    idx = _Index(dc, getattr(read, "exists", None))
     found, vehicles, ammo, classes, named = {}, {}, {}, {}, {}
     defs = {}
 
     def definition(comps):
-        """(invisible ports, parts on the hull) of the vehicle's implementation XML."""
+        """(invisible ports, parts on the hull, port tags) of the vehicle's implementation XML."""
         path = _vehicle_definition(comps)
         if path and read is not None and path.lower() not in defs:
-            got = (frozenset(), [])
+            got = (frozenset(), [], {})
             try:
                 xml = read(path)
                 if xml:
-                    got = (invisible_vehicle_ports(xml), vehicle_parts(xml))
+                    got = (invisible_vehicle_ports(xml), vehicle_parts(xml), vehicle_port_tags(xml))
             except Exception:       # a broken XML only means no port is known to be invisible, no tread is mounted
                 pass
             defs[path.lower()] = got
-        return defs.get(path.lower(), (frozenset(), []))
+        return defs.get(path.lower(), (frozenset(), [], {}))
 
     def vehicle_hidden(comps):
         return definition(comps)[0] | _invisible_item_ports(comps)
@@ -278,7 +343,8 @@ def build(data: bytes, read=None):
         if got:
             ammo.setdefault(_norm(geo), got)
         if any(c.type == "VehicleComponentParams" for c in comps):
-            tree = idx.tree(idx.entries(comps), hidden=vehicle_hidden(comps))
+            tree = idx.tree(idx.entries(comps), hidden=vehicle_hidden(comps),
+                            tags={**_item_port_tags(comps), **definition(comps)[2]})
             gears = _gears(dc, comps)
             ocs = _containers(comps)
             fixed = definition(comps)[1]
@@ -331,5 +397,14 @@ def vehicle_for(index, path):
 
 
 def archive_reader(archive):
-    """build()'s read(): a file of the archive, or None when it is missing."""
-    return lambda path: archive.read(path) if archive.exists(path) else None
+    """build()'s read(): a file of the archive, or None when it is missing. read.exists(path) tells whether a
+    geometry file is there, whichever of .cga / .cgf the game data names it with."""
+    def read(path):
+        return archive.read(path) if archive.exists(path) else None
+
+    def exists(path):
+        stem, dot, ext = path.rpartition(".")
+        other = {"cga": "cgf", "cgf": "cga"}.get(ext.lower())
+        return archive.exists(path) or bool(dot and other and archive.exists(f"{stem}.{other}"))
+    read.exists = exists
+    return read

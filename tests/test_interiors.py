@@ -205,3 +205,45 @@ def test_items_on_ports_a_clip_forgets_follow_their_rack(archive, index):
     assert parents[one + "201/FSKI_Ignite_S2"].endswith("hardpoint_s1_missile_201")
     assert parents[one + "101/FSKI_Ignite_S2"].endswith("4x_missile_launcher_02")
     assert parents[one + "304/FSKI_Ignite_S2"].endswith("4x_missile_launcher_02")
+
+
+AVENGER = "Objects/Spaceships/Ships/AEGS/Avenger/AEGS_Avenger.cga"
+
+
+def test_tagged_port_gets_the_geometry_of_its_side(index):
+    # one item, AEGS_Avenger_Thruster_Retro, sits on both retro ports: its main geometry is the left flap and a
+    # SubGeometry tagged "right" the mirrored one, picked by the port's "right" flag. Mounted as the left one, the
+    # right flap hung askew under the wing root
+    v = entities.vehicle_for(index, AVENGER)
+    geo = {n["port"]: n["geometry"].lower() for n in v["tree"]}
+    assert geo["hardpoint_thruster_left_retro"].endswith("aegs_avenger_thruster_retro_left.cga")
+    assert geo["hardpoint_thruster_right_retro"].endswith("aegs_avenger_thruster_retro_right.cga")
+
+
+def test_port_tags_of_a_vehicle_definition():
+    xml = (b'<Vehicle><Parts><Part name="hull" class="Animated"><Parts>'
+           b'<Part name="hardpoint_retro_R" class="ItemPort"><ItemPort flags="maneuver uneditable Right"/></Part>'
+           b'<Part name="hardpoint_seat" class="ItemPort"><ItemPort/></Part>'
+           b'</Parts></Part></Parts></Vehicle>')
+    assert entities.vehicle_port_tags(xml) == {"hardpoint_retro_r": frozenset({"maneuver", "uneditable", "right"})}
+
+
+def test_lod_files_are_placed_by_the_nodes_of_lod0(archive):
+    # a _lod1 file has no node table: its pieces are in the space of the LOD0's nodes. Read without them, the three
+    # blocks of the Avenger's cockpit were shifted and stuck out through the canopy
+    stem = "Objects/Spaceships/Ships/AEGS/Avenger/Interior/aegs_avenger_cockpit"
+    lod0 = model.load_model(archive, stem + ".cgf", animated=False)
+    lod1 = model.load_model(archive, stem + "_lod1.cgf", animated=False)
+    (lo0, hi0), (lo1, hi1) = lod0.bounds(), lod1.bounds()
+    assert np.abs(lo1 - lo0).max() < 0.05 and np.abs(hi1 - hi0).max() < 0.05
+    assert {p.node for p in lod1.parts} <= {p.node for p in lod0.parts} and all(p.node for p in lod1.parts)
+    for p in lod1.parts:                                    # each piece inside the same piece of the LOD0
+        same = [q.vertices for q in lod0.parts if q.node == p.node and q.mat_id == p.mat_id]
+        assert same, p.name
+        v = np.vstack(same)
+        assert (p.vertices.min(0) > v.min(0) - 0.05).all() and (p.vertices.max(0) < v.max(0) + 0.05).all(), p.name
+
+
+def test_lod_name():
+    assert model.lod0_path("a/b/ship_lod1.cgf") == "a/b/ship.cgf" and model.lod0_path("a/Ship_LOD12.cga") == "a/Ship.cga"
+    assert model.lod0_path("a/b/ship.cgf") is None and model.lod0_path("a/lod1_ship.cgf") is None

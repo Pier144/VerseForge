@@ -1,4 +1,5 @@
 """Assemble a viewable model (list of parts in object space, metres, Z up / Y forward) from an asset path."""
+import re
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -81,6 +82,21 @@ def _mesh_source(archive, path, main):
     return main
 
 
+def lod0_path(path):
+    """'ship_lod1.cgf' -> 'ship.cgf'; None when `path` is not a LOD file."""
+    m = re.fullmatch(r"(.*[^/\\])_lod\d+(\.\w+)", path, re.I)
+    return m.group(1) + m.group(2) if m else None
+
+
+def _lod0_nodes(archive, path):
+    """Node table of the LOD0 of a LOD file ([] when there is none)."""
+    base = lod0_path(path)
+    try:
+        return ivo.nodes(ivo.IvoFile(archive.read(base))) if base and archive.exists(base) else []
+    except Exception:
+        return []
+
+
 def load_geometry(archive, path, transform=None, material_path=None, label=None):
     """Parts of one .cgf/.cga/.skin/.chr file, already placed by its node hierarchy."""
     main = ivo.IvoFile(archive.read(path))
@@ -89,6 +105,13 @@ def load_geometry(archive, path, transform=None, material_path=None, label=None)
     md = ivo.mesh(src, node_space=bool(node_list))
     if md is None:
         return []
+    if not node_list:
+        # a LOD file (x_lod1.cgf) has no node table: its subsets name the nodes of the LOD0 and its positions are in
+        # their space. Without them the pieces of a multi-node object land in the wrong place (the three blocks of
+        # the Avenger's cockpit stuck out through the canopy)
+        borrowed = _lod0_nodes(archive, path)
+        if borrowed and all(s.node < len(borrowed) for s in md.subsets):
+            node_list, md = borrowed, ivo.mesh(src, node_space=True)
     vbones = bone_names = None
     if path.lower().endswith((".skin", ".chr")):
         vb = ivo.vertex_bones(src)

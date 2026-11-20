@@ -99,7 +99,8 @@ def nodes(ivo: IvoFile):
 def mesh(ivo: IvoFile, node_space=False) -> MeshData | None:
     """node_space: snorm positions are decoded in the space of their node (second bounding box of the header,
     the union of the node-local boxes), to be placed by the node transforms. Needed for multi-node .cga such as
-    large ships; LOD files without a node table use the first (object space) box."""
+    large ships and for their LOD files, which are placed by the LOD0's nodes (model.load_geometry); a file with no
+    node table at all uses the first (object space) box."""
     c = ivo.chunk(MESH_DATA)
     if not c:
         return None
