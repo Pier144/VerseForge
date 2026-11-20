@@ -299,6 +299,11 @@ INTERIOR_PREFIX = "interior"
 INTERIOR_PALETTE = {"A": [150, 152, 155], "B": [92, 94, 98], "C": [58, 60, 63]}
 
 
+# the editor's own boxes and cubes (hologram or no-draw materials): the Basher's light container parks four of them a
+# kilometre from the ship, which was then framed as a dot
+EDITOR_PRIMITIVES = "objects/default/"
+
+
 def _lod0_mtl(archive, path):
     """.mtl file named by a geometry (its MtlName chunk), resolved like the model loader does; "" if none."""
     from . import ivo, materials
@@ -325,6 +330,12 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
     geo_cache = {}
     failed = 0
     added = 0
+    # the hull's box with a margin: an object wholly beyond it was left there by the game's designers, parked away
+    # from the ship (see the test); landing gear, ramps and lifts reach out of the hull by less than this
+    hull_lo = np.min([p.vertices.min(0) for p in base.parts if len(p.vertices)], axis=0)
+    hull_hi = np.max([p.vertices.max(0) for p in base.parts if len(p.vertices)], axis=0)
+    reach = np.maximum(0.15 * (hull_hi - hull_lo), 3.0)
+    hull_lo, hull_hi = hull_lo - reach, hull_hi + reach
 
     def geometry(path, mtl):
         key = (path.lower(), (mtl or "").lower())
@@ -335,6 +346,8 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
                 stem, ext = path.rsplit(".", 1)
                 lod1 = f"{stem}_lod1.{ext}"
                 m = model.load_model(archive, lod1 if archive.exists(lod1) else path, animated=False)
+                if m.parts and m.path == lod1 and not model.lod_fits(archive, m, path):
+                    m = model.load_model(archive, path, animated=False)
                 if m.parts and m.path == lod1:
                     # LOD files have no material name: they use the LOD0's .mtl, by the same sub-material indices
                     mtl0 = _lod0_mtl(archive, path)
@@ -373,6 +386,8 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
             out.rooms.append({"name": r.name, "key": r.label, "container": stem,
                               "centre": [float(x) for x in (mount[:3, :3] @ c + mount[:3, 3])], "parts": 0})
         for pl in placed:
+            if pl.geometry.lower().replace("\\", "/").startswith(EDITOR_PRIMITIVES):
+                continue
             parts = geometry(pl.geometry, pl.material)
             if not parts:
                 failed += parts is None
@@ -385,8 +400,15 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
                 mid = (lo + hi) / 2
                 k = containers.room_of(here, pl.matrix[:3, :3] @ mid + pl.matrix[:3, 3])
                 room = first + k if k >= 0 else -1
-            for p in parts:
-                out.parts.append(replace(p, vertices=p.vertices @ w[:3, :3].T + w[:3, 3], node=node,
+            moved = [p.vertices @ w[:3, :3].T + w[:3, 3] for p in parts if len(p.vertices)]
+            if not moved:
+                continue
+            lo = np.min([v.min(0) for v in moved], axis=0)
+            hi = np.max([v.max(0) for v in moved], axis=0)
+            if (hi < hull_lo).any() or (lo > hull_hi).any():
+                continue
+            for p, v in zip([p for p in parts if len(p.vertices)], moved):
+                out.parts.append(replace(p, vertices=v, node=node,
                                          name=f"{INTERIOR_PREFIX} / {stem} / {p.name}", vbones=None,
                                          bone_names=None, room=room))
                 if room >= 0:

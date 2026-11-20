@@ -247,3 +247,29 @@ def test_lod_files_are_placed_by_the_nodes_of_lod0(archive):
 def test_lod_name():
     assert model.lod0_path("a/b/ship_lod1.cgf") == "a/b/ship.cgf" and model.lod0_path("a/Ship_LOD12.cga") == "a/Ship.cga"
     assert model.lod0_path("a/b/ship.cgf") is None and model.lod0_path("a/lod1_ship.cgf") is None
+
+
+def _interior_reach(archive, index, path):
+    """How far (metres) the interior parts of a ship reach beyond its hull."""
+    base = model.load_model(archive, path)
+    m = assembly.load_interior(archive, base, entities.vehicle_for(index, path), entities.classes_of(index))
+    hull = np.vstack([p.vertices for p in base.parts])
+    inner = np.vstack([p.vertices for p in m.parts[len(base.parts):]])
+    return float(max((hull.min(0) - inner.min(0)).max(), (inner.max(0) - hull.max(0)).max()))
+
+
+def test_editor_placeholders_are_not_part_of_an_interior(archive, index):
+    # the Basher's light container holds two editor primitives (objects/default/box_noproxy.cgf, primitive_cube.cgf)
+    # parked a kilometre away: the ship was framed as a dot
+    assert _interior_reach(archive, index, "Objects/Spaceships/Ships/GLSN/Basher/GLSN_Basher.cga") < 3
+
+
+def test_lod_file_that_does_not_fit_its_lod0_is_not_used(archive, index):
+    # misc_fortune_personal_storage_lod1.cga keeps its button in another space than the rest (20 m away)
+    assert _interior_reach(archive, index, "Objects/Spaceships/Ships/MISC/fortune/misc_fortune.cga") < 3
+
+
+def test_objects_parked_far_from_the_ship_are_left_out(archive, index):
+    # the game's containers hold a few objects left far from the ship (a Carrack panel 75 m to the side, a Hammerhead
+    # screen 100 m ahead, a Clipper light bar 6 m out): they widened the model's box and the ship was framed small
+    assert _interior_reach(archive, index, "Objects/Spaceships/Ships/DRAK/clipper/exterior/drak_clipper.cga") < 3

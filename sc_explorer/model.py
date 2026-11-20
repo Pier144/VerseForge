@@ -97,6 +97,43 @@ def _lod0_nodes(archive, path):
         return []
 
 
+def placed_bounds(archive, path):
+    """(min, max) of a geometry file as its nodes place it, without its materials; None when it has no mesh."""
+    main = ivo.IvoFile(archive.read(path))
+    node_list = ivo.nodes(main)
+    md = ivo.mesh(_mesh_source(archive, path, main), node_space=bool(node_list))
+    if md is None:
+        return None
+    by_node = {}
+    for s in md.subsets:
+        f = md.indices[s.first_index:s.first_index + s.num_indices] + s.vertex_base
+        if len(f) >= 3 and f.max() < len(md.positions):
+            by_node.setdefault(s.node, []).append(f)
+    lo = hi = None
+    for node, fl in by_node.items():
+        v = md.positions[np.unique(np.concatenate(fl))]
+        if node_list and node < len(node_list):
+            v = _transform(v, node_list[node].world)
+        lo = v.min(0) if lo is None else np.minimum(lo, v.min(0))
+        hi = v.max(0) if hi is None else np.maximum(hi, v.max(0))
+    return None if lo is None else (lo, hi)
+
+
+def lod_fits(archive, lod, path):
+    """Does a loaded LOD model lie where its LOD0 (`path`) does? A few LOD files keep some pieces in another space
+    than the rest (25 of the 10,500 used by ship interiors: the Polaris bridge ceiling 56 m away, a Perseus ladder
+    41 m, the button of the Fortune's storage 20 m): those are not used."""
+    try:
+        ref = placed_bounds(archive, path)
+    except Exception:
+        return True
+    if ref is None or not lod.parts:
+        return True
+    lo, hi = lod.bounds()
+    pad = 0.5 * (ref[1] - ref[0]) + 0.5
+    return bool((lo >= ref[0] - pad).all() and (hi <= ref[1] + pad).all())
+
+
 def load_geometry(archive, path, transform=None, material_path=None, label=None):
     """Parts of one .cgf/.cga/.skin/.chr file, already placed by its node hierarchy."""
     main = ivo.IvoFile(archive.read(path))

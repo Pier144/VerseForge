@@ -183,3 +183,13 @@ def test_tint_darkens_the_reflection_of_spec_mapped_layers(archive):
     mats = materials.load(archive, "Objects/Spaceships/Ships/RSI/perseus/rsi_perseus_interior_a.mtl")
     m = next(x for x in mats if x.name == "Panel_Main_LF_Paint_Primary")
     assert m.spec_map and "rusted" in m.spec_map and max(m.spec) < 0.05
+
+
+def test_uv_sets_have_no_infinite_values(archive):
+    # the 400i front landing gear holds half floats that decode to infinity in its second UV set (13 vertices):
+    # they went into the GLB as "max":[Infinity,...], which no JSON reader accepts, and the ship did not open
+    from sc_explorer import ivo
+    md = ivo.mesh(ivo.IvoFile(archive.read(
+        "Objects/Spaceships/Ships/ORIG/LandingGear/400i/ORIG_400i_LandingGear_Front_SKIN.skinm")), True)
+    assert md.uvs2 is not None and np.isfinite(md.uvs2).all()
+    assert md.uvs is None or np.isfinite(md.uvs).all()

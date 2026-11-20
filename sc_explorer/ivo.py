@@ -141,21 +141,28 @@ def mesh(ivo: IvoFile, node_space=False) -> MeshData | None:
             a = np.frombuffer(d, np.uint8, count * bpe, p + 8).reshape(count, bpe)
             positions = a[:, :12].copy().view(np.float32).astype(np.float64)
             if bpe >= 20:
-                uvs = a[:, 16:20].copy().view(np.float16).astype(np.float32)
+                uvs = _half_uv(a[:, 16:20])
         elif typ == S_VERTS_SNORM and positions is None:
             a = np.frombuffer(d, np.uint8, count * bpe, p + 8).reshape(count, bpe)
             raw = a[:, :6].copy().view(np.int16).astype(np.float64) / 32767.0
             scale = np.maximum(np.abs(bmax - bmin) / 2.0, 1.0)
             positions = raw * scale + (bmin + bmax) / 2.0
             if bpe >= 16:
-                uvs = a[:, 12:16].copy().view(np.float16).astype(np.float32)
+                uvs = _half_uv(a[:, 12:16])
         elif typ == S_UV2 and bpe == 4 and uvs2 is None:
-            uvs2 = np.frombuffer(d, np.uint8, count * 4, p + 8).copy().view(np.float16).astype(np.float32).reshape(-1, 2)
+            uvs2 = _half_uv(np.frombuffer(d, np.uint8, count * 4, p + 8))
         p += 8 + count * bpe
         p += (-p) % 8
     if indices is None or positions is None:
         raise IvoError("mesh streams not found (unsupported vertex format)")
     return MeshData(positions, uvs, indices, subsets, uvs2)
+
+
+def _half_uv(raw):
+    """UVs stored as half floats. A few files hold values that decode to infinity or NaN (400i front landing gear,
+    second set): they become 0, or the GLB would carry "max":[Infinity,...], which is not JSON, and never open."""
+    uv = np.ascontiguousarray(raw).view(np.float16).astype(np.float32).reshape(-1, 2)
+    return np.nan_to_num(uv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 S_BONEMAP = 0x677C7B23           # 4 x u16 bone index + 4 x u8 weight (12 bytes)
