@@ -678,3 +678,57 @@ textarea::placeholder { color: var(--faint); }
 html.vf-bare { --ov-l: 0px; --ov-r: 0px; --ov-t: 0px; }
 html.vf-bare .topbar, html.vf-bare .sidebar, html.vf-bare .panel { display: none; }
 .no-game-actions button { width: auto; height: 36px; padding: 0 20px; }
+
+/* ------------------------------------------------------------------ after the "new user" review (20 Nov 2026) */
+/* ---- user report: the list */
+.cats.searching .chip.all .n { visibility: hidden; }          /* the total says nothing while a search is on */
+.no-results { padding: 26px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.no-results p { margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+.no-results button { height: 30px; font-size: 12px; }
+/* ---- the empty viewer: examples to click and the keys */
+.empty-try { margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); pointer-events: auto; }
+.empty-try > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.empty-try button { height: 30px; padding: 0 12px; font-size: 12.5px; }
+.empty-keys { margin: 16px 0 0; font-size: 11.5px; color: var(--faint); }
+/* ---- no model yet: no empty panel on the right, the view takes its place */
+html.vf-nomodel { --ov-r: 0px; }
+html.vf-nomodel .panel { display: none; }
+.toolbar .tool:disabled { opacity: .35; pointer-events: none; }
+/* ---- animations: the buttons scroll, play / time / loop stay in sight at the bottom of the panel */
+.panel > .anim:not(.hidden) { flex: 0 1 auto; min-height: 210px; display: flex; flex-direction: column; }
+.panel > .anim .anim-groups { flex: 0 1 auto; min-height: 70px; max-height: none; }
+.panel > .anim .anim-ctrl, .panel > .anim .anim-opts { flex: none; }
+/* ---- export and 3D print */
+.stl-note { margin: 12px 0 2px; }
+.print-opts { flex-wrap: wrap; }
+#decalSize { margin: 10px 0 12px; }
+.panel { padding-bottom: 18px; }
+.panel > .box:last-of-type { padding-bottom: 4px; }
+/* messages: above the toolbar, clear of the section bar and the layers */
+.toast { top: auto; bottom: calc(var(--ov-b) + 74px); }
+/* ---- bright backdrops (workshop, photo studio): the glass is made denser so the texts keep their contrast */
+html.vf-bright { --pane: rgba(20, 22, 30, .82); --float-bg: rgba(22, 24, 32, .84); }
+html.vf-bright[data-mode="light"] { --pane: rgba(255, 255, 255, .88); --float-bg: rgba(255, 255, 255, .9); }
+/* ---- settings: groups, a close button, about */
+.settings { position: relative; }
+.dlg-x { position: absolute; top: 14px; right: 14px; width: 30px; height: 30px; font-size: 13px; color: var(--muted); }
+.cfg-group { margin: 10px 0 -4px; padding-top: 14px; border-top: 1px solid var(--divider); font-size: 11px; font-weight: 650;
+  color: var(--accent-text); text-transform: uppercase; letter-spacing: .08em; }
+.settings h2 + .cfg-group { margin-top: 2px; padding-top: 0; border-top: 0; }
+.about { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.about .link-btn { margin: 0; }
+/* ---- the right panel in a narrow window: a drawer opened by "Details" instead of nothing */
+.drawer-btn { display: none; }
+@media (max-width: 1100px) {
+  /* under the bar of the layers, so that "Details" stays in reach to close it */
+  .panel { display: flex; position: fixed; z-index: 6; top: calc(var(--topbar-h) + var(--gap) * 2 + 58px); right: var(--gap); bottom: var(--gap);
+    width: min(var(--panel-w), calc(100vw - var(--gap) * 2)); transform: translateX(calc(100% + 30px)); transition: transform .22s ease-out;
+    background: color-mix(in srgb, var(--menu-bg) 88%, transparent); }
+  html.vf-drawer .panel { transform: none; }
+  html.vf-nomodel .panel, html.vf-bare .panel { display: none; }
+  html:not(.vf-nomodel) .drawer-btn { display: inline-flex; }
+  html.vf-drawer .drawer-btn { background: var(--accent-soft); color: var(--accent-text); }
+}
+/* a long dialog scrolls, its buttons stay in sight at the bottom */
+.settings > .dialog-actions { position: sticky; bottom: -22px; margin: 0 -22px -22px; padding: 12px 22px 18px; border-radius: 0 0 24px 24px;
+  background: color-mix(in srgb, var(--menu-bg) 94%, transparent); border-top: 1px solid var(--divider); }

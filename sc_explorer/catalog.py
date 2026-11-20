@@ -72,8 +72,9 @@ class Item:
 
 
 def subtitle(it):
-    kind = i18n.t("hull") if it.kind == "hull" else i18n.weapon_type(it.kind)
-    return " · ".join(x for x in (it.manu, kind, it.stem) if x)
+    """Shown beside the name: the maker and, for weapons, the kind. A ship is not called a "hull" there, and the file
+    name is left to the tooltip and to the list of every file."""
+    return " · ".join(x for x in (it.manu, i18n.weapon_type(it.kind) if it.kind != "hull" else "") if x)
 
 
 def compact(s):
@@ -490,7 +491,7 @@ def subcategories(items):
     return out
 
 
-def search(items, query="", category=None, main_only=True, limit=300, sub=None):
+def search(items, query="", category=None, main_only=True, limit=300, sub=None, offset=0):
     tokens = [compact(t) for t in query.split() if compact(t)]
     out = []
     for it in items:
@@ -510,4 +511,4 @@ def search(items, query="", category=None, main_only=True, limit=300, sub=None):
                 CAT_ORDER.get(it.category, 99), it.name.lower() if it.whole else "", 0 if it.game_name else 1,
                 len(it.path))
     out.sort(key=rank)
-    return out[:limit], len(out)
+    return out[offset:offset + limit], len(out)

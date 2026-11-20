@@ -86,7 +86,7 @@
       <aside class="sidebar pane">
         <label class="search">
           <svg class="i"><use href="#i-search"/></svg>
-          <input id="q" type="search" placeholder="Search P4-AR, Gladius, Morozov…" data-t-ph="searchPh" autocomplete="off" autofocus>
+          <input id="q" type="search" placeholder="Search ships, weapons…" data-t-ph="searchPh" autocomplete="off" autofocus>
         </label>
         <div id="cats" class="cats catgrid" role="group" aria-label="Categories" data-t-aria="categories"></div>
         <div id="subcats" class="cats subcats" hidden></div>
@@ -97,6 +97,11 @@
           </label>
         </div>
         <ul id="results" class="results"></ul>
+        <div id="noResults" class="no-results hidden">
+          <p data-t="noResults">No model found</p>
+          <button id="nrFiles" type="button" class="ghost" data-t="searchAllFiles">Search every file</button>
+          <button id="nrCats" type="button" class="ghost" data-t="searchAllCats">Search all categories</button>
+        </div>
       </aside>
 
       <section class="viewport">
@@ -105,6 +110,16 @@
             <svg class="empty-icon"><use href="#i-cube"/></svg>
             <p class="empty-title" data-t="emptyTitle">Pick a model to inspect</p>
             <p class="empty-hint" data-t="emptyHint">Search on the left, then drag to orbit · scroll to zoom · right-drag to pan</p>
+            <div id="emptyTry" class="empty-try hidden">
+              <span data-t="emptyTry">Or start with one of these:</span>
+              <div>
+                <button type="button" class="ghost" data-q="Gladius" data-cat="ships">Gladius</button>
+                <button type="button" class="ghost" data-q="Cutlass Black" data-cat="ships">Cutlass Black</button>
+                <button type="button" class="ghost" data-q="Nova" data-cat="vehicles">Nova</button>
+                <button type="button" class="ghost" data-q="P4-AR" data-cat="weapons">P4-AR</button>
+              </div>
+            </div>
+            <p class="empty-keys" data-t="emptyKeys">Keys: F frame · W wireframe · R rotate · G grid · H hide the panels</p>
           </div>
           <div id="noGame" class="empty no-game hidden" role="alert">
             <svg class="empty-icon"><use href="#i-folder"/></svg>
@@ -125,6 +140,7 @@
           </div>
 
           <div class="layers floating" aria-label="Visible layers" data-t-aria="layers">
+            <button id="drawerBtn" class="layers-btn drawer-btn" title="Paints, animations, export and materials of the model" data-t-title="detailsTitle"><svg class="i"><use href="#i-panels"/></svg><span data-t="details">Details</span></button>
             <label id="fullPill" class="pill full hidden" title="Mount the factory loadout: landing gear, weapons, thrusters, seats and components" data-t-title="fullTitle"><input id="fullOn" type="checkbox"><span id="fullLabel">Full ship</span></label>
             <label id="intPill" class="pill hidden" title="Load the interior: rooms, corridors and props of the ship's object containers" data-t-title="interiorsTitle"><input id="intOn" type="checkbox"><span data-t="interiors">Interiors</span></label>
             <div id="layersWrap" class="bg-wrap layers-wrap">
@@ -134,7 +150,7 @@
                 <label class="switch"><input type="checkbox" data-kind="decal" checked><span class="track"></span><span data-t="decals">Decals</span></label>
                 <label class="switch"><input type="checkbox" data-kind="glass" checked><span class="track"></span><span data-t="glass">Glass</span></label>
                 <label id="scrPill" class="switch hidden" title="Screens of cockpits, dashboards and weapons (lit as if switched on)" data-t-title="screensTitle"><input type="checkbox" data-kind="screen" checked><span class="track"></span><span data-t="screens">Screens</span></label>
-                <label class="switch"><input type="checkbox" data-kind="hidden"><span class="track"></span><span data-t="proxyTitle">Physics proxies</span></label>
+                <label class="switch"><input type="checkbox" data-kind="hidden"><span class="track"></span><span data-t="proxyTitle">Collision shapes</span></label>
               </div>
             </div>
           </div>
@@ -238,18 +254,20 @@
           <label class="switch"><input id="expDecals" type="checkbox"><span class="track"></span><span data-t="expDecals">Decals in OBJ / STL</span></label>
           <label id="expAnimRow" class="switch hidden"><input id="expAnim" type="checkbox" checked><span class="track"></span><span data-t="expAnim">Animations in GLB</span></label>
           <label id="expPoseRow" class="switch hidden" title="Exports and 3D prints freeze the model as you see it: landing gear down, ramp open, any animation paused where you left it. A GLB with its animations keeps the rest pose" data-t-title="expPoseTitle"><input id="expPose" type="checkbox" checked><span class="track"></span><span data-t="expPose">Pose as shown</span></label>
+          <p class="hint stl-note" data-t="stlNote">This STL is the game's surface as it is, not closed: for a print use the 3D print tab.</p>
+          <button type="button" class="link-btn open-exports"><svg class="i"><use href="#i-folder"/></svg><span data-t="openExports">Open exports folder</span></button>
         </section>
 
         <section id="printBox" class="box print first hidden" data-ptab="print">
           <h3 data-t="print3dTitle">3D print</h3>
           <p class="hint" data-t="printHint">A solid, watertight STL in millimetres, ready for the slicer. Runs Blender in the background; large models can take a few minutes.</p>
           <div class="print-opts">
-            <label class="field">Voxel <input id="voxel" type="number" min="0" step="0.05" placeholder="auto"><em>mm</em></label>
+            <label class="field" title="Size of the smallest detail that is kept, in millimetres: smaller is finer and slower. Empty: chosen for you" data-t-title="printDetailTitle"><span data-t="printDetail">Detail</span> <input id="voxel" type="number" min="0" step="0.05" placeholder="auto"><em>mm</em></label>
             <label class="switch"><input id="fill" type="checkbox" checked><span class="track"></span><span data-t="fill">Fill interior</span></label>
           </div>
           <button id="btnPrint" class="primary" data-t="printCreate">Create printable STL</button>
           <div id="printStatus" class="hint print-status"></div>
-          <button id="btnOpenExports" class="link-btn"><svg class="i"><use href="#i-folder"/></svg><span data-t="openExports">Open exports folder</span></button>
+          <button id="btnOpenExports" type="button" class="link-btn open-exports"><svg class="i"><use href="#i-folder"/></svg><span data-t="openExports">Open exports folder</span></button>
         </section>
 
         <section id="decalBox" class="box print hidden" data-ptab="print">
@@ -279,7 +297,9 @@
 
   <dialog id="settings">
     <form method="dialog" class="settings">
+      <button value="cancel" class="icon-btn dlg-x" aria-label="Close" title="Close" data-t-aria="close" data-t-title="close">✕</button>
       <h2 data-t="settings">Settings</h2>
+      <h3 class="cfg-group" data-t="cfgGroupGame">Game and folders</h3>
       <div class="field-col"><label for="cfgP4k"><span data-t="cfgP4k">Data.p4k location</span> <em data-t="cfgP4kHint">the file, or the folder of the game</em></label>
         <div class="path-row"><input id="cfgP4k" type="text" spellcheck="false"><button type="button" class="ghost browse" data-browse="game" data-for="cfgP4k" data-t="browse">Browse…</button></div>
         <em id="p4kLine" class="version-line missing hidden" role="alert"></em></div>
@@ -288,6 +308,7 @@
       <div class="field-col"><label for="cfgBlender"><span data-t="cfgBlender">Blender executable</span> <em data-t="cfgBlenderFor">for 3D printing</em></label>
         <div class="path-row"><input id="cfgBlender" type="text" placeholder="Detected automatically" spellcheck="false"><button type="button" class="ghost browse" data-browse="blender" data-for="cfgBlender" data-t="browse">Browse…</button></div>
         <em id="blenderLine" class="version-line"></em></div>
+      <h3 class="cfg-group" data-t="cfgGroupLook">Appearance and language</h3>
       <div class="field-col"><span data-t="appearance">Appearance</span>
         <select id="cfgAppearance"><option value="system" data-t="appSystem">Match system</option><option value="light" data-t="appLight">Light</option><option value="dark" data-t="appDark">Dark</option></select>
       </div>
@@ -299,6 +320,7 @@
         <select id="cfgNames"><option value="follow" data-t="namesFollow">Same language as the interface</option><option value="en" data-t="namesEnglish">English, as in the game's original</option></select>
         <em class="version-line" data-t="namesNote">In another language, what the game has not translated stays in English. The search finds both names.</em>
       </div>
+      <h3 class="cfg-group" data-t="cfgGroupUpdates">Updates and cache</h3>
       <div class="field-col"><span data-t="updates">Updates</span>
         <div class="update-row">
           <label class="switch"><input id="cfgUpdates" type="checkbox" checked><span class="track"></span><span data-t="cfgUpdates">Check for new versions at startup</span></label>
@@ -312,6 +334,11 @@
           <button id="btnClearCache" type="button" class="link-btn" data-t="cacheClear">Clear</button>
         </div>
         <em id="cacheLine" class="version-line"></em>
+      </div>
+      <h3 class="cfg-group" data-t="about">About</h3>
+      <div class="about">
+        <p class="hint" data-t="aboutLine">VerseForge is an unofficial fan project, not affiliated with Cloud Imperium Games. Its code is free, under the MIT license; the models stay the property of their owners.</p>
+        <button id="btnProject" type="button" class="link-btn" data-t="aboutProject">Project page on GitHub</button>
       </div>
       <div class="dialog-actions">
         <button value="cancel" class="ghost" data-t="cancel">Cancel</button>

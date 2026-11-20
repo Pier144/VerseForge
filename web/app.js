@@ -228,6 +228,15 @@ renderer.shadowMap.autoUpdate = false;
 let gameLook = new GameLook(renderer);   // game-look materials (gamelook.js)
 // what is drawn behind the model (backdrops.js); the choice is remembered
 const backdrop = new Backdrops(scene, renderer, wrap);
+// a bright scene behind the glass panels (workshop, photo studio): the panels are made denser (style.css, vf-bright)
+{
+  const set = backdrop.set.bind(backdrop);
+  backdrop.set = async (kind) => {
+    try { return await set(kind); } finally {
+      document.documentElement.classList.toggle("vf-bright", ["workbench", "studio"].includes(backdrop.kind));
+    }
+  };
+}
 try { backdrop.kind = BACKDROPS.includes(localStorage.getItem("vf.bg")) ? localStorage.getItem("vf.bg") : "plain"; } catch { /* storage unavailable */ }
 // game props of the workshop backdrop: loaded once per session, with their own game-look textures (kept when the
 // model changes, unlike the model's)
@@ -796,6 +805,7 @@ async function loadModel(item, keepView = false, opts = {}) {
   const swapQuery = paintQuery(item);   // the model this load shows, for its paint requests
   document.querySelectorAll(".results li").forEach((li) => li.classList.toggle("active", li.dataset.path === item.path));
   $("#empty").classList.add("hidden");
+  hasModel(true);
   $("#loading").classList.remove("hidden");
   $("#loadingText").textContent = T("loadingOf", { name: item.name });
   progress(null, T("loadPrepare"));
@@ -1044,6 +1054,9 @@ function infoHead(item) {
     </div>`;
 }
 
+// ships and vehicles have paints, everything else variants (skins, colours)
+const paintWord = (item) => T(["ships", "vehicles"].includes(item.category) ? "paint" : "variant");
+
 function showInfo(item, info) {
   const s = info.stats;
   const size = shownSize?.root === modelRoot ? shownSize.size : s.size_m;
@@ -1052,8 +1065,8 @@ function showInfo(item, info) {
     <div class="specs" title="${esc(sizes)}">
       <b>${fmtSize(size)}</b>${T("triangles")} ${num(s.triangles)} · ${T("parts")} ${num(s.parts)} · ${T("materials")} ${s.materials.length}
     </div>
-    ${info.variants.length > 1 ? `<div class="variant"><div class="paint-head"><span>${T("variant")}</span><b id="paintName"></b></div>
-      <div id="paintGrid" class="paint-grid" role="radiogroup" aria-label="${esc(T("variant"))}"></div>
+    ${info.variants.length > 1 ? `<div class="variant"><div class="paint-head"><span>${paintWord(item)}</span><b id="paintName"></b></div>
+      <div id="paintGrid" class="paint-grid" role="radiogroup" aria-label="${esc(paintWord(item))}"></div>
       <select id="variantSel" hidden>${info.variants.map((v) => `<option value="${esc(v.tag)}"${v.tag === info.variant ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>` : ""}
     ${info.warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join("")}`;
   const variantSel = $("#variantSel");
@@ -1188,6 +1201,20 @@ function el(tag, cls, text) {
   return e;
 }
 
+const ANIM_FIRST = ["open", "deploy", "extend", "enter"], ANIM_NEXT = ["close", "retract", "exit"];
+function animOrder(a) {
+  const w = a.label.toLowerCase();
+  return ANIM_FIRST.includes(w) ? 0 : ANIM_NEXT.includes(w) ? 1 : 2;
+}
+// "Open", "Close", "Deploy"... are in the page's language; the names the game gives its own clips stay as they are
+const ANIM_WORDS = { open: "animOpen", close: "animClose", deploy: "animDeploy", retract: "animRetract",
+  compress: "animCompress", idle: "animIdle", eject: "animEject", enter: "animEnter", exit: "animExit",
+  fire: "animFire", reload: "animReload", default: "animDefault" };
+function animWord(label) {
+  const key = ANIM_WORDS[label.toLowerCase()];
+  return key ? T(key) : label;
+}
+
 function showAnimations(list) {
   anim.list = list.filter((a) => anim.clips.has(a.clip));
   $("#animBox").classList.toggle("hidden", !anim.list.length);
@@ -1203,8 +1230,9 @@ function showAnimations(list) {
     const label = el("span", "g", g);
     label.title = g;
     const buttons = el("span", "acts");
-    acts.forEach((a) => {
-      const b = el("button", "anim-act", a.label);
+    // the same order in every row: what opens first, what closes next, the rest as the game lists it
+    [...acts].sort((a, b) => animOrder(a) - animOrder(b)).forEach((a) => {
+      const b = el("button", "anim-act", animWord(a.label));
       b.title = `${a.group} · ${a.label} (${a.duration.toFixed(1)} s` + (a.speed < 0 ? `, ${T("animReversed")})` : ")");
       b.dataset.id = a.id;
       b.onclick = () => playAnimation(a);
@@ -1358,6 +1386,27 @@ function showPanels(on) {
   document.documentElement.classList.toggle("vf-bare", !on);
   $('[data-act="panels"]').classList.toggle("on", !on);
   resize();
+}
+// Before the first model there is nothing to say on the right and nothing for the tools to act on: the panel is
+// away (the view is centred on what is left) and the tools that need a model are off.
+function hasModel(on) {
+  if (document.documentElement.classList.contains("vf-nomodel") === !on) return;
+  document.documentElement.classList.toggle("vf-nomodel", !on);
+  document.querySelectorAll('.toolbar [data-act="reset"], .toolbar [data-act="wire"], .toolbar [data-act="rotate"], .toolbar [data-act="scale"], .toolbar [data-act="resin"], .toolbar [data-act="shot"]')
+    .forEach((b) => { b.disabled = !on; });
+  resize();
+}
+hasModel(false);
+// narrow window: the right panel is a drawer over the view, opened and closed by "Details"
+const drawer = (on) => { document.documentElement.classList.toggle("vf-drawer", on); };
+$("#drawerBtn").addEventListener("click", () => drawer(!document.documentElement.classList.contains("vf-drawer")));
+$("#canvasWrap").addEventListener("pointerdown", (e) => { if (e.target.tagName === "CANVAS") drawer(false); });
+// every menu of the viewer (layers, backdrop, scale, resin, rooms): true when one was open
+function closeMenus() {
+  const open = [...document.querySelectorAll(".viewport .bg-menu:not(.hidden)")];
+  open.forEach((m) => m.classList.add("hidden"));
+  $("#layersBtn").classList.remove("on");
+  return open.length > 0;
 }
 
 // Icon-only buttons say their name at once on hover, in a tip drawn here: the browser's own tooltip takes a second.
@@ -1669,7 +1718,11 @@ window.addEventListener("keydown", (e) => {
   // never while typing (the feedback text is a textarea) or while a dialog is open over the viewer
   if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) || e.target.isContentEditable) return;
   if (document.querySelector("dialog[open]") && e.key !== "Escape") return;
-  if (e.key === "Escape" && document.documentElement.classList.contains("vf-bare") && !document.querySelector("dialog[open]")) { showPanels(true); return; }
+  if (e.key === "Escape" && !document.querySelector("dialog[open]")) {
+    if (closeMenus()) return;
+    if (document.documentElement.classList.contains("vf-drawer")) { drawer(false); return; }
+    if (document.documentElement.classList.contains("vf-bare")) { showPanels(true); return; }
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = { f: "reset", w: "wire", r: "rotate", g: "grid", h: "panels" }[e.key.toLowerCase()];
   if (k) act(k);
@@ -1792,32 +1845,68 @@ $("#btnDecals").addEventListener("click", async () => {
   }
 });
 
-$("#btnOpenExports").addEventListener("click", () => api("/api/open-exports", { method: "POST" }).catch((e) => toast(e.message, true)));
+document.querySelectorAll(".open-exports").forEach((b) => b.addEventListener("click", () =>
+  api("/api/open-exports", { method: "POST" }).catch((e) => toast(e.message, true))));
 
 // ---------------------------------------------------------------- search
 let searchTimer, searchSeq = 0;
 function scheduleSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 180); }
 
+// the list arrives a page at a time: the next page is asked for when the end of the list comes near
+const PAGE = 400;
+let listed = { params: null, total: 0, n: 0, busy: false };
+
 async function runSearch() {
   const seq = ++searchSeq;
   const q = $("#q").value.trim();
-  const params = new URLSearchParams({ q, cat: state.cat, sub: state.sub, main: $("#mainOnly").checked, limit: 400 });
+  const params = new URLSearchParams({ q, cat: state.cat, sub: state.sub, main: $("#mainOnly").checked, limit: PAGE });
   try {
     const data = await (await api(`/api/search?${params}`)).json();
     if (seq !== searchSeq) return;
-    renderResults(data);
+    listed = { params, total: data.total, n: 0, busy: false };
+    renderResults(data, q);
   } catch (e) {
     $("#count").textContent = e.message;
   }
 }
 
-function renderResults({ total, items }) {
-  // the categories are icons: the chosen one is named here, with its number of models
-  const all = total > items.length ? T("resultsOf", { n: num(total), shown: items.length }) : T("results", { n: num(total) });
+async function moreResults() {
+  if (listed.busy || !listed.params || listed.n >= listed.total) return;
+  listed.busy = true;
+  const seq = searchSeq, params = new URLSearchParams(listed.params);
+  params.set("offset", listed.n);
+  try {
+    const data = await (await api(`/api/search?${params}`)).json();
+    if (seq === searchSeq) addResults(data.items);
+  } catch { /* the list just stays as long as it is */ } finally { if (seq === searchSeq) listed.busy = false; }
+}
+$("#results").addEventListener("scroll", () => {
+  const ul = $("#results");
+  if (ul.scrollTop + ul.clientHeight > ul.scrollHeight - 600) moreResults();
+});
+// nothing found: say so, and offer the two ways out (the files "Main models" hides, the other categories)
+$("#nrFiles").addEventListener("click", () => { $("#mainOnly").checked = false; $("#mainOnly").dispatchEvent(new Event("change", { bubbles: true })); });
+$("#nrCats").addEventListener("click", () => { state.cat = state.sub = ""; loadCategoriesUI(); runSearch(); });
+
+function renderResults({ total, items }, q = "") {
+  // the chosen category is named here with its number of models; a search counts results, the whole list models
+  const all = T(q ? "results" : "models", { n: num(total) });
   $("#count").textContent = state.cat && CAT_LABELS[state.cat] ? `${CAT_LABELS[state.cat]} · ${num(total)}` : all;
   $("#count").title = all;
+  $("#cats").classList.toggle("searching", !!q);
+  $("#noResults").classList.toggle("hidden", total > 0);
+  $("#nrFiles").classList.toggle("hidden", !$("#mainOnly").checked);
+  $("#nrCats").classList.toggle("hidden", !state.cat);
   const ul = $("#results");
-  ul.innerHTML = "";
+  ul.classList.toggle("hidden", total === 0);
+  ul.replaceChildren();
+  addResults(items);
+  ul.scrollTop = 0;
+}
+
+function addResults(items) {
+  const ul = $("#results");
+  listed.n += items.length;
   const frag = document.createDocumentFragment();
   items.forEach((it) => {
     const li = document.createElement("li");
@@ -1835,7 +1924,6 @@ function renderResults({ total, items }) {
     frag.appendChild(li);
   });
   ul.appendChild(frag);
-  ul.scrollTop = 0;
 }
 
 async function loadCategories() {
@@ -1892,7 +1980,7 @@ function loadCategoriesUI() {
   box.hidden = subs.length < 2;
   if (box.hidden) return;
   const sel = document.createElement("select");
-  [{ id: "", label: T("all") }, ...subs].forEach((s) =>
+  [{ id: "", label: T(state.cat === "ships" ? "allMakers" : "allTypes") }, ...subs].forEach((s) =>
     sel.add(new Option(s.count != null ? `${s.label} · ${num(s.count)}` : s.label, s.id, false, s.id === state.sub)));
   sel.addEventListener("change", () => { state.sub = sel.value; runSearch(); });
   box.appendChild(sel);
@@ -2065,6 +2153,7 @@ async function pollStatus() {
     el.style.visibility = noGame ? "hidden" : "";   // the card says it all: no lone dot left in the top bar (the
                                                     // line keeps its place: it pushes the buttons to the right)
     document.querySelectorAll("#settings .browse").forEach((b) => b.classList.toggle("hidden", !s.can_browse));
+    $("#emptyTry").classList.toggle("hidden", !s.ready);
     if (s.ready) {
       if (backdrop.kind !== savedBackdrop) backdrop.set(savedBackdrop).catch(() => backdrop.set("plain"));
       await loadCategories();
@@ -2133,6 +2222,15 @@ $("#noGameFind").addEventListener("click", async () => {
   } catch (e) { toast(e.message, true); }
 });
 $("#noGameSettings").addEventListener("click", () => $("#btnSettings").click());
+// "start with one of these": the first model of that name in its category
+document.querySelectorAll("#emptyTry button").forEach((b) => b.addEventListener("click", async () => {
+  try {
+    const p = new URLSearchParams({ q: b.dataset.q, cat: b.dataset.cat, limit: 1 });
+    const { items } = await (await api(`/api/search?${p}`)).json();
+    if (items[0]) loadModel(items[0]);
+  } catch (e) { toast(e.message, true); }
+}));
+$("#btnProject").addEventListener("click", () => api("/api/open-project", { method: "POST" }).catch((e) => toast(e.message, true)));
 // saved on the Save button's click (the dialog's "close" event can come late or not at all in a hidden window)
 $("#cfgSave").addEventListener("click", async (ev) => {
   ev.preventDefault();                 // the window closes only once the settings are accepted

@@ -348,9 +348,9 @@ def categories():
 
 
 @app.get("/api/search")
-def search(q: str = "", cat: str = "", sub: str = "", main: bool = True, limit: int = 300):
+def search(q: str = "", cat: str = "", sub: str = "", main: bool = True, limit: int = 300, offset: int = 0):
     _require_ready()
-    items, total = catalog.search(state.items, q, cat or None, main, min(limit, 2000), sub or None)
+    items, total = catalog.search(state.items, q, cat or None, main, min(limit, 2000), sub or None, max(offset, 0))
     return {"total": total, "items": [_item_json(it) for it in items]}
 
 
@@ -909,6 +909,13 @@ def update_progress():
     if not job:
         raise HTTPException(404, tr("unknown_job"))
     return {**job, "message": _msg(job["message"])}
+
+
+@app.post("/api/open-project")
+def open_project():
+    """Open the project's page on GitHub in the default browser (Settings > About)."""
+    paths.open_path(updates.RELEASES_PAGE.rsplit("/releases", 1)[0])
+    return {"ok": True}
 
 
 @app.post("/api/open-release")

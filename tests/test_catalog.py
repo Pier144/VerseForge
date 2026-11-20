@@ -99,7 +99,7 @@ def test_ships_come_from_the_vehicle_definitions():
     assert ships == ["Constellation Phoenix", "Cutlass Black", "Freelancer", "Redeemer", "Javelin"]
     red = by["AEGS_Redeemer.cga"]
     assert red.whole and red.main and red.kind == "hull" and red.manu == "Aegis Dynamics"
-    assert catalog.subtitle(red) == "Aegis Dynamics · hull"
+    assert catalog.subtitle(red) == "Aegis Dynamics"            # a ship is not called a "hull"
     assert not by["AEGS_Redeemer_Ramp.cga"].main and not by["MISC_Freelancer_Seat.cga"].main
     assert by["AEGS_Javelin.cga"].main and not by["AEGS_Javelin.cga"].whole
 

@@ -33,7 +33,7 @@ and export them for Blender, your renders or your 3D printer.**
 <td>
 
 ### Find anything in the game
-Over **70,000 models**: 113 ships, 550 vehicles, weapons, attachments, armour, clothing, tools, characters and props.
+Over **70,000 models**: 133 ships, ground vehicles, weapons, attachments, armour, clothing, tools, characters and props.
 Search by in-game name (*P4-AR*, *Morozov-SH*, *Gladius*) or file name, then browse by category and manufacturer.
 
 </td>
@@ -106,8 +106,10 @@ counter, when one of them gets a reply or is closed.
 
 1. **Download** `VerseForge-<version>-Setup.exe` from the [latest release](../../releases/latest) and install it.
    No administrator rights and no Python needed.
-2. **Open VerseForge.** It finds the game in `C:\Program Files\Roberts Space Industries\StarCitizen\LIVE`; if yours
-   is elsewhere (or you want the PTU), set the path in **Settings** (gear icon, top right).
+2. **Open VerseForge.** It finds the game by itself: the usual folder, the other disks, the folder the RSI Launcher
+   installed it in. If it does not, a card in the window offers **Find the game…**: pick `Data.p4k` in
+   `…\StarCitizen\LIVE`. For the PTU, or to type the path (the file, or the game's folder), open **Settings** (gear
+   icon, top right).
 3. **Search and explore.** Drag to orbit, scroll to zoom, right-drag to pan. VerseForge checks for new versions at
    startup and updates itself when you agree.
 
@@ -147,7 +149,7 @@ at all, add `--appimage-extract-and-run` at the end of the command.
   Textures, decals, glass, screens and proxies are toggled from the *Layers* menu at the top right of the viewer;
   single materials can be hidden from the right panel, which is split into tabs. `H` hides every panel and leaves the
   model alone (`Esc` brings them back). *Screens* (shown on models that have them) switches the cockpit and weapon screens and
-  the holographic HUDs; *Proxy* shows what the game never draws (collision shapes, shields, placeholders).
+  the holographic HUDs; *Collision shapes* shows what the game never draws (collision shapes, shields, placeholders).
 - **Backdrop** (toolbar): plain (default or inverted); *Pyro nebula* and *Stanton · Crusader*, 360° space panoramas
   made from the game's own sky textures (the Pyro skybox, Stanton's nebula layers and the gas giant Crusader); a
   *Modelling workshop*: a lived-in room with a table, a cutting mat with a centimetre grid and props taken from the
@@ -215,7 +217,6 @@ at all, add `--appimage-extract-and-run` at the end of the command.
   new notifications (one per new comment, one when a report is closed or reopened) until you open the list.
 - **Network**: VerseForge only goes online for the update check, for the reports you choose to send and for the
   status of your own reports. There is no telemetry and no account.
-- Item names are the in-game (English) names.
 
 </details>
 
@@ -268,9 +269,12 @@ VerseForge never modifies the game files and downloads nothing from them: `Data.
   additive clips (offsets such as `*_add`) are left out. Without *Full ship* only the hull moves; the legs and other
   hardpoint items are separate objects with their own animations. Loadout items whose port is not in the model are
   skipped (the viewer tells how many); modular parts without a port node (gun barrels) hang from their parent.
-- **In-game names**: derived from the order of the strings in DataCore (not a full parse). They are correct for
-  almost all weapons, armor, clothing and vehicles; for decorative props they can be inaccurate, which is why the
-  Environments/Other categories keep the file names.
+- **In-game names**: ships, vehicles and the items the game links to a model (weapons, attachments, components,
+  props) take the name of their record in the game database. Armour and clothing pieces are named from the order of
+  the strings in DataCore instead (not a full parse): almost always right, now and then the name of a neighbour.
+  A piece with no name of its own, and everything in Environments/Other, keeps its file name.
+- **Ship variants that share one model** (Cutlass Steel, Gladius Valiant, the Cyclone modules…) are not listed on
+  their own yet: open the base ship.
 - Some `.cdf`/`.cga` files are only containers without geometry: the program reports it.
 - The models are the property of Cloud Imperium Games / Roberts Space Industries: use them only for personal,
   non-commercial purposes.
@@ -298,8 +302,6 @@ the *Linux AppImage* workflow (`.github/workflows/linux-appimage.yml`) builds th
 attaches it to the release.
 
 **Tools** (`tools/`):
-- `record_video.py` records the demo videos in `docs/video/` while the app is running (headless Edge/Chrome, H.264
-  through the Windows transcoder, `compress_video.ps1`).
 - `readme_media.py` makes the images and animations of this page in `docs/readme/`.
 - `flash_check.py` films the desktop app while it drives a repeatable random sample of actions and counts the frames
   where a panel is missing (the "flashing panels" check).
@@ -340,7 +342,7 @@ VerseForge.spec          PyInstaller configuration; installer/VerseForge.iss for
 tests/test_formats.py    tests against the installed game (python -m pytest tests; skipped if Data.p4k is missing)
 tests/test_updates.py    version comparison and release parsing of the updater (no network needed)
 tests/test_reports*.py   Feedback: personal data removal, issue text, sending and status against local fake servers
-tools/                   demo videos, README images, flashing-panels check
+tools/                   README images, flashing-panels check, benchmarks
 ```
 
 Format details discovered during development:
