@@ -20,7 +20,25 @@
   </script>
   <style>/* background before style.css arrives (same as --app-bg), so the first frame is not white */
     html { background: #06070b; } html[data-mode="light"] { background: #eef1f6; }
-    html.i18n-wait body { visibility: hidden; }</style>
+    html.i18n-wait body { visibility: hidden; }
+    /* the start-up animation (splash.js) covers the window while the page loads behind it */
+    #splash { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; overflow: hidden; visibility: visible;
+      background: #06070b; color: #f5f5f7; --sp-head: #9fd0ff; }
+    html[data-mode="light"] #splash { background: #eef1f6; color: #0e1222; --sp-head: #0a84ff; }
+    .sp-box { display: flex; flex-direction: column; align-items: center; gap: 5vmin; }
+    .sp-markbox { position: relative; display: grid; }
+    /* flat behind the planet: the gap of the ring in front of the planet is a stroke in that same colour */
+    .sp-glow { position: absolute; left: 50%; top: 50%; width: 90vmin; height: 90vmin; translate: -50% -50%; pointer-events: none;
+      background: radial-gradient(closest-side, rgba(10, 132, 255, .16) 0 21%, rgba(10, 132, 255, .06) 48%, transparent 72%); }
+    .sp-mark { width: 34vmin; height: 34vmin; overflow: visible; position: relative; }
+    .sp-layer { transform-box: fill-box; }
+    .sp-ring, .sp-cut { fill: none; stroke-width: 4; stroke-dasharray: 1 1.1; }
+    .sp-ring { stroke: #0a84ff; }
+    .sp-cut { stroke-width: 9; }
+    .sp-head { fill: var(--sp-head); opacity: 0; filter: drop-shadow(0 0 1.6px #0a84ff) drop-shadow(0 0 4px rgba(10, 132, 255, .8)); }
+    .sp-word { font: 600 6.4vmin/1.1 "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -.01em;
+      display: flex; overflow: hidden; padding: .1em .05em; }
+    .sp-word span { display: inline-block; }</style>
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
     { "imports": {
@@ -30,6 +48,8 @@
   </script>
 </head>
 <body>
+  <div id="splash" aria-hidden="true"></div>
+  <script src="splash.js"></script>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
@@ -311,6 +331,7 @@
       <h3 class="cfg-group" data-t="cfgGroupLook">Appearance and language</h3>
       <div class="field-col"><span data-t="appearance">Appearance</span>
         <select id="cfgAppearance"><option value="system" data-t="appSystem">Match system</option><option value="light" data-t="appLight">Light</option><option value="dark" data-t="appDark">Dark</option></select>
+        <label class="switch"><input id="cfgStartSound" type="checkbox" checked><span class="track"></span><span data-t="cfgStartSound">Sound at startup</span></label>
       </div>
       <div class="field-col"><span data-t="language">Language</span>
         <select id="cfgLang"></select>

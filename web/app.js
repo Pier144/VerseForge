@@ -2180,6 +2180,7 @@ $("#btnSettings").addEventListener("click", async () => {
   $("#cfgAppearance").value = appearance;
   appearanceDropdown.sync();
   $("#cfgUpdates").checked = s.check_updates !== false;
+  $("#cfgStartSound").checked = s.start_sound !== false;
   $("#versionLine").textContent = T("versionLine", { version: s.version });
   $("#cfgLang").value = I18N.lang;
   langDropdown.sync();
@@ -2235,7 +2236,7 @@ $("#btnProject").addEventListener("click", () => api("/api/open-project", { meth
 $("#cfgSave").addEventListener("click", async (ev) => {
   ev.preventDefault();                 // the window closes only once the settings are accepted
   const p = new URLSearchParams({ p4k_path: $("#cfgP4k").value, export_dir: $("#cfgExport").value, blender: $("#cfgBlender").value,
-    appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked, disk_cache: $("#cfgDiskCache").checked,
+    appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked, start_sound: $("#cfgStartSound").checked, disk_cache: $("#cfgDiskCache").checked,
     lang: $("#cfgLang").value, names: $("#cfgNames").value });
   applyAppearance($("#cfgAppearance").value);
   try {

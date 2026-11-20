@@ -326,6 +326,7 @@
     "cfgGroupUpdates": "更新とキャッシュ",
     "updates": "アップデート",
     "cfgUpdates": "起動時に新しいバージョンを確認する",
+    "cfgStartSound": "起動時にサウンドを再生する",
     "checkNow": "今すぐ確認",
     "cache": "キャッシュ",
     "cfgCacheTitle": "一度開いたモデルとテクスチャをディスクに保存し、次回からすばやく開けるようにします",

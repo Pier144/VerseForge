@@ -326,6 +326,7 @@
     "cfgGroupUpdates": "업데이트 및 캐시",
     "updates": "업데이트",
     "cfgUpdates": "시작할 때 새 버전 확인",
+    "cfgStartSound": "시작할 때 소리 재생",
     "checkNow": "지금 확인",
     "cache": "캐시",
     "cfgCacheTitle": "한 번 연 모델과 텍스처를 디스크에 보관해 다음에는 훨씬 빠르게 엽니다",

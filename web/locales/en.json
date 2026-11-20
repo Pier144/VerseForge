@@ -317,6 +317,7 @@
     "appSystem": "Match system",
     "appLight": "Light",
     "appDark": "Dark",
+    "cfgStartSound": "Sound at startup",
     "language": "Language",
     "langNote": "Translations may contain mistakes: tell us with Feedback.",
     "gameNames": "Names of ships and items",

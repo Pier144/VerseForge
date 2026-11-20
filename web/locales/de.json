@@ -326,6 +326,7 @@
     "cfgGroupUpdates": "Updates und Cache",
     "updates": "Updates",
     "cfgUpdates": "Beim Start nach neuen Versionen suchen",
+    "cfgStartSound": "Ton beim Start",
     "checkNow": "Jetzt suchen",
     "cache": "Cache",
     "cfgCacheTitle": "Bereits geöffnete Modelle und Texturen bleiben auf der Festplatte und öffnen sich danach viel schneller",

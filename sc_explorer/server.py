@@ -33,7 +33,8 @@ DEFAULT_EXPORTS = paths.documents_dir()
 
 def load_config():
     cfg = {"p4k_path": "", "export_dir": DEFAULT_EXPORTS, "blender": "", "lang": "en", "names": "follow",
-           "appearance": "system", "check_updates": True, "skip_version": "", "disk_cache": True}
+           "appearance": "system", "check_updates": True, "skip_version": "", "disk_cache": True,
+           "start_sound": True}
     if os.path.exists(CONFIG_FILE):
         try:
             cfg.update(json.load(open(CONFIG_FILE, encoding="utf-8")))
@@ -323,6 +324,7 @@ def status():
             "blender": printing.find_blender(state.cfg.get("blender")), "blender_setting": state.cfg.get("blender", ""),
             "appearance": state.cfg.get("appearance", "system"), "lang": i18n.language(), "names": i18n.names(),
             "check_updates": bool(state.cfg.get("check_updates", True)),
+            "start_sound": bool(state.cfg.get("start_sound", True)),
             "disk_cache": state.disk.enabled, "disk_cache_bytes": state.disk.size, "disk_cache_limit": state.disk.limit,
             "memory": {"models": len(state.models), "models_bytes": state.models.bytes, "models_budget": state.models.budget,
                        "textures_bytes": state.textures.bytes if state.textures else 0,
@@ -788,7 +790,7 @@ def print_file(job_id: str):
 # ------------------------------------------------------------------ settings
 @app.post("/api/config")
 def set_config(p4k_path: str = "", export_dir: str = "", blender: str = None, appearance: str = "", check_updates: str = "",
-               disk_cache: str = "", lang: str = "", names: str = ""):
+               disk_cache: str = "", lang: str = "", names: str = "", start_sound: str = ""):
     changed_p4k = p4k_path and p4k_path != state.cfg["p4k_path"]
     if changed_p4k:
         # the file or a folder of the game: nothing is saved when Data.p4k is not there, the page says so
@@ -805,6 +807,8 @@ def set_config(p4k_path: str = "", export_dir: str = "", blender: str = None, ap
     changed_names = i18n.game_language() != game_before or (changed_lang and names == "")
     if check_updates in ("true", "false"):
         state.cfg["check_updates"] = check_updates == "true"
+    if start_sound in ("true", "false"):
+        state.cfg["start_sound"] = start_sound == "true"
     if disk_cache in ("true", "false"):
         state.cfg["disk_cache"] = disk_cache == "true"
         state.disk.enabled = state.cfg["disk_cache"] and not state.disk_forced_off

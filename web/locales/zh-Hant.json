@@ -326,6 +326,7 @@
     "cfgGroupUpdates": "更新與快取",
     "updates": "更新",
     "cfgUpdates": "啟動時檢查新版本",
+    "cfgStartSound": "啟動時播放音效",
     "checkNow": "立即檢查",
     "cache": "快取",
     "cfgCacheTitle": "開啟過的模型和紋理會保留在磁碟上，再次開啟時快得多",

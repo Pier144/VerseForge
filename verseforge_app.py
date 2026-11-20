@@ -181,6 +181,9 @@ def _run_webview2(url, state):
     if _debug_port():
         webview.settings["REMOTE_DEBUGGING_PORT"] = _debug_port()
     bg = "#06070b" if _dark(state.cfg.get("appearance", "system"), _windows_dark()) else "#eef1f6"
+    # the start-up sound plays before any click: WebView2 adds these arguments to the ones pywebview gives it
+    os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
+        os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "") + " --autoplay-policy=no-user-gesture-required").strip()
     webview.create_window(f"{APP_NAME} {__version__}", url, width=1500, height=920, maximized=True,
                           background_color=bg, text_select=True)
     # a profile of its own, kept between runs (Chromium's shader cache makes later starts faster); the page itself is
@@ -249,6 +252,7 @@ def _run_qt(url, state):
     profile = QWebEngineProfile.defaultProfile()
     profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.NoCache)
     view.settings().setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
+    view.settings().setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)   # the start-up sound
 
     def on_download(req: QWebEngineDownloadRequest):
         # exports are already saved in the export folder; this dialog lets the user keep an extra copy elsewhere

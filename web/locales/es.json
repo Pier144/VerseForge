@@ -326,6 +326,7 @@
     "cfgGroupUpdates": "Actualizaciones y caché",
     "updates": "Actualizaciones",
     "cfgUpdates": "Buscar nuevas versiones al iniciar",
+    "cfgStartSound": "Sonido al iniciar",
     "checkNow": "Comprobar ahora",
     "cache": "Caché",
     "cfgCacheTitle": "Los modelos y las texturas ya abiertos se guardan en el disco y se vuelven a abrir mucho más rápido",
