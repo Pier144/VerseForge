@@ -2053,6 +2053,18 @@ async function pollStatus() {
     el.textContent = s.error ? `${s.error}: ${T("openSettings")}` : s.ready ? "" : `${s.message} (${Math.round(s.progress * 100)}%)`;
     el.title = s.p4k_path;
     window.__status = s;
+    // the game is not there: a card in the middle of the window says so and offers to look for it
+    const noGame = s.error_code === "p4k_missing";
+    $("#noGame").classList.toggle("hidden", !noGame);
+    $("#empty").classList.toggle("hidden", noGame || !!state.current);
+    if (noGame) {
+      $("#noGamePath").textContent = s.p4k_path || "";
+      $("#noGameFind").classList.toggle("hidden", !s.can_browse);
+      el.textContent = "";
+    }
+    el.style.visibility = noGame ? "hidden" : "";   // the card says it all: no lone dot left in the top bar (the
+                                                    // line keeps its place: it pushes the buttons to the right)
+    document.querySelectorAll("#settings .browse").forEach((b) => b.classList.toggle("hidden", !s.can_browse));
     if (s.ready) {
       if (backdrop.kind !== savedBackdrop) backdrop.set(savedBackdrop).catch(() => backdrop.set("plain"));
       await loadCategories();
@@ -2086,10 +2098,44 @@ $("#btnSettings").addEventListener("click", async () => {
   namesDropdown.sync();
   $("#cfgDiskCache").checked = s.disk_cache !== false;
   showCacheSize(s.disk_cache_bytes, s.disk_cache_limit);
+  p4kError(s.error_code === "p4k_missing" ? s.error : "");
   $("#settings").showModal();
 });
+// what is wrong with the game's path, written under its field (empty = nothing)
+function p4kError(text) {
+  $("#p4kLine").textContent = text || "";
+  $("#p4kLine").classList.toggle("hidden", !text);
+  $("#cfgP4k").classList.toggle("invalid", !!text);
+}
+$("#cfgP4k").addEventListener("input", () => p4kError(""));
+// Browse…: the server opens the system's file window (the page itself cannot learn a path) and answers the choice
+async function browse(kind, start) {
+  try {
+    return (await (await api(`/api/browse?${new URLSearchParams({ kind, start: start || "" })}`, { method: "POST" })).json()).path;
+  } catch (e) { toast(T("browseFailed", { error: e.message }), true); return ""; }
+}
+document.querySelectorAll("#settings .browse").forEach((b) => b.addEventListener("click", async () => {
+  const input = $("#" + b.dataset.for);
+  b.disabled = true;
+  const path = await browse(b.dataset.browse, input.value);
+  b.disabled = false;
+  if (path) { input.value = path; input.dispatchEvent(new Event("input", { bubbles: true })); }
+}));
+// the card shown when the game is not found: pick Data.p4k and the catalogue is read at once
+$("#noGameFind").addEventListener("click", async () => {
+  $("#noGameFind").disabled = true;
+  const path = await browse("game", "");
+  $("#noGameFind").disabled = false;
+  if (!path) return;
+  try {
+    await api(`/api/config?${new URLSearchParams({ p4k_path: path })}`, { method: "POST" });
+    pollStatus();
+  } catch (e) { toast(e.message, true); }
+});
+$("#noGameSettings").addEventListener("click", () => $("#btnSettings").click());
 // saved on the Save button's click (the dialog's "close" event can come late or not at all in a hidden window)
-$("#cfgSave").addEventListener("click", async () => {
+$("#cfgSave").addEventListener("click", async (ev) => {
+  ev.preventDefault();                 // the window closes only once the settings are accepted
   const p = new URLSearchParams({ p4k_path: $("#cfgP4k").value, export_dir: $("#cfgExport").value, blender: $("#cfgBlender").value,
     appearance: $("#cfgAppearance").value, check_updates: $("#cfgUpdates").checked, disk_cache: $("#cfgDiskCache").checked,
     lang: $("#cfgLang").value, names: $("#cfgNames").value });
@@ -2106,9 +2152,14 @@ $("#cfgSave").addEventListener("click", async () => {
       return;
     }
     showBlender(saved);
+    $("#settings").close("save");
     toast(T("saved"));
     pollStatus();
-  } catch (e) { toast(e.message, true); }
+  } catch (e) {
+    // a path that leads to no Data.p4k: said under the field, the window stays open
+    if ($("#cfgP4k").value !== (window.__status || {}).p4k_path) { p4kError(e.message); $("#cfgP4k").focus(); }
+    else toast(e.message, true);
+  }
 });
 
 // Blender (Settings): the path typed (the program or its folder; empty = automatic) and what it leads to

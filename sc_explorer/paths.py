@@ -5,6 +5,7 @@ Linux: the XDG folders (~/.config/VerseForge, ~/.cache/VerseForge). Star Citizen
 through Wine (Lutris, Bottles, Heroic, a plain prefix...), so Data.p4k sits inside a Wine prefix's drive_c."""
 import glob
 import os
+import re
 import subprocess
 import sys
 
@@ -77,10 +78,35 @@ def wine_prefixes():
     return out
 
 
+def windows_drives():
+    return [f"{d}:\\" for d in "CDEFGHIJKLMNOPQRSTUVWXYZ" if os.path.isdir(f"{d}:\\")]
+
+
+def launcher_game_dirs():
+    """"...\\StarCitizen" folders named in the RSI Launcher's log (%APPDATA%\\rsilauncher\\logs\\log.log): where the
+    launcher installed or started the game, whatever disk and folder the player chose. Newest first."""
+    log = os.path.join(os.environ.get("APPDATA", ""), "rsilauncher", "logs", "log.log")
+    try:
+        with open(log, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 4_000_000))
+            text = f.read().decode("utf-8", "replace")
+    except OSError:
+        return []
+    text = text.replace("\\\\", "\\").replace("/", "\\")
+    found = re.findall(r"([A-Za-z]:\\[^\r\n\"<>|*?:]*?\\StarCitizen)\\(?:%s)\b" % "|".join(CHANNELS), text)
+    return list(dict.fromkeys(reversed(found)))
+
+
 def p4k_candidates():
     """Possible Data.p4k locations on this computer, most likely first (they may not exist)."""
     if WINDOWS:
-        return [WINDOWS_P4K]
+        games = launcher_game_dirs()
+        for drive in windows_drives():                  # the usual folders on every disk (C: first)
+            for sub in ("Program Files", "", "Games", "Program Files (x86)"):
+                games.append(os.path.join(drive, sub, "Roberts Space Industries", "StarCitizen"))
+            games += [os.path.join(drive, "StarCitizen"), os.path.join(drive, "Games", "StarCitizen")]
+        return [os.path.join(g, c, "Data.p4k") for c in CHANNELS for g in games]
     roots = [os.path.join(prefix, "drive_c", sub) for prefix in wine_prefixes()
              for sub in ("Program Files", "Program Files (x86)", "Games", "")]
     roots += WSL_ROOTS
@@ -88,6 +114,23 @@ def p4k_candidates():
     for c in CHANNELS:                                           # every LIVE before any PTU
         out += [os.path.join(r, "Roberts Space Industries", "StarCitizen", c, "Data.p4k") for r in roots]
     return out
+
+
+def resolve_p4k(text):
+    """Data.p4k from what the user typed or picked: the file itself, or a folder above it (the channel folder
+    "LIVE", "StarCitizen", "Roberts Space Industries" or the one that holds it). None when it is not there."""
+    p = os.path.expanduser((text or "").strip().strip('"'))
+    if os.path.isfile(p):
+        return p
+    if not os.path.isdir(p):
+        return None
+    game = [""] + [os.path.join(*parts) for parts in (("StarCitizen",), ("Roberts Space Industries", "StarCitizen"))]
+    for c in ("",) + CHANNELS:                                  # the folder itself, then LIVE before PTU
+        for g in game:
+            f = os.path.join(p, g, c, "Data.p4k")
+            if os.path.isfile(f):
+                return os.path.normpath(f)
+    return None
 
 
 def find_p4k():

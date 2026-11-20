@@ -689,6 +689,7 @@ export class Backdrops {
 
     // roof: a dark ceiling, a truss across every bay, light panels between them
     const roof = part(new THREE.Vector3(0, -1, 0), new THREE.Vector3(c.x, y + H, c.z));
+    roof.userData.over = [c.x - W / 2, c.x + W / 2, c.z - L / 2, c.z + L / 2];     // the floor it covers
     const ceil = mesh(roof, new THREE.PlaneGeometry(W, L), std({ color: 0x2a2f37 }), c.x, y + H, c.z);
     ceil.rotation.x = Math.PI / 2;
     for (let i = 0; i <= bays; i++) mesh(roof, new THREE.BoxGeometry(W, t * 1.3, t), steel, c.x, y + H - t * 0.65, c.z - L / 2 + i * L / bays);
@@ -699,10 +700,17 @@ export class Backdrops {
     this.look(this.camera);
   }
 
-  // a wall or the roof of the hangar shows only from its inner side: seen from outside it would hide the model
+  // a wall or the roof of the hangar shows only from its inner side: seen from outside it would hide the model. The
+  // roof also needs the camera over the hangar's floor: from outside the walls, below the roof, its trusses floated
+  // above the far walls (Railen)
   look(camera) {
     if (!camera) return;
     this.camera = camera;
-    for (const g of this.sides) g.visible = _v.subVectors(camera.position, g.userData.at).dot(g.userData.inward) > 0;
+    const p = camera.position;
+    for (const g of this.sides) {
+      const o = g.userData.over;
+      g.visible = _v.subVectors(p, g.userData.at).dot(g.userData.inward) > 0 &&
+        (!o || (p.x > o[0] && p.x < o[1] && p.z > o[2] && p.z < o[3]));
+    }
   }
 }

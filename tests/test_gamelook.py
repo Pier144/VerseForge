@@ -154,7 +154,8 @@ def test_pom_in_a_name_is_a_decal_only_with_the_decal_flag():
     assert materials.classify("trim_greeble_nopom", "HardSurface", "") == "solid"
     assert materials.classify("internal_pom_new", "HardSurface", "") == "solid"
     assert materials.classify("Decal_POM_A", "Illum", "%NORMAL_MAP%DECAL%PARALLAX_OCCLUSION_MAPPING") == "decal"
-    assert materials.classify("internal_damage_pom", "Illum", "") == "decal"     # maybe the damage layer: as before
+    # the damage layer under the skin: drawn, it covered the 890 Jump's white hull in black patches
+    assert materials.classify("internal_damage_pom", "Illum", "") == "hidden"
     assert materials.classify("pom_glow", "Illum", "") == "decal"                # other decal words still count
 
 

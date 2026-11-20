@@ -87,6 +87,18 @@ def build(data: bytes, loc: dict):
         text = loc.get((key or "").lstrip("@").lower(), "")
         return text if text and not text.startswith("@") else fallback
 
+    # Ships whose entity names no palette (890 Jump, X1, Talon) are painted in game by a tint tree named after them:
+    # orig_890jump_default, x1_default (manufacturer prefix dropped), espr_talon_default. Without it the paint layers
+    # fell back to a dark tint under the layer's full metal gloss: the 890 Jump looked like a black and white mirror.
+    trees = {dc.record_name(ri).split(".", 1)[-1].lower(): ri for ri in dc.records_of("TintPaletteTree")}
+
+    def default_palette(ent_name):
+        name = ent_name.lower()
+        for key in (f"{name}_default", f"{name.split('_', 1)[-1]}_default"):
+            if key in trees:
+                return _palette(dc, trees[key])
+        return None
+
     tag_labels = {(e[1][0], e[2]): label(e[3], e[0]) for e in entities if e[2]}
 
     def tag_label(path, tag):
@@ -108,7 +120,8 @@ def build(data: bytes, loc: dict):
                 smtl, spal = subs[tag]
                 tagged.append({"label": label(name, ent_name), "material": smtl, "palette": spal})
             elif not tag:
-                plain.append({"label": label(name, ent_name), "material": mtl, "palette": pal})
+                plain.append({"label": label(name, ent_name), "material": mtl,
+                              "palette": pal if pal is not None else default_palette(ent_name)})
             for stag, (smtl, spal) in subs.items():
                 tagged.append({"label": tag_label(path, stag), "material": smtl, "palette": spal})
         plain = [v for v in plain if usable(v)]

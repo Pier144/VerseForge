@@ -274,6 +274,11 @@ button.ghost:hover { background: var(--hover); }
 .empty-icon { width: 64px; height: 64px; margin-bottom: 14px; color: var(--empty-icon); filter: drop-shadow(0 6px 24px var(--accent-glow)); }
 .empty-title { margin: 0; font: 600 18px/1.3 var(--font-display); color: var(--text); }
 .empty-hint { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); max-width: 340px; }
+/* the game is not where the settings say: the card takes the place of "Pick a model" and can be clicked */
+.no-game { pointer-events: auto; z-index: 1; }
+.no-game .empty-hint { max-width: 400px; font-size: 13px; line-height: 1.5; }
+.no-game-path { margin: 10px 0 0; max-width: 460px; font: 11.5px/1.4 var(--mono); color: var(--err); overflow-wrap: anywhere; }
+.no-game-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px; }
 .loading { z-index: 1; flex-direction: row; gap: 12px; color: var(--text-2); }
 .loading::before { content: ""; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--app-bg) 35%, transparent); backdrop-filter: blur(4px); border-radius: 22px; }
 .load-card { display: flex; flex-direction: column; gap: 10px; width: min(300px, 80%); }
@@ -421,6 +426,10 @@ dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(6px); }
 .settings h2 { margin: 0 0 2px; font: 650 19px/1.2 var(--font-display); }
 .field-col { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
 .field-col em { font-style: normal; color: var(--faint); }
+.path-row { display: flex; gap: 8px; align-items: stretch; }
+.path-row input { flex: 1; min-width: 0; }
+.path-row .browse { flex: none; padding: 0 12px; font-size: 12px; white-space: nowrap; }
+.field-col input.invalid { border-color: var(--err); }
 .field-col input { width: 100%; font-family: var(--mono); font-size: 12px; }
 .field-col select { width: 100%; font-size: 13px; color: var(--text); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
@@ -668,3 +677,4 @@ textarea::placeholder { color: var(--faint); }
 /* panels hidden (toolbar button, H): the 3D view has the whole window, the toolbar and the layers stay */
 html.vf-bare { --ov-l: 0px; --ov-r: 0px; --ov-t: 0px; }
 html.vf-bare .topbar, html.vf-bare .sidebar, html.vf-bare .panel { display: none; }
+.no-game-actions button { width: auto; height: 36px; padding: 0 20px; }

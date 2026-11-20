@@ -64,7 +64,8 @@ def _floats(text, default):
 # the damage layer of ship hulls: girders, cables and plating that the game shows only where the hull is shot
 # through (a damage map cuts holes in the hull). It lies just under the skin: drawn with an intact hull it showed
 # through from a distance (Anvil Hawk). Real interior framework (internal_framework, girders, trims) stays.
-DAMAGE_LAYER = re.compile(r"^(ext_)?(damage_)?internals?_(pom|tile|structure|mesh)(_alpha|_core)?$"
+# The 890 Jump names it internal_damage_pom: drawn, its black relief covered the white hull in patches like a mirror.
+DAMAGE_LAYER = re.compile(r"^(ext_)?(damage_)?internals?_(damage_)?(pom|tile|structure|mesh)(_alpha|_core)?$"
                           r"|^(ext_)?damage_(structure|poms?)(_alpha)?$")
 
 
@@ -278,7 +279,10 @@ def _material(el, archive=None, palette=None):
                 color = tuple(c * 0.22 for c in tint)
             mat.color = color
             if info:
-                mat.albedo = tuple(t * d for t, d in zip(paint or tint, info["diff"]))
+                # a palette slot with no palette keeps the same dark grey in the game shading: it took the layer's
+                # bare tint (white), and the Nova's road wheels came out white
+                fallback = tint if slot in ("0", "") else tuple(c * 0.22 for c in tint)
+                mat.albedo = tuple(t * d for t, d in zip(paint or fallback, info["diff"]))
             if info:
                 l_diff, l_norm, mat.metal = info["diffuse"], info["normal"], info["metal"]
                 mat.diffuse = l_diff

@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, diskcache, entities, export, i18n, materials, model, modelcache, paints, paths, printing, reports, screens, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, dialogs, diskcache, entities, export, i18n, materials, model, modelcache, paints, paths, printing, reports, screens, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,8 +45,12 @@ def load_config():
         cfg["lang"] = "en"
     if cfg.get("names") not in ("follow", "en"):
         cfg["names"] = "follow"
-    if not cfg["p4k_path"]:
-        cfg["p4k_path"] = paths.find_p4k()   # first start: the usual install folder (Linux: Wine/Lutris prefixes)
+    if not cfg["p4k_path"] or not os.path.isfile(cfg["p4k_path"]):
+        # first start, or the game was moved: the usual install folders, every disk, the launcher's own folder
+        # (Linux: Wine/Lutris prefixes). A path that leads nowhere is kept when nothing better is found
+        found = paths.find_p4k()
+        if os.path.isfile(found) or not cfg["p4k_path"]:
+            cfg["p4k_path"] = found
     return cfg
 
 
@@ -93,6 +97,11 @@ class State:
             arch = P4kArchive(path, CACHE_DIR)
             arch.load(lambda f: self.status.update(progress=0.05 + 0.4 * f))
             self.status.update(message=("reading_names",), progress=0.5)
+            try:
+                self.entities = self._entities(arch)
+            except Exception:                # objects still load, animations just keep their file names
+                traceback.print_exc()
+                self.entities = {}
             names = self._names(arch)
             self.status.update(message=("reading_paints",), progress=0.7)
             try:
@@ -100,13 +109,11 @@ class State:
             except Exception:                # colours fall back to neutral grey, the rest keeps working
                 traceback.print_exc()
                 self.variants = {}
-            try:
-                self.entities = self._entities(arch)
-            except Exception:                # objects still load, animations just keep their file names
-                traceback.print_exc()
-                self.entities = {}
             self.status.update(message=("building_catalog",), progress=0.85)
-            items = catalog.build(arch, names)
+            items = catalog.build(arch, names, {p: (v.get("records", 0), len(v.get("tree") or []))
+                                                for p, v in (self.entities or {}).get("vehicles", {}).items()})
+            catalog.name_hulls(items, lambda p: next((v["label"] for v in self.variant_list(p) if v.get("stock")), None),
+                               lambda p: entities.vehicle_for(self.entities, p) is not None)
             self.archive, self.items = arch, items
             self.textures = textures.TextureCache(arch)
             if not self.disk_forced_off:
@@ -123,12 +130,12 @@ class State:
     def _names(self, arch):
         st = os.stat(arch.path)
         lang = i18n.game_language()
-        cache = os.path.join(CACHE_DIR, f"names3_{lang}_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"names6_{lang}_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
-        names = catalog.game_names(arch, lang)
+        names = catalog.game_names(arch, lang, self.entities)
         for old in os.listdir(CACHE_DIR):
-            if old.startswith(("names_", "names2_", f"names3_{lang}_")):
+            if old.startswith(("names_", "names2_", "names3_", "names4_", "names5_", f"names6_{lang}_")):
                 try:
                     os.remove(os.path.join(CACHE_DIR, old))
                 except OSError:
@@ -139,13 +146,13 @@ class State:
     def _variants(self, arch):
         st = os.stat(arch.path)
         lang = i18n.game_language()
-        cache = os.path.join(CACHE_DIR, f"variants_v6_{lang}_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"variants_v7_{lang}_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
         out = variants.build(arch.read(dcb), catalog.localization(arch, lang))
         for old in os.listdir(CACHE_DIR):           # one file per language is kept: switching back is quick
-            if old.startswith("variants_") and not old.startswith("variants_v6_") or old.startswith(f"variants_v6_{lang}_"):
+            if old.startswith("variants_") and not old.startswith("variants_v7_") or old.startswith(f"variants_v7_{lang}_"):
                 try:
                     os.remove(os.path.join(CACHE_DIR, old))
                 except OSError:
@@ -155,7 +162,7 @@ class State:
 
     def _entities(self, arch):
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"entities_v7_{st.st_size}_{int(st.st_mtime)}.json")
+        cache = os.path.join(CACHE_DIR, f"entities_v10_{st.st_size}_{int(st.st_mtime)}.json")
         if os.path.exists(cache):
             return json.load(open(cache, encoding="utf-8"))
         dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
@@ -308,7 +315,10 @@ def _stem(path):
 
 @app.get("/api/status")
 def status():
-    return {**state.status, "message": _msg(state.status["message"]), "error": _msg(state.status["error"]),
+    err = state.status["error"]
+    return {**state.status, "message": _msg(state.status["message"]), "error": _msg(err),
+            "error_code": err[0] if isinstance(err, tuple) else ("error" if err else None),
+            "can_browse": dialogs.available(),
             "app": APP_NAME, "version": __version__, "p4k_path": state.cfg["p4k_path"], "export_dir": state.cfg["export_dir"],
             "blender": printing.find_blender(state.cfg.get("blender")), "blender_setting": state.cfg.get("blender", ""),
             "appearance": state.cfg.get("appearance", "system"), "lang": i18n.language(), "names": i18n.names(),
@@ -780,6 +790,12 @@ def print_file(job_id: str):
 def set_config(p4k_path: str = "", export_dir: str = "", blender: str = None, appearance: str = "", check_updates: str = "",
                disk_cache: str = "", lang: str = "", names: str = ""):
     changed_p4k = p4k_path and p4k_path != state.cfg["p4k_path"]
+    if changed_p4k:
+        # the file or a folder of the game: nothing is saved when Data.p4k is not there, the page says so
+        p4k_path = paths.resolve_p4k(p4k_path)
+        if not p4k_path:
+            raise HTTPException(400, tr("p4k_not_there"))
+        changed_p4k = p4k_path != state.cfg["p4k_path"] or not state.status["ready"]
     changed_lang = lang in i18n.LANGUAGES and lang != state.cfg["lang"]
     if changed_lang:
         state.cfg["lang"] = i18n.set_language(lang)
@@ -807,6 +823,21 @@ def set_config(p4k_path: str = "", export_dir: str = "", blender: str = None, ap
         state.status = {"ready": False, "message": ("reading_index",), "progress": 0.05, "error": None}
         threading.Thread(target=state.load, daemon=True).start()
     return status()
+
+
+@app.post("/api/browse")
+def browse(kind: str, start: str = ""):
+    """The system's file window for a Browse button of the page: {"path": "" when cancelled}."""
+    if kind == "game":
+        path = dialogs.pick_file(tr("browse_game"), [("Data.p4k", "Data.p4k")], start or state.cfg["p4k_path"])
+    elif kind == "blender":
+        pattern = "blender.exe" if paths.WINDOWS else "blender*"
+        path = dialogs.pick_file(tr("browse_blender"), [("Blender", pattern)], start or state.cfg.get("blender", ""))
+    elif kind == "exports":
+        path = dialogs.pick_folder(tr("browse_exports"), start or state.cfg["export_dir"])
+    else:
+        raise HTTPException(400, "kind")
+    return {"path": path or ""}
 
 
 @app.get("/api/i18n")

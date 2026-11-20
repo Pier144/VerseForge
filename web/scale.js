@@ -201,9 +201,13 @@ export class ScaleRefs {
   // the measures everything is placed by
   layout(box, size, big) {
     const off = big * 0.08, tk = off * 0.2, hn = big * 0.036, ht = big * 0.075;
-    return { off, tk, hn, ht, fine: big * 0.0028, xl: box.min.x - off, zf: box.min.z - off, zb: box.max.z + off * 0.5,
-      band: tk + hn * 1.7 + ht * 1.4,                    // how far the writing reaches outside a ruler line
-      pilot: new THREE.Vector3((box.min.x + box.max.x) / 2 - Math.max(1.2, size.x * 0.22), box.min.y, box.min.z - Math.min(off * 0.45, 1.2)) };
+    const band = tk + hn * 1.7 + ht * 1.4;               // how far the writing reaches outside a ruler line
+    // the pilot stands between the nose and the width ruler when he fits there (about 0.6 m deep, 0.4 m clear of
+    // both); in front of a small vehicle there is no room (Cyclone: he stood 0.23 m from the nose, touching its
+    // wheel, his height written over the ruler): he stands beyond the ruler's writing instead
+    const pz = off >= 1.4 ? box.min.z - Math.min(Math.max(0.7, off * 0.45), 1.2) : box.min.z - off - band - 0.8;
+    return { off, tk, hn, ht, fine: big * 0.0028, xl: box.min.x - off, zf: box.min.z - off, zb: box.max.z + off * 0.5, band,
+      pilot: new THREE.Vector3((box.min.x + box.max.x) / 2 - Math.max(1.2, size.x * 0.22), box.min.y, pz) };
   }
 
   textSize(big) { return Math.min(1.6, Math.max(0.45, big * 0.03)); }

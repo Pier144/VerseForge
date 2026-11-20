@@ -68,6 +68,7 @@ class Item:
     game_name: bool = False
     stem: str = ""     # file name, shown under in-game names
     sub: str = ""      # sub-category id (see SUBCATEGORIES)
+    whole: bool = False  # a ship or vehicle of the game (it has a vehicle definition), not one of its pieces
 
 
 def subtitle(it):
@@ -277,9 +278,45 @@ def localization(archive, language="english"):
     return loc
 
 
-def game_names(archive, language="english"):
-    """Map geometry path (lowercase) -> in-game names, using the order of strings in DataCore.
+_NO_NAME = re.compile(r"placeholder|test string|^unknown$|^<|^\s*$", re.I)
 
+
+def _exact_names(guessed, index, label):
+    """The names the game's entities give their geometry replace the guessed ones (see game_names).
+    index: entities.build()'s answer; label(key) -> text or None.
+    - a ship or vehicle is called by its vehicle name ("Aegis Redeemer"), first;
+    - geometry whose entities have a name takes those names, the entity named like the file first;
+    - geometry whose entities have no name loses its guess (a seat access is not a "Camo Livery"): the catalogue
+      then shows the file name. The same for the pieces of ships and vehicles whose name is one word ("Access",
+      "Seat") or has nothing of the file name in it ("TRGT. STATUS" for every seat): the file name says more."""
+    vehicles = index.get("vehicles", {})
+    names = index.get("names", {})
+    for path in {**names, **vehicles}:
+        keys = names.get(path, [])
+        labels = []
+        veh = (vehicles.get(path) or {}).get("name")
+        for k in ([veh] if veh else []) + list(keys):
+            text = (label(k) or "").replace("\\n", " ").strip()
+            if text and not text.startswith("@") and not _NO_NAME.search(text) and text not in labels:
+                labels.append(text)
+        if labels and not veh and categorize(path) in ("ships", "vehicles"):
+            # pieces of a ship: seats, doors and dashboards are all called "TRGT. STATUS" or "Door Control"
+            stem = compact(path.rsplit("/", 1)[-1].rsplit(".", 1)[0])
+            words = [compact(w) for w in labels[0].split()]
+            if len(words) < 2 or not any(len(w) >= 3 and w in stem for w in words):
+                labels = []
+        if labels:
+            guessed[path] = labels
+        else:
+            guessed.pop(path, None)
+    return guessed
+
+
+def game_names(archive, language="english", index=None):
+    """Map geometry path (lowercase) -> in-game names.
+
+    With index (entities.build()'s answer) the names are the ones the game's entities give their geometry. What no
+    entity uses directly (armour and clothing pieces, mostly) is named from the order of strings in DataCore:
     DataCore stores strings in first-use order, so an item's '@item_Name<class>' key is followed closely by the
     geometry it references. Not a full DataCore parse, but it names most weapons, armour, tools and vehicles.
     For another language the answer is {"names": {path: [names]}, "english": {path: [English names]}}: the catalogue
@@ -309,6 +346,8 @@ def game_names(archive, language="english"):
                 if label and not label.startswith("@") and label not in labels:
                     labels.append(label)
             out[path] = labels
+        if index:
+            _exact_names(out, index, lambda k: loc.get(k) or english.get(k))
         return out
 
     if language == "english":
@@ -316,7 +355,23 @@ def game_names(archive, language="english"):
     return {"names": named(_global_ini(archive, language)), "english": named(english)}
 
 
-def build(archive, names=None):
+# first word of every manufacturer's name, and the short forms the game writes in front of a vehicle name
+_MAKER_WORDS = {m.split()[0].lower() for m in MANUFACTURERS.values()} | {"rsi", "c.o.", "grey's"} - {"nova"}
+
+
+def _drop_maker(label, code, manu):
+    """"Drake Cutlass Black" -> "Cutlass Black": the manufacturer is shown beside the name."""
+    words = label.split()
+    if len(words) > 1 and words[0].lower() in {code.lower(), manu.split()[0].lower() if manu else ""} | _MAKER_WORDS:
+        words = words[1:]
+    return " ".join(words)
+
+
+def build(archive, names=None, vehicles=()):
+    """vehicles: geometry paths (lower case) that have a vehicle definition in the game: the ships and ground
+    vehicles themselves, shown first and as main models whatever their file is called. A dict gives each one a
+    weight (how many of the game's vehicles use it, the size of its loadout) that picks between two files of the
+    same name."""
     names = names or {}
     english = names.get("english") if isinstance(names.get("english"), dict) else None
     if english is not None:
@@ -350,9 +405,34 @@ def build(archive, names=None):
             if len(segs) >= 5:
                 ship_folders["/".join(segs[:5])].append(it)
             it.main = False
+        if cat in ("ships", "vehicles") and path.lower() in vehicles:
+            segs = path.split("/")
+            code = segs[3] if cat == "ships" and len(segs) >= 5 else ""
+            it.whole = it.main = True
+            it.stem = ""
+            if code:
+                it.manu, it.kind = MANUFACTURERS.get(code.lower(), it.manu or code), "hull"
+            if labels:
+                it.name = _drop_maker(labels[0], code, it.manu)
         items.append(it)
-    # ships: the hull is the .cga named like the folder (AEGS/Gladius -> AEGS_Gladius.cga), else the largest .cga
+    # ships without a vehicle definition (not flyable any more, or never): the hull is the .cga named like the
+    # folder (AEGS/Gladius -> AEGS_Gladius.cga), else the largest .cga
+    # two files of the same ship (Constellation Phoenix: the old hull and the reworked one): the one with the
+    # bigger loadout stays, the other goes back among the pieces
+    flown = {folder for folder, its in ship_folders.items() if any(it.whole for it in its)}
+    best = {}
+    for it in items:
+        if it.whole:
+            k = (it.category, it.name.lower())
+            weight = (vehicles.get(it.path.lower(), 0) if isinstance(vehicles, dict) else 0, it.size)   # see build()
+            if k not in best or weight > best[k][0]:
+                best[k] = (weight, it)
+    for it in items:
+        if it.whole and best[it.category, it.name.lower()][1] is not it:
+            it.whole = it.main = False
     for folder, its in ship_folders.items():
+        if folder in flown:
+            continue
         manu, ship = folder.split("/")[3:5]
         want = {f"{manu}_{ship}".lower(), ship.lower()}
         hull = [it for it in its if it.ext == "cga" and it.path.rsplit("/", 1)[-1][:-4].lower() in want]
@@ -365,6 +445,26 @@ def build(archive, names=None):
                 it.name = f"{ship.replace('_', ' ')}"
             it.manu, it.kind, it.stem = MANUFACTURERS.get(manu.lower(), manu), "hull", ""
     return items
+
+
+def name_hulls(items, stock_label, flyable):
+    """Ship hulls named after their folder ("hammerhead gs", "railen", "890Jump") take the name of their stock paint
+    in game ("Aegis Hammerhead" -> "Hammerhead"), the manufacturer left out. Then a hull the game no longer flies (no
+    vehicle definition) gives way to a flyable one of the same name: "Hammerhead" opened the old AEGS_Hammerhead.cga,
+    grey, with no landing gear and no loadout, while the ship of the game is hammerhead_gs.
+    stock_label(path) -> the stock paint's label or None; flyable(path) -> bool."""
+    hulls = [it for it in items if it.kind == "hull" and it.main]
+    for it in hulls:
+        label = (stock_label(it.path) or "").strip()
+        if it.game_name or not label:
+            continue
+        code = it.path.split("/")[3] if it.path.count("/") >= 4 else ""
+        it.name = _drop_maker(label, code, it.manu)
+        it.key += compact(it.name)
+    fly = {it.name.lower() for it in hulls if flyable(it.path)}
+    for it in hulls:
+        if it.name.lower() in fly and not flyable(it.path):
+            it.main = False
 
 
 def subcategory_label(cat, sub):
@@ -403,10 +503,11 @@ def search(items, query="", category=None, main_only=True, limit=300, sub=None):
         if tokens and not all(t in it.key for t in tokens):
             continue
         out.append(it)
-    # better matches first: name hits, main assets, shorter paths
+    # better matches first: name hits, main assets, whole ships and vehicles (by name), shorter paths
     def rank(it):
         name_key = compact(it.name)
-        return (0 if tokens and all(t in name_key for t in tokens) else 1, 0 if it.main else 1,
-                CAT_ORDER.get(it.category, 99), 0 if it.game_name else 1, len(it.path))
+        return (0 if tokens and all(t in name_key for t in tokens) else 1, 0 if it.main else 1, 0 if it.whole else 1,
+                CAT_ORDER.get(it.category, 99), it.name.lower() if it.whole else "", 0 if it.game_name else 1,
+                len(it.path))
     out.sort(key=rank)
     return out[:limit], len(out)

@@ -5,7 +5,9 @@
   hidden: true when the port is flagged "invisible"}
   plus the landing-gear legs ({port: hull bone, geometry}), used by the "Full ship" assembly, and the object
   containers of the interior ({file: .socpak, bone, pos, rot});
-- "classes": entity class GUID -> [geometry, material], for the entities placed inside object containers."""
+- "classes": entity class GUID -> [geometry, material], for the entities placed inside object containers;
+- "names": geometry -> the name keys (global.ini, lower case, no "@") of the entities that use it, the entity named
+  like the file first. An empty list means the game has entities for that geometry but none with a name."""
 from . import cryxml
 from .datacore import DataCore, _guid
 
@@ -185,6 +187,28 @@ def _containers(comps):
     return out
 
 
+def _name_key(key):
+    return (key or "").lstrip("@").strip().lower()
+
+
+def _item_name(comps):
+    """Name key of an item (SAttachableComponentParams > AttachDef > Localization > Name), "" without one."""
+    for c in comps:
+        if c.type == "SAttachableComponentParams":
+            try:
+                return _name_key(c["AttachDef"]["Localization"]["Name"])
+            except (KeyError, TypeError):
+                return ""
+    return ""
+
+
+def _vehicle_name(comps):
+    for c in comps:
+        if c.type == "VehicleComponentParams" and c.has("vehicleName"):
+            return _name_key(c["vehicleName"])
+    return ""
+
+
 def _geometry_material(comps):
     for c in comps:
         if c.type == "SGeometryResourceParams":
@@ -222,7 +246,7 @@ def build(data: bytes, read=None):
     known to be invisible."""
     dc = DataCore(data)
     idx = _Index(dc)
-    found, vehicles, ammo, classes = {}, {}, {}, {}
+    found, vehicles, ammo, classes, named = {}, {}, {}, {}, {}
     defs = {}
 
     def definition(comps):
@@ -247,6 +271,7 @@ def build(data: bytes, read=None):
             continue
         classes[_guid(dc.records[ri]["guid"].tobytes())] = [geo, _geometry_material(comps)]
         rec_name = dc.record_name(ri).split(".", 1)[-1]
+        named.setdefault(_norm(geo), []).append((rec_name, _item_name(comps)))
         if adb:
             found.setdefault(_norm(geo), []).append((rec_name, adb))
         got = _ammo(idx, comps)
@@ -259,7 +284,8 @@ def build(data: bytes, read=None):
             fixed = definition(comps)[1]
             if tree or gears or ocs or fixed:
                 vehicles.setdefault(_norm(geo), []).append((rec_name, {"tree": tree, "gears": gears,
-                                                                       "containers": ocs, "fixed": fixed}))
+                                                                       "containers": ocs, "fixed": fixed,
+                                                                       "name": _vehicle_name(comps)}))
     adbs = {}
     for geo, recs in found.items():
         recs.sort()
@@ -269,8 +295,19 @@ def build(data: bytes, read=None):
     for geo, recs in vehicles.items():
         stem = geo.rsplit("/", 1)[-1].rsplit(".", 1)[0]
         recs.sort(key=lambda r: (not r[0].lower().endswith(stem), -len(r[1]["tree"]), r[0]))
-        veh[geo] = recs[0][1]
-    return {"adb": adbs, "vehicles": veh, "ammo": ammo, "classes": classes}
+        # the loadout comes from the richest record, the name from the plainest one: ANVL_Hornet.cga is the F7C,
+        # the F7C-R Tracker and the F7C-S Ghost, and "ANVL_Hornet_F7C" is the ship the others are variants of
+        words = set(stem.split("_"))       # rsi_constellation_gs_andromeda.cga is the Andromeda, not the Aquila
+        base = min((r for r in recs if r[1]["name"]), default=recs[0],
+                   key=lambda r: (not r[0].lower().endswith(stem), not set(r[0].lower().split("_")) <= words,
+                                  len(r[0]), r[0]))
+        veh[geo] = dict(recs[0][1], name=base[1]["name"], records=len(recs))
+    names = {}
+    for geo, recs in named.items():
+        stem = geo.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        recs.sort(key=lambda r: (not r[0].lower().endswith(stem), len(r[0]), r[0]))
+        names[geo] = list(dict.fromkeys(k for _, k in recs if k))
+    return {"adb": adbs, "vehicles": veh, "ammo": ammo, "classes": classes, "names": names}
 
 
 def adb_for(index, path):
@@ -283,6 +320,10 @@ def ammo_for(index, path):
 
 def classes_of(index):
     return (index or {}).get("classes", {})
+
+
+def names_of(index):
+    return (index or {}).get("names", {})
 
 
 def vehicle_for(index, path):
