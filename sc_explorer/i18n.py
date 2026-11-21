@@ -74,6 +74,10 @@ MESSAGES = {
     "update_checksum": "The downloaded installer is damaged (size or checksum mismatch): try again.",
     "update_downloading": "Downloading the update…",
     "update_launching": "Installing: VerseForge will close and start again by itself.",
+    "skin_missing": "This skin is not in the library any more",
+    "skin_invalid": "Not a valid skin: {why}",
+    "skin_newer": "This skin was made with a newer VerseForge: update the app to open it",
+    "skin_folder": "The skins folder cannot be written: {path}",
     "hull": "hull",
 }
 

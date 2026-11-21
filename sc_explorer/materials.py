@@ -38,6 +38,9 @@ class Material:
     holo: bool = False                    # screen kind: a holographic HUD projection (see-through), not a panel
     rtt: bool = False                     # screen kind: a real monitor the game draws live ($RenderToTexture)
     stencil_decal: bool = False           # MeshDecal + %STENCIL_MAP: a livery sticker (kind decal or hidden by palette)
+    # paint layer coloured by the item's tint palette: {"slot": "A"|"B"|"C", "base": linear RGB that times the
+    # palette colour gives the albedo}. The viewer recolours such materials live (Skin Lab, gamelook.js retint)
+    tint: dict | None = None
 
 
 SCREEN_RGB = (110, 205, 235)       # default screen light (sRGB): the cold cyan of the game's holo UI
@@ -267,6 +270,8 @@ def _material(el, archive=None, palette=None):
             slot = layer.get("PaletteTint", "0")
             key = "ABC"[int(slot) - 1] if slot in ("1", "2", "3") else None
             paint = None
+            if key:
+                mat.tint = {"slot": key, "base": [round(c, 5) for c in (info["diff"] if info else base)]}
             if key and palette and palette.get(key):
                 paint = palette_linear(palette[key])
                 color = tuple(p * b for p, b in zip(paint, base))
@@ -331,7 +336,8 @@ def _hull_stencil(mat, el, palette):
     if not path:
         return
     pp = el.find("PublicParams")
-    if _pp_float(pp, "StencilTintOverride", 0) >= 0.5 and palette and all(palette.get(k) for k in "ABC"):
+    tinted = _pp_float(pp, "StencilTintOverride", 0) >= 0.5 and bool(palette) and all(palette.get(k) for k in "ABC")
+    if tinted:
         colors = [palette_linear(palette[k]) for k in "ABC"]
     else:
         colors = [_floats(pp.get(n) if pp is not None else None, (1.0, 1.0, 1.0))
@@ -339,6 +345,7 @@ def _hull_stencil(mat, el, palette):
     mat.stencil_map = path
     mat.stencil = {"tiling": _pp_float(pp, "StencilTiling", 1.0), "uv2": _pp_float(pp, "UseUV2ForStencil", 0) >= 0.5,
                    "opacity": _pp_float(pp, "StencilOpacity", 1.0),
+                   "tinted": tinted,              # the three colours are the palette's A, B, C (retint follows them)
                    "colors": [[round(c, 5) for c in col] for col in colors]}
 
 
@@ -426,6 +433,7 @@ def shading(mat):
             "alpha_test": mat.alpha_test,
             "stencil_map": mat.stencil_map,
             "stencil": mat.stencil,
+            "tint": mat.tint,
             "shader": mat.shader_name}
 
 

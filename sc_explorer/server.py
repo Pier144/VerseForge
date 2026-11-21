@@ -13,12 +13,12 @@ from contextlib import asynccontextmanager
 
 import numpy as np
 import zstandard
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, dialogs, diskcache, entities, export, i18n, materials, model, modelcache, paints, paths, printing, reports, screens, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, dialogs, diskcache, entities, export, i18n, materials, model, modelcache, paints, paths, printing, reports, screens, skins, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,6 +29,8 @@ DATA_DIR = paths.data_dir()                 # Windows %APPDATA%\VerseForge, Linu
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 CACHE_DIR = paths.cache_dir()               # Windows %LOCALAPPDATA%\VerseForge, Linux ~/.cache/VerseForge
 DEFAULT_EXPORTS = paths.documents_dir()
+# the user's skins (skins.py): a fixed folder, not the export folder, so changing that one does not hide the library
+SKINS_DIR = os.environ.get("VERSEFORGE_SKINS_DIR") or os.path.join(paths.documents_dir(), "Skins")
 
 
 def load_config():
@@ -75,6 +77,8 @@ class State:
         self.status = {"ready": False, "message": ("starting",), "progress": 0.0, "error": None}
         self.models = modelcache.ModelCache()   # built models, LRU within a memory budget (modelcache.py)
         self.paint_ok = {}               # (path, tag, full, interior) -> paints.check result
+        self.draft = None                # the skin being edited in the Skin Lab: {"skin", "rev"}, never on disk
+        self.draft_rev = 0
         self._paint_locks = {}           # key -> Lock: group_keys / check run once while others wait for the result
         self._paint_locks_guard = threading.Lock()
         self.lock = threading.Lock()
@@ -190,14 +194,44 @@ class State:
         vs = self.variant_list(path)
         return vs[0]["tag"] if vs else None
 
-    def tag_of(self, path, variant):
-        """The tag get_model() uses for `variant` (None or unknown = the reference paint)."""
-        vs = self.variant_list(path)
-        return variant if any(v["tag"] == variant for v in vs) else (vs[0]["tag"] if vs else None)
+    def skin_of(self, tag):
+        """(skin, cache key) of a "skin:<id>" or "skin:draft[:n]" tag, or (None, None). The key changes whenever
+        the skin does (the file's time stamp, the draft's revision): what was built from an older state is not
+        found again."""
+        name = tag.split(":")[1] if tag.count(":") else ""
+        if name == "draft":
+            d = self.draft
+            return (d["skin"], f"skin:draft:{d['rev']}") if d else (None, None)
+        hit = skins.find(SKINS_DIR, name)
+        return (hit[0], f"skin:{name}:{hit[2]}") if hit else (None, None)
 
-    def keyed(self, path):
-        """Models with 2+ paints get the paint-independent GLB layout (paints.py)."""
-        return len(self.variant_list(path)) >= 2
+    def variant(self, path, tag):
+        """The paint variant `tag` names for the model at `path`: the one place a tag becomes a paint. A game paint
+        by its tag (None or unknown = the reference paint, None for a model without paints); a user skin
+        ("skin:...") as the paint it starts from with the skin's palette (skins.apply), carrying its cache "key".
+        A skin tag that leads nowhere is an error (404), never the reference paint in silence."""
+        vs = self.variant_list(path)
+        if is_skin(tag):
+            skin, key = self.skin_of(tag)
+            if skin is None or not skins._same_model(skin["target"]["model"], path):
+                raise HTTPException(404, tr("skin_missing"))
+            return {**skins.apply(skins.find_base(vs, skin)[0], skin, tag), "key": key}
+        return next((x for x in vs if x["tag"] == tag), vs[0] if vs else None)
+
+    def tag_of(self, path, variant):
+        """The key get_model() caches `variant` under (None or unknown = the reference paint)."""
+        v = self.variant(path, variant)
+        return v.get("key", v["tag"]) if v else None
+
+    def shown_tag(self, path, variant):
+        """The tag the viewer knows `variant` by: a skin's own tag, else the game paint get_model() uses."""
+        v = self.variant(path, variant)
+        return v["tag"] if v else None
+
+    def keyed(self, path, force=False):
+        """Models with 2+ paints get the paint-independent GLB layout (paints.py); `force`: asked for by the viewer
+        (the Skin Lab, a model that has user skins), whatever the number of paints."""
+        return bool(force) or len(self.variant_list(path)) >= 2
 
     def _paint_lock(self, key):
         with self._paint_locks_guard:
@@ -217,9 +251,9 @@ class State:
                 ref.cache["paint_groups"] = np.asarray(paints.group_keys(ref, fixed_from), dtype=np.int32)
             return ref.cache["paint_groups"]
 
-    def swappable(self, path, variant, full, interior):
+    def swappable(self, path, variant, full, interior, keyed=False):
         """Can this paint take the reference paint's place by swapping materials (paints.check)? Kept per request."""
-        if not self.keyed(path):
+        if not self.keyed(path, keyed):
             return False
         full = bool(full) and self.can_full(path)
         interior = bool(interior) and self.can_interior(path)
@@ -236,25 +270,25 @@ class State:
         full: ships and vehicles with their factory loadout and landing gear mounted (assembly.load_full).
         interior: the rooms of the ship's object containers placed inside (assembly.load_interior), built once for
         the reference paint and reused by the others (assembly.repaint_interior)."""
-        vs = self.variant_list(path)
-        v = next((x for x in vs if x["tag"] == variant), vs[0] if vs else None)
+        v = self.variant(path, variant)
         tag = v["tag"] if v else None
+        key = v.get("key", tag) if v else None       # a skin's key follows its changes
         if interior and self.can_interior(path):
-            return self.models.get_or_build((path.lower(), "interior", tag, bool(full)),
+            return self.models.get_or_build((path.lower(), "interior", key, bool(full)),
                                             lambda: self._interior(path, tag, full))
         full = bool(full) and self.can_full(path)
         if v is None:
             return self._base_model(path, full)
         return self.models.get_or_build(
-            (path.lower(), v["tag"], full),
+            (path.lower(), key, full),
             lambda: model.with_variant(self._base_model(path, full), self.archive, v["material"], v["palette"]))
 
     def _interior(self, path, tag, full):
         hull = self.get_model(path, tag, full)
-        vs = self.variant_list(path)
-        if vs and tag != vs[0]["tag"]:
-            ref_hull = self.get_model(path, vs[0]["tag"], full)
-            ref = self.get_model(path, vs[0]["tag"], full, True)
+        ref_tag = self.ref_tag(path)                 # None for a model without paints (a skin still repaints it)
+        if tag != ref_tag:
+            ref_hull = self.get_model(path, ref_tag, full)
+            ref = self.get_model(path, ref_tag, full, True)
             n = len(ref_hull.parts)
             if len(hull.parts) == n and len(ref.parts) >= n:
                 return assembly.repaint_interior(ref, hull, n)
@@ -283,6 +317,11 @@ async def _lifespan(_app):
 
 
 app = FastAPI(title=APP_NAME, version=__version__, lifespan=_lifespan)
+
+
+def is_skin(variant):
+    """A user skin's tag ("skin:<id>", "skin:draft:<n>"), not a paint of the game."""
+    return isinstance(variant, str) and variant.startswith("skin:")
 
 
 def tr(key, **kw):
@@ -367,20 +406,23 @@ def related(path: str):
 
 
 @app.get("/api/model/info")
-def model_info(path: str, variant: str = None, full: bool = False, interior: bool = False):
+def model_info(path: str, variant: str = None, full: bool = False, interior: bool = False, keyed: bool = False):
+    """keyed: ask for the paint-group layout whatever the number of paints (see State.keyed). User skins are not
+    listed here (this answer is kept on disk): the viewer asks /api/skins."""
     _require_ready()
-    key = (path.lower(), variant, bool(full), bool(interior), i18n.language(), i18n.game_language())   # warnings and names are texts
-    cached = state.disk.get("info", key, "json")
+    key = (path.lower(), variant, bool(full), bool(interior), i18n.language(), i18n.game_language(), bool(keyed))   # warnings and names are texts
+    cached = None if is_skin(variant) else state.disk.get("info", key, "json")   # a skin changes: never on disk
     if cached is not None:
         return Response(cached, media_type="application/json")
     # numpy numbers (stats, deck heights) become plain JSON numbers
-    data = json.dumps(_model_info(path, variant, full, interior),
+    data = json.dumps(_model_info(path, variant, full, interior, keyed),
                       default=lambda o: o.item() if hasattr(o, "item") else str(o)).encode("utf-8")
-    state.disk.put("info", key, "json", data)
+    if not is_skin(variant):
+        state.disk.put("info", key, "json", data)
     return Response(data, media_type="application/json")
 
 
-def _model_info(path, variant, full, interior):
+def _model_info(path, variant, full, interior, keyed=False):
     m = state.get_model(path, variant, full, interior)
     s = m.stats()
     it = state.by_path.get(path.lower())
@@ -389,9 +431,9 @@ def _model_info(path, variant, full, interior):
             "materials": [{"name": n, "kind": k} for n, k in s["materials"]],
             "variants": [{"tag": v["tag"], "label": v["label"], "colors": paints.swatches(v.get("palette")),
                           "stock": bool(v.get("stock"))} for v in vs],
-            "keyed": state.keyed(path),
-            "keyed_glb": state.swappable(path, variant, full, interior),
-            "variant": variant if any(v["tag"] == variant for v in vs) else (vs[0]["tag"] if vs else None),
+            "keyed": state.keyed(path, keyed),
+            "keyed_glb": state.swappable(path, variant, full, interior, keyed),
+            "variant": state.shown_tag(path, variant),
             "can_full": state.can_full(path), "full": bool(full) and state.can_full(path),
             "can_interior": state.can_interior(path), "interior": bool(interior) and state.can_interior(path),
             "ground_vehicle": "/vehicles/" in path.lower().replace("\\", "/"),
@@ -564,24 +606,25 @@ def _sources(m):
 
 @app.get("/api/model/glb")
 def model_glb(path: str, tex: bool = True, variant: str = None, anim: bool = True, full: bool = False,
-              interior: bool = False, lite: bool = False):
+              interior: bool = False, lite: bool = False, keyed: bool = False):
     _require_ready()
-    dkey = (path.lower(), variant, bool(full), bool(interior), bool(tex), bool(anim), bool(lite))
-    cached = state.disk.get("glb", dkey, "glb")
+    dkey = (path.lower(), variant, bool(full), bool(interior), bool(tex), bool(anim), bool(lite), bool(keyed))
+    on_disk = not is_skin(variant)
+    cached = state.disk.get("glb", dkey, "glb") if on_disk else None
     if cached is not None:
         return Response(cached, media_type="model/gltf-binary")
     m = state.get_model(path, variant, full, interior)
     if not m.parts:
         raise HTTPException(422, "; ".join(_msg(w) for w in m.warnings) or tr("no_geometry"))
-    key = ("glb", tex, anim, lite)
+    key = ("glb", tex, anim, lite, bool(keyed))
     data = m.cache.get(key)
     if data is None:
         groups = (state.paint_groups(path, full, interior)
-                  if lite and state.swappable(path, variant, full, interior) else None)
+                  if lite and state.swappable(path, variant, full, interior, keyed) else None)
         data = export.to_glb(m, textures=state.textures if tex else None, tex_size=1024,
                              sources=_sources(m) if anim else None, lite=lite, groups=groups)
         # once on disk the file is read from there (above): a second copy in memory would only take room
-        if not state.disk.put("glb", dkey, "glb", data):
+        if not (on_disk and state.disk.put("glb", dkey, "glb", data)):
             m.cache[key] = data
         state.models.trim()
     return Response(data, media_type="model/gltf-binary")
@@ -608,12 +651,12 @@ def _paint_stamp():
 
 
 @app.get("/api/model/paint")
-def model_paint(path: str, variant: str = None, full: bool = False, interior: bool = False):
+def model_paint(path: str, variant: str = None, full: bool = False, interior: bool = False, keyed: bool = False):
     """One paint's materials for the viewer's instant switch (web/paint.js), or {swappable: false}: reload instead.
     An unknown path answers {swappable: false} too: the client reloads and shows the GLB route's error."""
     _require_ready()
-    tag = state.tag_of(path, variant)
-    if not state.swappable(path, variant, full, interior):
+    tag = state.shown_tag(path, variant)
+    if not state.swappable(path, variant, full, interior, keyed):
         return {"variant": tag, "swappable": False}
     m = state.get_model(path, variant, full, interior)
     table = paints.paint_table(m, state.paint_groups(path, full, interior), state.textures,
@@ -635,8 +678,9 @@ def model_paint_texture(path: str, group: int, variant: str = None, full: bool =
     # `v` (the stamp of /api/model/paint) only changes the URL, so the browser's 24 h copy is dropped when the game
     # or the group numbering changes; it is not part of the key here
     key = (path.lower(), state.tag_of(path, variant), full, int(group), map)
+    on_disk = not is_skin(variant)
     for ext, media in (("png", "image/png"), ("jpg", "image/jpeg")):
-        cached = state.disk.get("painttex", key, ext)
+        cached = state.disk.get("painttex", key, ext) if on_disk else None
         if cached is not None:
             return Response(cached, media_type=media, headers={"Cache-Control": "max-age=86400"})
     m = state.get_model(path, variant, full)
@@ -657,8 +701,130 @@ def model_paint_texture(path: str, group: int, variant: str = None, full: bool =
     else:
         img.convert("RGB").save(buf, "JPEG", quality=92)
         ext, media = "jpg", "image/jpeg"
-    state.disk.put("painttex", key, ext, buf.getvalue())
-    return Response(buf.getvalue(), media_type=media, headers={"Cache-Control": "max-age=86400"})
+    if on_disk:
+        state.disk.put("painttex", key, ext, buf.getvalue())
+    return Response(buf.getvalue(), media_type=media,
+                    headers={"Cache-Control": "max-age=86400" if on_disk else "no-store"})
+
+
+# ---------------------------------------------------------------- user skins (Skin Lab, skins.py)
+
+def _skin_error(e):
+    return HTTPException(422, tr("skin_newer") if e.code == "newer" else tr("skin_invalid", why=str(e)))
+
+
+def _skin_meta(skin, stamp=None):
+    """A skin as the viewer lists it: among a model's paints (tag, label, colors, like /api/model/info's variants)
+    and in the library."""
+    model_path = skin["target"]["model"]
+    base, found = skins.find_base(state.variant_list(model_path), skin)
+    return {"id": skin.get("id"), "tag": f"skin:{skin.get('id')}", "label": skin["name"], "custom": True, "stock": False,
+            "colors": paints.swatches(skins.effective((base or {}).get("palette"), skin)),
+            "model": model_path, "model_label": skin["target"].get("label") or _stem(model_path),
+            "base_tag": base["tag"] if base else None, "base_label": (base or {}).get("label") or skin["base"].get("label"),
+            "base_found": found, "openable": model_path.lower() in state.by_path,
+            "modified": skin.get("modified"), "stamp": stamp}
+
+
+def _forget_skin(prefix):
+    """Drop what was checked for the older states of a skin (keys "skin:<id>:<stamp>", "skin:draft:<rev>")."""
+    for k in [k for k in state.paint_ok if isinstance(k[1], str) and k[1].startswith(prefix)]:
+        state.paint_ok.pop(k, None)
+
+
+@app.get("/api/skins")
+def skins_list(path: str = None):
+    """The user's skins: of one model (to show among its paints), or the whole library."""
+    _require_ready()
+    return {"folder": SKINS_DIR, "skins": [_skin_meta(s, stamp) for s, _, stamp in skins.list_skins(SKINS_DIR, path)]}
+
+
+@app.get("/api/skins/base")
+def skins_base(path: str, variant: str = None, full: bool = False):
+    """What the Skin Lab starts from: the complete palette of a paint of the model (skins.effective with nothing
+    changed), which of its entries the model's materials use, and the finishes."""
+    _require_ready()
+    v = state.variant(path, variant)
+    m = state.get_model(path, variant, full)
+    used = sorted({p.material.tint["slot"] for p in m.parts if p.material.tint and p.material.kind != "hidden"})
+    pal = (v or {}).get("palette")
+    return {"tag": v["tag"] if v else None, "base": skins.base_ref(v) if not (v or {}).get("custom") else None,
+            "palette": skins.effective(pal, {"palette": {}}), "slots": used,
+            "glass": bool(pal and pal.get("glass")) and any(p.material.kind == "glass" for p in m.parts),
+            "presets": skins.PRESETS, "dielectric": skins.DIELECTRIC, "metal_tint": skins.METAL_TINT}
+
+
+@app.post("/api/skins/draft")
+def skins_draft(data: dict = Body(...)):
+    """The skin as it is being edited, kept in memory as "skin:draft": the viewer then asks for its paint like any
+    other. Nothing is written: the library only changes with a save."""
+    _require_ready()
+    try:
+        skin = skins.validate(data)
+    except skins.SkinError as e:
+        raise _skin_error(e)
+    with state.lock:
+        state.draft_rev += 1
+        state.draft = {"skin": skin, "rev": state.draft_rev}
+        _forget_skin("skin:draft:")
+        return {"tag": f"skin:draft:{state.draft_rev}"}
+
+
+@app.post("/api/skins/import")
+def skins_import(data: bytes = Body(..., media_type="application/octet-stream")):
+    _require_ready()
+    try:
+        return {"skin": _skin_meta(skins.import_bytes(SKINS_DIR, data))}
+    except skins.SkinError as e:
+        raise _skin_error(e)
+    except OSError:
+        raise HTTPException(500, tr("skin_folder", path=SKINS_DIR))
+
+
+@app.post("/api/skins")
+def skins_save(data: dict = Body(...)):
+    """Create (no id) or update a skin of the library."""
+    _require_ready()
+    try:
+        skin = skins.save(SKINS_DIR, data)
+    except skins.SkinError as e:
+        raise _skin_error(e)
+    except OSError:
+        raise HTTPException(500, tr("skin_folder", path=SKINS_DIR))
+    _forget_skin(f"skin:{skin['id']}:")
+    return {"skin": _skin_meta(skin), "data": skin}
+
+
+@app.get("/api/skins/{skin_id}")
+def skins_get(skin_id: str):
+    _require_ready()
+    hit = skins.find(SKINS_DIR, skin_id)
+    if not hit:
+        raise HTTPException(404, tr("skin_missing"))
+    return {"skin": _skin_meta(hit[0], hit[2]), "data": hit[0]}
+
+
+@app.delete("/api/skins/{skin_id}")
+def skins_delete(skin_id: str):
+    _require_ready()
+    try:
+        if not skins.delete(SKINS_DIR, skin_id):
+            raise HTTPException(404, tr("skin_missing"))
+    except OSError:
+        raise HTTPException(500, tr("skin_folder", path=SKINS_DIR))
+    _forget_skin(f"skin:{skin_id}:")
+    return {"ok": True}
+
+
+@app.post("/api/skins/{skin_id}/export")
+def skins_export(skin_id: str):
+    """A copy of the skin's file in the export folder, to pass on."""
+    _require_ready()
+    hit = skins.find(SKINS_DIR, skin_id)
+    if not hit:
+        raise HTTPException(404, tr("skin_missing"))
+    with open(hit[1], "rb") as f:
+        return {"saved": _save_export(f.read(), os.path.basename(hit[1]))}
 
 
 def _save_export(data, filename):
