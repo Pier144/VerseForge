@@ -421,6 +421,13 @@ def build(archive, names=None, vehicles=()):
     # two files of the same ship (Constellation Phoenix: the old hull and the reworked one): the one with the
     # bigger loadout stays, the other goes back among the pieces
     flown = {folder for folder, its in ship_folders.items() if any(it.whole for it in its)}
+    # ground vehicles: like the ships, the list shows the vehicle, not its doors, racks and wheels (the Ground list
+    # held 444 files for 20 vehicles, forty of them under names such as "Door Control" or "Personal Storage"). The
+    # pieces stay one switch away (Main models off). Folders without a vehicle of the game keep all their files
+    driven = {"/".join(it.path.lower().split("/")[:4]) for it in items if it.whole and it.category == "vehicles"}
+    for it in items:
+        if it.category == "vehicles" and not it.whole and "/".join(it.path.lower().split("/")[:4]) in driven:
+            it.main = False
     best = {}
     for it in items:
         if it.whole:

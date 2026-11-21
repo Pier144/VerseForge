@@ -273,3 +273,35 @@ def test_objects_parked_far_from_the_ship_are_left_out(archive, index):
     # the game's containers hold a few objects left far from the ship (a Carrack panel 75 m to the side, a Hammerhead
     # screen 100 m ahead, a Clipper light bar 6 m out): they widened the model's box and the ship was framed small
     assert _interior_reach(archive, index, "Objects/Spaceships/Ships/DRAK/clipper/exterior/drak_clipper.cga") < 3
+
+
+def test_ports_without_a_node_are_placed_by_their_offset(archive, index):
+    # the MOLE carries sixteen spare ore pods on ports no node of its model has: the game places each by an offset
+    # from the root (DataCore: AttachmentImplementation.Helper). They were "factory parts not mounted"
+    path = next(p for p in index["vehicles"] if p.endswith("argo_mole.cga"))
+    v = entities.vehicle_for(index, path)
+    pod = next(n for n in v["tree"] if n["port"] == "hardpoint_stored_pod_1")
+    assert pod["place"]["pos"] == pytest.approx([-1.5, 6.5, -3.227], abs=1e-3)
+    m = assembly.load_full(archive, path, v)
+    pods = [p for p in m.parts if p.name.startswith("hardpoint_stored_pod_")]
+    assert len({p.name.split(" / ")[0] for p in pods}) == 16
+    first = np.vstack([p.vertices for p in pods if p.name.startswith("hardpoint_stored_pod_1 /")])
+    mid = (first.min(0) + first.max(0)) / 2
+    assert abs(mid[0] + 1.5) < 1.0 and abs(mid[1] - 6.5) < 2.0 and abs(mid[2] + 3.2) < 1.5
+    assert not [w for w in m.warnings if w[0] == "warn_ports_missing"]
+
+
+def test_offset_placed_items_stay_with_the_ship(archive, index):
+    # the 890 Jump's lifts, hangar door and PDC turrets have no node in its model: placed by their offsets they sit in
+    # and on the hull; the 25 m poles of the entrance lift, drawn at rest 12 m below the ship, are left out
+    path = next(p for p in index["vehicles"] if p.endswith("orig_890jump.cga"))
+    v = entities.vehicle_for(index, path)
+    hull = model.load_model(archive, path)
+    m = assembly.load_full(archive, path, v)
+    lo = np.min([p.vertices.min(0) for p in hull.parts if len(p.vertices) and p.material.kind != "hidden"], axis=0)
+    hi = np.max([p.vertices.max(0) for p in hull.parts if len(p.vertices) and p.material.kind != "hidden"], axis=0)
+    for port in ("hardpoint_hangar_door", "hardpoint_cargo_lift", "hardpoint_entrance_lift", "hardpoint_PDC_01"):
+        got = [p.vertices for p in m.parts if p.name.startswith(port + " /") and p.material.kind != "hidden"]
+        assert got, port
+        pv = np.vstack(got)
+        assert (pv.min(0) > lo - 3).all() and (pv.max(0) < hi + 3).all(), port

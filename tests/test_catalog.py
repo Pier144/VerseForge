@@ -142,3 +142,12 @@ def test_other_items_take_the_entity_name_and_keep_the_guess_without_one():
     _, by = _build()
     assert by["slnc_s01_arma_01.cgf"].name == "Tacit Suppressor1"            # the guess said "Quell"
     assert by["brfl_fps_behr_p4ar.cgf"].name == "P4-AR Rifle"                # no entity in the index: guess kept
+
+
+def test_pieces_of_a_ground_vehicle_are_not_in_its_list():
+    # the Ground list showed doors, racks and seats beside the vehicles ("Door Control", "Personal Storage")
+    items, by = _build()
+    assert by["TMBL_Nova.cga"].main and not by["TMBL_Nova_Pilot_Seat.cga"].main
+    assert "Pilot Seat" not in [it.name for it in catalog.search(items, "", "vehicles")[0]]
+    assert by["TMBL_Nova_Pilot_Seat.cga"] in catalog.search(items, "", "vehicles", False)[0]     # Main models off
+    assert by["GRIN_ROC_Cargo.cga"].main          # a folder without a vehicle of the game keeps its files

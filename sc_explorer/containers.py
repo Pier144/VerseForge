@@ -10,6 +10,7 @@ import io
 import math
 import struct
 import zipfile
+import zlib
 from dataclasses import dataclass
 
 import numpy as np
@@ -322,6 +323,51 @@ def read(archive, socpak, classes=None):
         elif typ == CHUNK_ENTITIES and d[off:off + 7] == b"CryXmlB":
             out += _entities(d, off, size, classes)
     return out
+
+
+class Packed:
+    """The archive, plus the files a .socpak carries inside itself: brushes drawn in the editor ("designer" objects)
+    are named "<container>//Brush/designer_0.cgf" and live in the container's own zip (a wall of the Idris hangar)."""
+
+    def __init__(self, archive, socpak):
+        self.archive, self.socpak, self._zip = archive, _data_path(socpak), None
+
+    def __getattr__(self, name):                 # everything else is the archive's
+        return getattr(self.archive, name)
+
+    def _member(self, path):
+        p = (path or "").replace("\\", "/")
+        if "//" not in p:
+            return None
+        if self._zip is None:
+            try:
+                data = self.archive.read(self.socpak)
+                z = zipfile.ZipFile(io.BytesIO(data))
+                self._zip = (z, {i.filename.replace("\\", "/").lower(): i for i in z.infolist()}, data)
+            except Exception:
+                self._zip = (None, {}, b"")
+        return self._zip[1].get(p.rsplit("//", 1)[0].rsplit("/", 1)[-1].lower() + "/" + p.rsplit("//", 1)[1].lower())
+
+    def exists(self, path):
+        return self.archive.exists(path) or self._member(path) is not None
+
+    def read(self, path):
+        if self.archive.exists(path):
+            return self.archive.read(path)
+        m = self._member(path)
+        if m is None:
+            raise FileNotFoundError(path)
+        z, _, data = self._zip
+        # the names in the zip's directory and in its local headers differ by their slashes, which zipfile refuses:
+        # the entry is read by hand
+        o = m.header_offset
+        o += 30 + int.from_bytes(data[o + 26:o + 28], "little") + int.from_bytes(data[o + 28:o + 30], "little")
+        raw = data[o:o + m.compress_size]
+        if m.compress_type == zipfile.ZIP_STORED:
+            return raw
+        if m.compress_type == zipfile.ZIP_DEFLATED:
+            return zlib.decompress(raw, -15)
+        return z.read(m)
 
 
 def mount_matrix(c, bone_world=None):

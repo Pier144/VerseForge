@@ -8,7 +8,8 @@ For each one, as a full ship and (when it has one) with its interior:
   - /api/model/glb (the viewer's lite file) is a well-formed GLB: strict JSON, every buffer view inside the buffer,
     every float accessor finite, every node matrix finite, at least one drawn mesh;
   - the warnings of the model (ports left empty, parts that failed, interior pieces missing);
-  - drawn meshes that lie wholly outside the bulk of the ship (a part mounted in the wrong place).
+  - drawn meshes that lie wholly beyond the rest of the ship, and interiors bigger than the ship (a part in the
+    wrong place).
 Writes out_dir/results.json after every ship (a rerun skips what is done) and out_dir/REPORT.md at the end.
 """
 import json
@@ -128,22 +129,17 @@ def check_glb(data):
         problems.append("no drawn mesh")
 
     stray, size = [], None
-    if boxes:
-        # the bulk of the ship: the biggest meshes holding 80 % of the triangles
-        order = sorted(boxes, key=lambda b: -b[1])
-        need, got, core = 0.8 * sum(b[1] for b in boxes), 0, []
-        for b in order:
-            core.append(b)
-            got += b[1]
-            if got >= need:
-                break
-        lo = np.min([b[2] for b in core], axis=0)
-        hi = np.max([b[3] for b in core], axis=0)
-        pad = 0.25 * (hi - lo) + 1.0
-        for name, t, blo, bhi in boxes:
-            if (bhi < lo - pad).any() or (blo > hi + pad).any():
-                gap = float(np.max(np.maximum(lo - pad - bhi, blo - hi - pad)))
+    if len(boxes) > 1:
+        # a mesh is stray when it lies wholly beyond everything else the ship is made of, by more than 2 m (wing tip
+        # lights sit at the edge of the wing, not beyond it)
+        los, his = np.array([b[2] for b in boxes]), np.array([b[3] for b in boxes])
+        for k, (name, t, blo, bhi) in enumerate(boxes):
+            rest = np.arange(len(boxes)) != k
+            lo, hi = los[rest].min(axis=0), his[rest].max(axis=0)
+            gap = float(max((lo - bhi).max(), (blo - hi).max()))
+            if gap > 2.0:
                 stray.append({"mesh": name, "triangles": int(t), "metres_out": round(gap, 1)})
+    if boxes:
         alo, ahi = np.min([b[2] for b in boxes], axis=0), np.max([b[3] for b in boxes], axis=0)
         size = [round(float(x), 1) for x in ahi - alo]
     stray.sort(key=lambda s: -s["metres_out"])
@@ -184,6 +180,14 @@ def report(rows):
     bad = [r for r in rows if r["problems"]]
     warn = [r for r in rows if not r["problems"] and r.get("warnings")]
     stray = [r for r in rows if not r["problems"] and r.get("stray_n")]
+    # an interior that makes the ship bigger than the ship itself holds something far from it
+    full = {r["path"]: r.get("size_m") for r in rows if not r["interior"]}
+    beyond = []
+    for r in rows:
+        if r["interior"] and r.get("size_m") and full.get(r["path"]):
+            extra = [round(b - a, 1) for a, b in zip(full[r["path"]], r["size_m"])]
+            if max(extra) > 2.0:
+                beyond.append((r, extra))
     mode = lambda r: "with interior" if r["interior"] else "full ship"
     out = ["# Ship check", "", f"{len({r['path'] for r in rows})} ships and vehicles, {len(rows)} loads "
            f"(full ship, and with the interior where there is one).", "",
@@ -197,6 +201,8 @@ def report(rows):
                    ", ".join(f"`{s['mesh']}` {s['metres_out']} m" for s in r["stray"][:4]))
     if not stray:
         out.append("None.")
+    out += ["", "## Interiors that reach beyond the ship", ""]
+    out += [f"- **{r['name']}**: {extra} m more than the full ship (width, height, length)" for r, extra in beyond] or ["None."]
     out += ["", "## All", "", "| Ship | Mode | Parts | Triangles | Meshes | MB | s | Result |", "|---|---|---|---|---|---|---|---|"]
     for r in rows:
         res = "BROKEN" if r["problems"] else "warnings" if r.get("warnings") else "ok"

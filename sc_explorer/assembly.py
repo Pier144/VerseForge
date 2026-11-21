@@ -25,13 +25,35 @@ def _ensure_skeleton(archive, m):
 
 
 def twin(archive, path):
-    """`path` if the archive has it, else the same geometry under the sibling extension when only that one exists:
-    the game data sometimes names a .cgf as .cga and the reverse (three screens in the Perseus' habs)."""
+    """`path` if the archive has it, else the file the game data meant:
+    - the same geometry under a sibling extension, when only that one exists: a .cgf named as .cga and the reverse
+      (three screens in the Perseus' habs), a .cdf that only exists as .cga (the Cutter's front landing gear on the
+      Command Module);
+    - the same file name in another folder, when the archive has exactly one (a Javelin screen that moved to the
+      Aegis kit folder)."""
     if not path or archive.exists(path):
         return path
     stem, dot, ext = path.rpartition(".")
-    other = {"cga": "cgf", "cgf": "cga"}.get(ext.lower())
-    return f"{stem}.{other}" if dot and other and archive.exists(f"{stem}.{other}") else path
+    for other in {"cga": ("cgf",), "cgf": ("cga",), "cdf": ("cga", "cgf")}.get(ext.lower(), ()) if dot else ():
+        if archive.exists(f"{stem}.{other}"):
+            return f"{stem}.{other}"
+    if ext.lower() in ("cga", "cgf"):
+        index = getattr(archive, "geometry_by_name", None)
+        if index is None and hasattr(archive, "names"):
+            index = {}
+            for n in archive.names:
+                if n[-4:].lower() in (".cga", ".cgf"):
+                    n = n.replace("\\", "/")
+                    n = n[5:] if n[:5].lower() == "data/" else n
+                    index.setdefault(n.rsplit("/", 1)[-1].lower(), []).append(n)
+            try:
+                archive.geometry_by_name = index          # built once, at the first file that is not where it should be
+            except AttributeError:
+                pass
+        same = (index or {}).get(path.replace("\\", "/").rsplit("/", 1)[-1].lower(), [])
+        if len(same) == 1:
+            return same[0]
+    return path
 
 
 def find_port(lookup, name):
@@ -141,16 +163,46 @@ def load_full(archive, path, vehicle, adb_path=None):
         families[prefix, stem] = base + max(set(votes), key=votes.count) if votes else None
         return port_i if families[prefix, stem] is None else families[prefix, stem]
 
+    solid = [p.vertices for p in hull.parts if len(p.vertices) and p.material.kind != "hidden"]
+    reach = ((np.min([v.min(0) for v in solid], axis=0) - 3.0, np.max([v.max(0) for v in solid], axis=0) + 3.0)
+             if solid else (np.full(3, -np.inf), np.full(3, np.inf)))
+
+    def placed_port(node, prefix, parent_i):
+        """A port no node of the model carries, placed as the game does: by its offset from the node it names (the
+        root when it names none). It becomes a node of its own. None when the game gives it no place: no offset and
+        no node other than the root (relays, spare shield generators: listed in the loadout, drawn nowhere)."""
+        place = node.get("place")
+        if not place:
+            return None
+        root = parent_i if parent_i is not None else next((i for i, b in enumerate(out.skeleton) if b.parent < 0), 0)
+        at = find_port(lookup, (prefix + place["helper"]).lower()) if place["helper"] else None
+        moved = any(place["pos"]) or any(place["rot"])
+        if at is None:
+            at = root
+        if not moved and (at == root or out.skeleton[at].parent < 0):
+            return None
+        from . import containers
+        local = containers.mount_matrix(place)
+        out.skeleton.append(rig.Bone(prefix + node["port"], at, local, out.skeleton[at].world @ local))
+        lookup.setdefault((prefix + node["port"]).lower(), len(out.skeleton) - 1)
+        return len(out.skeleton) - 1
+
     def mount(node, prefix, depth, parent_i=None, gear=False):
         port_i = find_port(lookup, (prefix + node["port"]).lower())
+        placed = False
+        if port_i is None:
+            port_i = placed_port(node, prefix, parent_i)
+            placed = port_i is not None and depth == 0
         if port_i is None and parent_i is not None:
             # modular items (gun barrels, jump module in a quantum drive) are modelled in their parent's space and
             # their ports are not geometry nodes: hang them from the parent's origin
             port_i = parent_i
         geo = twin(archive, node["geometry"])
-        if port_i is None or not archive.exists(geo):
-            stats["missing"] += 1
+        if not archive.exists(geo):
+            stats["missing"] += 1                        # the game's files do not have this part
             return
+        if port_i is None:
+            return                                       # listed in the loadout, placed nowhere: not drawn in game
         if node.get("hidden") or invisible(node.get("material")):
             # a port flagged "invisible" (X1 GravLev boxes) or an invisible stand-in: nothing to draw, but what hangs
             # from it still does
@@ -179,8 +231,12 @@ def load_full(archive, path, vehicle, adb_path=None):
                                       if h in s.targets})
         for p in comp.parts:
             node_name = pre + p.node if p.node in names else hold.name
-            out.parts.append(replace(p, vertices=p.vertices @ w[:3, :3].T + w[:3, 3], node=node_name,
-                                     name=f"{node['port']} / {p.name}"))
+            v = p.vertices @ w[:3, :3].T + w[:3, 3]
+            if placed and len(v) and ((v.min(0) < reach[0]).any() or (v.max(0) > reach[1]).any()):
+                # a piece of an item placed by its offset that leaves the hull by metres is drawn at rest where the
+                # game never shows it: the poles of the 890 Jump's entrance lift, 12 m below the ship
+                continue
+            out.parts.append(replace(p, vertices=v, node=node_name, name=f"{node['port']} / {p.name}"))
         for s in comp.anim_sets:
             refs = _link_gear(s.refs, gear_links) if gear else s.refs
             out.anim_sets.append(animations.AnimSet(pre + s.prefix, refs,
@@ -329,6 +385,7 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
         bones = {b.name.lower(): b for b in (rig.skeleton(archive, base.path) or [])}
     geo_cache = {}
     failed = 0
+    absent = 0
     added = 0
     # the hull's box with a margin: an object wholly beyond it was left there by the game's designers, parked away
     # from the ship (see the test); landing gear, ramps and lifts reach out of the hull by less than this
@@ -337,7 +394,7 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
     reach = np.maximum(0.15 * (hull_hi - hull_lo), 3.0)
     hull_lo, hull_hi = hull_lo - reach, hull_hi + reach
 
-    def geometry(path, mtl):
+    def geometry(path, mtl, archive):
         key = (path.lower(), (mtl or "").lower())
         if key not in geo_cache:
             try:
@@ -371,6 +428,7 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
         stem = oc["file"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
         try:
             placed = containers.read(archive, oc["file"], classes)
+            files = containers.Packed(archive, oc["file"])      # designer brushes live inside the .socpak
         except Exception as e:
             out.warnings.append(("warn_part_error", {"path": oc["file"], "error": str(e)}))
             continue
@@ -388,9 +446,12 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
         for pl in placed:
             if pl.geometry.lower().replace("\\", "/").startswith(EDITOR_PRIMITIVES):
                 continue
-            parts = geometry(pl.geometry, pl.material)
+            parts = geometry(pl.geometry, pl.material, files)
             if not parts:
-                failed += parts is None
+                if parts is None:
+                    # a file the game's own data does not have is not this program's failure
+                    there = files.exists(twin(files, pl.geometry))
+                    failed, absent = failed + there, absent + (not there)
                 continue
             w = mount @ pl.matrix
             room = -1
@@ -419,6 +480,8 @@ def load_interior(archive, base, vehicle, classes, max_parts=60000):
                 return out
     if failed:
         out.warnings.append(("warn_interior_missing", {"n": failed}))
+    if absent:
+        out.warnings.append(("warn_interior_absent", {"n": absent}))
     return out
 
 

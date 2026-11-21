@@ -92,9 +92,10 @@ class _Index:
                 return lo["entries"] if lo is not None and lo.has("entries") else []
         return []
 
-    def tree(self, entries, depth=0, hidden=frozenset(), tags=None):
+    def tree(self, entries, depth=0, hidden=frozenset(), tags=None, places=None):
         """hidden: lower-case names of the ports flagged "invisible" (the game does not draw what they carry).
-        tags: {lower-case port name: its tags}, which choose the variant of the item mounted there (tagged)."""
+        tags: {lower-case port name: its tags}, which choose the variant of the item mounted there (tagged).
+        places: {lower-case port name: where the port is when no node of the model has its name} (_item_port_places)."""
         out = []
         if depth >= MAX_DEPTH:
             return out
@@ -123,8 +124,10 @@ class _Index:
             nested = e["loadout"]
             sub = nested["entries"] if nested is not None and nested.has("entries") else None
             children = self.tree(sub if sub else self.entries(comps), depth + 1, _invisible_item_ports(comps),
-                                 _item_port_tags(comps))
+                                 _item_port_tags(comps), _item_port_places(comps))
             node = {"port": port, "geometry": geo, "adb": adb, "material": mtl, "children": children}
+            if port.lower() in (places or {}):
+                node["place"] = places[port.lower()]
             if port.lower() in hidden:
                 node["hidden"] = True
             out.append(node)
@@ -144,6 +147,27 @@ def _invisible_item_ports(comps):
                 if p is not None and p.has("Flags") and _flagged_invisible(p["Flags"]):
                     out.add((p["Name"] or "").lower())
     return frozenset(out)
+
+
+def _item_port_places(comps):
+    """{lower-case port name: {"helper", "pos", "rot"}} of the ports the game places by an offset from a node (DataCore:
+    AttachmentImplementation.Helper): the node's name ("" = the root) and the offset from it, metres and Ang3 degrees.
+    Many ports have no node of their own in the model: the PDC turrets of the Idris hang 39 m ahead of its root, the
+    MOLE's spare ore pods, the Valkyrie's gun racks. Ports with neither a helper nor an offset are left out."""
+    out = {}
+    for c in comps:
+        if c.type == "SItemPortContainerComponentParams" and c.has("Ports"):
+            for p in c["Ports"] or []:
+                try:
+                    h = p["AttachmentImplementation"]["Helper"]["Helper"]
+                    pos = [float(h["Offset"]["Position"][k]) for k in ("x", "y", "z")]
+                    rot = [float(h["Offset"]["Rotation"][k]) for k in ("x", "y", "z")]
+                    helper = h["Name"] or ""
+                except Exception:           # no attachment data on this port
+                    continue
+                if helper or any(pos) or any(rot):
+                    out[(p["Name"] or "").lower()] = {"helper": helper, "pos": pos, "rot": rot}
+    return out
 
 
 def _item_port_tags(comps):
@@ -344,7 +368,7 @@ def build(data: bytes, read=None):
             ammo.setdefault(_norm(geo), got)
         if any(c.type == "VehicleComponentParams" for c in comps):
             tree = idx.tree(idx.entries(comps), hidden=vehicle_hidden(comps),
-                            tags={**_item_port_tags(comps), **definition(comps)[2]})
+                            tags={**_item_port_tags(comps), **definition(comps)[2]}, places=_item_port_places(comps))
             gears = _gears(dc, comps)
             ocs = _containers(comps)
             fixed = definition(comps)[1]
