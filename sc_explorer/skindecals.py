@@ -6,6 +6,8 @@ own and the viewer leaves them out:
   - livery slots: MeshDecal + %STENCIL_MAP (the paint's logo or number, from the palette's stencil atlas).
 materials.py marks both `stencil_decal` (the name plates also `rtt`). A skin's `decals` put a text on the first
 kind and a picture on the second:  {"text": {"value", "color"}, "image": {"file": "images/<name>"}}.
+With several pictures ("images": [{"file"}, ...]) each slot takes the one whose shape fills it best, and every
+picture gets at least one slot when there are enough of them.
 
 Each slot is a few quads laid out on a region of a texture the game would draw; on some ships those regions are
 cut from one atlas and lie inside one another. So decorate() makes its own sheet: it finds the slots (islands of
@@ -85,12 +87,12 @@ def _patches(part):
     return out
 
 
-def _regions(patches):
+def _regions(patches, mirror=True):
     """The slots behind a material's patches (see _patches): [((u0, v0, u1, v1), aspect, [patch numbers])]. A slot
     can be cut into several quads, even of different parts: patches that touch on the ship and whose UV boxes share
     an edge are one slot (its box is their union, its proportions those of the largest patch carried to the union).
-    So are patches with the very same box (the slot on the other side of the ship). Boxes that lie inside one
-    another, or touch only in the texture, are different slots of the game's atlas."""
+    So, with `mirror`, are patches with the very same box (the slot on the other side of the ship). Boxes that
+    lie inside one another, or touch only in the texture, are different slots of the game's atlas."""
     eps, near = 1e-3, 0.05
     boxes = [(i[:4], i[4]) for i in patches]
     where = [i[5:7] for i in patches]
@@ -106,7 +108,7 @@ def _regions(patches):
         for j in range(i):
             b = boxes[j][0]
             du, dv = min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])
-            same = all(abs(x - y) < eps for x, y in zip(a, b))
+            same = mirror and all(abs(x - y) < eps for x, y in zip(a, b))
             edge = (abs(du) <= eps < dv) or (abs(dv) <= eps < du)        # side by side, not one over the other
             if edge:
                 (lo_a, hi_a), (lo_b, hi_b) = where[i], where[j]
@@ -187,6 +189,38 @@ def _image_tile(picture, aspect):
     return tile
 
 
+def _trimmed(picture):
+    """The picture without its empty border, so that the drawing itself fills the slot."""
+    box = picture.getchannel("A").getbbox()
+    return picture.crop(box) if box else picture
+
+
+def _fill(slot, picture):
+    """How much of a slot a picture of those proportions covers when it is fitted whole: 0..1."""
+    return min(slot / picture, picture / slot)
+
+
+def _assign(slots, pictures):
+    """Which picture goes on each slot, from their proportions (width / height): the one that fills the slot best.
+    Pictures that fill it about as well take turns, and a picture left without a slot takes the one it suits best
+    among those whose picture has others."""
+    if len(pictures) == 1:
+        return [0] * len(slots)
+    out, turn = [], 0
+    for s in slots:
+        fills = [_fill(s, p) for p in pictures]
+        good = [i for i, f in enumerate(fills) if f >= max(fills) * 0.8]
+        out.append(good[turn % len(good)])
+        turn += len(good) > 1
+    for i, p in enumerate(pictures):
+        if i in out:
+            continue
+        spare = [n for n, o in enumerate(out) if out.count(o) > 1]
+        if spare:
+            out[max(spare, key=lambda n: _fill(slots[n], p))] = i
+    return out
+
+
 def _sheet(tiles):
     """One SIZE x SIZE picture with each tile stretched onto its UV box (the quad stretches it back)."""
     sheet = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
@@ -213,14 +247,16 @@ def decorate(model, decals, archive=None, images=None):
     decals = decals or {}
     text = (decals.get("text") or {}).get("value") or ""
     color = (decals.get("text") or {}).get("color") or [235, 235, 235]
-    picture = None
-    name = (decals.get("image") or {}).get("file")
-    if name and images:
+    pictures = []
+    names = [(decals.get("image") or {}).get("file")] + [(i or {}).get("file") for i in decals.get("images") or []]
+    for name in dict.fromkeys(n for n in names if n):
         try:
-            data = images(name)
-            picture = Image.open(io.BytesIO(data)).convert("RGBA") if data else None
+            data = images(name) if images else None
+            if data:
+                pictures.append(_trimmed(Image.open(io.BytesIO(data)).convert("RGBA")))
         except Exception:
-            picture = None
+            pass
+    picture = pictures[0] if pictures else None
     if not text and picture is None:
         return model
     # every part of a slot material shares one sheet: gather its patches first
@@ -231,9 +267,11 @@ def decorate(model, decals, archive=None, images=None):
             patches.setdefault((k, p.material.name), []).extend((n, patch) for patch in _patches(p))
     made, tiles, moves = {}, {}, {}                       # moves: part number -> [(vertices, box they had, cell they get)]
     for (k, mat_name), found in patches.items():
-        regions = _regions([patch for _, patch in found])
+        # with several pictures the two sides of the ship are slots of their own: they can carry different ones
+        regions = _regions([patch for _, patch in found], mirror=k == "text" or len(pictures) < 2)
         if not regions:
             continue
+        chosen = _assign([r[1] for r in regions], [p.width / p.height for p in pictures]) if k == "image" else None
         # the sheet is a grid of cells, one per slot: plates are long, so each takes a whole row
         cols = 1 if k == "text" else int(np.ceil(np.sqrt(len(regions))))
         rows = -(-len(regions) // cols)
@@ -241,9 +279,10 @@ def decorate(model, decals, archive=None, images=None):
         placed = []
         for i, (box, aspect, members) in enumerate(regions):
             cell = ((i % cols) / cols + pad, (i // cols) / rows + pad, (i % cols + 1) / cols - pad, (i // cols + 1) / rows - pad)
-            tkey = (k, round(aspect, 2))
+            tkey = (k, round(aspect, 2), chosen[i] if chosen else 0)
             if tkey not in tiles:
-                tiles[tkey] = _text_tile(archive, text, color, aspect) if k == "text" else _image_tile(picture, aspect)
+                tiles[tkey] = (_text_tile(archive, text, color, aspect) if k == "text"
+                               else _image_tile(pictures[chosen[i]], aspect))
             placed.append((cell, tiles[tkey]))
             for m in members:
                 n, patch = found[m]

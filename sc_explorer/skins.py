@@ -129,8 +129,12 @@ MAX_IMAGE = 8 * 1024 * 1024      # a picture kept in a skin file
 TEXT_MAX = 40
 
 
+MAX_IMAGES = 8             # pictures a skin's decals can use
+
+
 def _decals(data):
-    """Custom decals (skindecals.py): {"text": {"value", "color"}, "image": {"file": "images/<name>"}}."""
+    """Custom decals (skindecals.py): {"text": {"value", "color"}, "image": {"file": "images/<name>"},
+    "images": [{"file"}, ...]} (more pictures: each slot takes the one whose shape suits it best)."""
     if data is None:
         return {}
     if not isinstance(data, dict):
@@ -155,6 +159,17 @@ def _decals(data):
         if not isinstance(image, dict) or not isinstance(image.get("file"), str) or not IMAGE_NAME.fullmatch(image["file"]):
             raise SkinError("invalid", "decals.image: a picture of the skin file expected (images/name.png)")
         out["image"] = dict(image)
+    more = data.get("images")
+    if more is None:
+        out.pop("images", None)
+    else:
+        if not isinstance(more, list) or len(more) > MAX_IMAGES or not all(
+                isinstance(i, dict) and isinstance(i.get("file"), str) and IMAGE_NAME.fullmatch(i["file"]) for i in more):
+            raise SkinError("invalid", f"decals.images: up to {MAX_IMAGES} pictures of the skin file expected")
+        if more:
+            out["images"] = [dict(i) for i in more]
+        else:
+            out.pop("images", None)
     return out
 
 

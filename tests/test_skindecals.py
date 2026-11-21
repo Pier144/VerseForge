@@ -107,6 +107,34 @@ def test_text_and_picture_go_on_their_slots():
     assert textures.TextureCache(None).get(plate.diffuse, 512).size == (512, 512)
 
 
+def test_several_pictures_share_the_slots():
+    # the shape decides: a long plate on the long slots, a square on the square ones
+    assert skindecals._assign([5.7, 0.66, 5.7, 0.66], [1.0, 4.0]) == [1, 0, 1, 0]
+    # two pictures that suit a slot about as well take turns
+    assert skindecals._assign([1.0, 1.0, 1.0, 1.0], [1.0, 1.1]) == [0, 1, 0, 1]
+    # none is left out while a slot can be spared: the wide stamp takes one of the two squares' slots
+    got = skindecals._assign([5.7, 0.66, 5.7, 0.66], [1.75, 1.0, 4.0])
+    assert sorted(set(got)) == [0, 1, 2] and got[0] == got[2] == 2
+    assert skindecals._assign([1.0, 2.0], [1.0]) == [0, 0]
+    # the empty border of a picture does not count
+    img = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+    img.paste((255, 0, 0, 255), (10, 40, 90, 60))
+    assert skindecals._trimmed(img).size == (80, 20)
+    # two logo slots, one on each side with the same piece of the atlas: one picture each
+    logo = materials._material(ET.fromstring(LOGO), None, None)
+    m = model.Model("m.cga", parts=[_quad(logo, 0, 2.0, 2.0, (0.5, 0.5, 1.0, 1.0)), _quad(logo, 30, 2.0, 2.0, (0.5, 0.5, 1.0, 1.0))])
+    pics = {"images/a.png": _png((255, 0, 0, 255)), "images/b.png": _png((0, 0, 255, 255))}
+    out = skindecals.decorate(m, {"image": {"file": "images/a.png"}, "images": [{"file": "images/b.png"}]}, None, pics.get)
+    sheet = np.asarray(textures.TextureCache(None).get(out.parts[0].material.diffuse, 2048))
+    seen = {tuple(sheet[y, x]) for x, y in ((512, 1024), (1536, 1024))}
+    assert seen == {(255, 0, 0, 255), (0, 0, 255, 255)}
+    assert not np.allclose(out.parts[0].uvs, out.parts[1].uvs)
+    ok = skins.validate({"name": "s", "target": {"model": "m.cga"}, "decals": {"images": [{"file": "images/b.png"}]}})
+    assert ok["decals"] == {"images": [{"file": "images/b.png"}]}
+    with pytest.raises(skins.SkinError):
+        skins.validate({"name": "s", "target": {"model": "m.cga"}, "decals": {"images": [{"file": "../b.png"}]}})
+
+
 def test_nothing_asked_nothing_changed():
     m = _model()
     assert skindecals.decorate(m, {}, None, None) is m
