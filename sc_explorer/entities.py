@@ -60,30 +60,50 @@ class _Index:
     def tagged(self, ri, tags):
         """(geometry, material) of the variant of an item for a port with these tags, or None: the first SubGeometry
         of its record whose Tags are all among them. One item serves both sides of a ship this way: the Avenger's
-        retro thruster is the left flap, with the mirrored one as a SubGeometry tagged "right"."""
+        retro thruster is the left flap, with the mirrored one as a SubGeometry tagged "right".
+        A variant may have variants of its own, and the deepest one that fits is the one mounted: the Ares' wing
+        rack is tagged "CRUS_Starfighter", and inside it "Left" and "Right"."""
         if not tags:
             return None
         if ri not in self._tagged:
-            subs = []
-            for c in self.info(ri)[2]:
-                if c.type != "SGeometryResourceParams":
-                    continue
-                try:
-                    node = c["Geometry"]
-                    for s in (node["SubGeometry"] if node.has("SubGeometry") else None) or []:
+            def variants(node, depth=0):
+                subs = []
+                for s in ((node["SubGeometry"] if node.has("SubGeometry") else None) or []) if depth < 4 else []:
+                    try:
                         want = frozenset((s["Tags"] or "").lower().split()) if s is not None else None
-                        data = s["Geometry"] if want else None
+                        if not want:
+                            continue
+                        data = s["Geometry"]
                         geo = _data_path(data["Geometry"]["path"]) if data is not None else ""
                         # a variant whose file the game no longer ships leaves the item as it is (Javelin:
                         # aegs_javelin_support_engine_lower.cga)
-                        if geo and (self.exists is None or self.exists(geo)):
-                            mtl = data["Material"]
-                            subs.append((want, geo, _data_path(mtl["path"]) if mtl is not None else ""))
-                except (KeyError, TypeError):
-                    pass
-                break
-            self._tagged[ri] = subs
-        return next(((geo, mtl) for want, geo, mtl in self._tagged[ri] if want <= tags), None)
+                        if not (geo and (self.exists is None or self.exists(geo))):
+                            geo = ""
+                        mtl = data["Material"] if geo else None
+                        subs.append((want, geo, _data_path(mtl["path"]) if mtl is not None else "",
+                                     variants(s, depth + 1)))
+                    except (KeyError, TypeError):
+                        pass
+                return subs
+
+            tree = []
+            for c in self.info(ri)[2]:
+                if c.type == "SGeometryResourceParams":
+                    try:
+                        tree = variants(c["Geometry"])
+                    except (KeyError, TypeError):
+                        pass
+                    break
+            self._tagged[ri] = tree
+
+        def pick(subs):
+            for want, geo, mtl, inner in subs:
+                if want <= tags:
+                    deeper = pick(inner)
+                    if deeper or geo:
+                        return deeper or (geo, mtl)
+            return None
+        return pick(self._tagged[ri])
 
     def entries(self, comps):
         for c in comps:

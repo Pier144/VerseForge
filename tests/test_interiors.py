@@ -220,6 +220,19 @@ def test_tagged_port_gets_the_geometry_of_its_side(index):
     assert geo["hardpoint_thruster_right_retro"].endswith("aegs_avenger_thruster_retro_right.cga")
 
 
+ARES = "Objects/Spaceships/Ships/CRUS/Starfighter/CRUS_Starfighter.cga"
+
+
+def test_tagged_port_gets_the_variant_inside_a_variant(index):
+    # the wing racks of the Ares are one item, MRCK_S05_BEHR_Quad_S03, whose variant tagged "CRUS_Starfighter" has
+    # two of its own, "Left" and "Right". Read one level deep, both wings carried the left rack: the right one
+    # showed its inner face outwards
+    v = entities.vehicle_for(index, ARES)
+    geo = {n["port"]: n["geometry"].lower() for n in v["tree"]}
+    assert geo["hardpoint_missile_launcher_left_s05"].endswith("crus_starfighter_missile_launcher_left_4xs03.cga")
+    assert geo["hardpoint_missile_launcher_right_s05"].endswith("crus_starfighter_missile_launcher_right_4xs03.cga")
+
+
 def test_port_tags_of_a_vehicle_definition():
     xml = (b'<Vehicle><Parts><Part name="hull" class="Animated"><Parts>'
            b'<Part name="hardpoint_retro_R" class="ItemPort"><ItemPort flags="maneuver uneditable Right"/></Part>'
