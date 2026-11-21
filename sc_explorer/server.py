@@ -728,7 +728,7 @@ def _skin_meta(skin, stamp=None):
 
 def _forget_skin(prefix):
     """Drop what was checked for the older states of a skin (keys "skin:<id>:<stamp>", "skin:draft:<rev>")."""
-    for k in [k for k in state.paint_ok if isinstance(k[1], str) and k[1].startswith(prefix)]:
+    for k in [k for k in list(state.paint_ok) if isinstance(k[1], str) and k[1].startswith(prefix)]:
         state.paint_ok.pop(k, None)
 
 

@@ -799,6 +799,12 @@ const isSkin = (tag) => String(tag ?? "").startsWith("skin:");
 // the categories whose models get the "+" tile of the Skin Lab among their paints (the toolbar button is for all)
 const SKIN_CATS = ["ships", "vehicles", "components", "weapons", "attachments", "armor", "clothing", "tools"];
 
+// A model without paints of its own that has skins: an "Original" tile (tag "": the model as the game has it) to go
+// back to, and to compare a skin with.
+function withOriginal(game, mine) {
+  return game.length || !mine.length ? game : [{ tag: "", label: T("finBase"), colors: null, stock: true }];
+}
+
 async function loadModel(item, keepView = false, opts = {}) {
   if (state.current?.path !== item.path) { state.variant = null; state.keyed = false; }
   state.current = item;
@@ -834,9 +840,9 @@ async function loadModel(item, keepView = false, opts = {}) {
     ]);
     if (state.current !== item) return;  // user clicked something else meanwhile
     const info = await infoRes.json();
-    info.gameVariants = info.variants;                  // the game's paints, then the user's skins
-    info.variants = [...info.variants, ...mine];
-    if (opts.paint == null) { state.variant = info.variant; state.comparing = false; }
+    info.gameVariants = withOriginal(info.variants, mine);   // the game's paints, then the user's skins
+    info.variants = [...info.gameVariants, ...mine];
+    if (opts.paint == null) { state.variant = info.variant ?? (info.gameVariants.length ? info.gameVariants[0].tag : null); state.comparing = false; }
     // download: 0-70 % of the bar, parsing 70-75 %, game textures 75-100 %
     const buf = await readWithProgress(glbRes, (done, total) => {
       if (state.current !== item) return;
@@ -953,7 +959,7 @@ async function loadModel(item, keepView = false, opts = {}) {
     $("#fullLabel").textContent = T(info.ground_vehicle ? "fullVehicle" : "fullShip");
     loadRelated(item);
     // reloaded while the Skin Lab is open (Full ship, Interiors): the skin on the bench goes back on
-    if (skinLab.on && opts.paint == null) skinLab.confirm();
+    if (skinLab.on && opts.paint == null) skinLab.reloaded();
   } catch (e) {
     // failed before the old model went away (it is still on screen, with its paint): paint changes swap again
     if (state.current === item && retiredSwap?.root === modelRoot && retiredSwap.path === item.path) {
@@ -995,8 +1001,10 @@ const paintQuery = (item) => `path=${encodeURIComponent(item.path)}&full=${state
 async function refreshPaints(item, tag) {
   const mine = await skinsOf(item);
   if (state.current !== item || !currentInfo) return;
-  const game = currentInfo.gameVariants || [];
-  currentInfo = { ...currentInfo, variants: [...game, ...mine] };
+  const game = withOriginal(currentInfo.gameVariants || [], mine);
+  currentInfo = { ...currentInfo, gameVariants: game, variants: [...game, ...mine] };
+  // a skin saved again keeps its tag: what the paint switch built for it before is thrown away
+  if (paintSwap) for (const t of [...paintSwap.paints.keys()]) if (isSkin(t)) paintSwap.forget(t);
   state.variant = currentInfo.variants.some((v) => v.tag === tag) ? tag : (game.find((v) => v.stock) || game[0])?.tag ?? null;
   state.comparing = false;
   showInfo(item, { ...currentInfo, variant: state.variant });
@@ -2540,6 +2548,7 @@ const skinLab = initSkinLab({
   loadModel, changePaint, refreshPaints, closeMenus, resize,
   invalidate: (ms) => { renderer.shadowMap.needsUpdate = true; invalidate(ms); },
   paintSwap: () => paintSwap,
+  loading: () => !$("#loading").classList.contains("hidden"),
   resinOn: () => resin !== "off",
   showBackdrop: (kind) => backdrop.set(kind).catch(() => backdrop.set("plain")),
   // the materials on screen (the game materials while a look is drawn over them)

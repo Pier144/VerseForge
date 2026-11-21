@@ -173,6 +173,29 @@ def test_a_name_already_used_gets_a_number(tmp_path):
     assert d["name"] == "Night Raid" and len(os.listdir(lib)) == 4
 
 
+def test_long_names_get_their_number_without_clashing(tmp_path):
+    lib, long = str(tmp_path), "N" * 60
+    made = [skins.save(lib, skin(name=long, target={"model": f"m{i}.cgf"})) for i in range(3)]
+    assert len(os.listdir(lib)) == 3 and len({s["id"] for s in made}) == 3      # no file overwritten
+    twins = [skins.save(lib, skin(name=long)) for _ in range(3)]
+    assert len({s["name"] for s in twins}) == 3 and all(len(s["name"]) <= 60 for s in twins)
+
+
+def test_a_finish_alone_never_invents_a_reflectance():
+    out = skins.effective(PAL, skins.validate(skin(palette={}, materials={
+        "steel": {"finish": {"preset": "metal", "gloss": 100}}, "plain": {"finish": {"preset": "metal"}}})))["materials"]
+    assert out == {"steel": {"color": None, "spec": None, "gloss": 100}}
+
+
+def test_oversized_skin_json_is_refused():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("skin.json", " " * (skins.MAX_JSON + 1))
+    with pytest.raises(skins.SkinError) as e:
+        skins.read_bytes(buf.getvalue())
+    assert e.value.code == "bad_file"
+
+
 def test_names_that_are_not_file_names(tmp_path):
     a = skins.save(str(tmp_path), skin(name='Red / "Blue" ?'))
     assert a["name"] == 'Red / "Blue" ?' and os.listdir(tmp_path) == ["Red _ _Blue_ _.vfskin"]

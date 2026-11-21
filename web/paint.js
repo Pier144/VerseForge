@@ -229,6 +229,14 @@ export class PaintSwap {
     }
   }
 
+  // a paint whose content changed under the same tag (a user skin saved again, or deleted): built again next time
+  forget(tag) {
+    const built = this.paints.get(tag);
+    if (!built || tag === this.current) return;
+    this.paints.delete(tag);
+    this.free(built);
+  }
+
   evict() {
     while (this.paints.size > KEEP) {
       const [tag, built] = this.paints.entries().next().value;

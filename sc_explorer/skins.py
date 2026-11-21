@@ -18,6 +18,7 @@ FORMAT = 1
 EXT = ".vfskin"
 SLOTS = "ABC"
 NAME_MAX = 60
+MAX_JSON = 1024 * 1024           # skin.json unpacked: a few kilobytes in practice
 MAX_FILE = 32 * 1024 * 1024      # a skin file someone passed on: no bigger than this, images included
 
 # Finishes. A palette entry sets the tint, the reflectance (specColor, sRGB, gamma 2 like the tint) and the
@@ -62,7 +63,7 @@ def validate(data):
     name = data.get("name")
     if not isinstance(name, str) or not name.strip():
         raise SkinError("invalid", "name: missing")
-    out["name"] = " ".join(name.split())[:NAME_MAX]
+    out["name"] = " ".join(name.split())[:NAME_MAX].rstrip()
     if "id" in data and data["id"] is not None:
         if not isinstance(data["id"], str) or not re.fullmatch(r"[0-9a-f]{8}", data["id"]):
             raise SkinError("invalid", "id: eight hexadecimal digits expected")
@@ -196,7 +197,8 @@ def effective(base_palette, skin):
             mats[name.lower()] = {"color": colour, "spec": spec, "gloss": gloss}
         elif (m.get("finish") or {}).get("preset", "base") not in ("base", "metal") or (m.get("finish") or {}).get("gloss") is not None:
             _, spec, gloss = _look([0, 0, 0], m.get("finish"))
-            mats[name.lower()] = {"color": None, "spec": spec, "gloss": gloss}
+            metal = (m.get("finish") or {}).get("preset") == "metal"
+            mats[name.lower()] = {"color": None, "spec": None if metal else spec, "gloss": gloss}
     if mats:
         out["materials"] = mats
     return out
@@ -240,6 +242,8 @@ def read_bytes(data):
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             if "skin.json" not in z.namelist():
                 raise SkinError("bad_file", "not a VerseForge skin: no skin.json inside")
+            if z.getinfo("skin.json").file_size > MAX_JSON:
+                raise SkinError("bad_file", "not a VerseForge skin: skin.json is too large")
             raw = z.read("skin.json")
     except zipfile.BadZipFile:
         raise SkinError("bad_file", "not a VerseForge skin file") from None
@@ -251,6 +255,8 @@ def read_bytes(data):
 
 
 def _read(path):
+    if os.path.getsize(path) > MAX_FILE:
+        raise SkinError("bad_file", "the file is too large to be a skin")
     with open(path, "rb") as f:
         return read_bytes(f.read())
 
@@ -312,11 +318,11 @@ def _numbered(name, taken):
     low = {t.lower() for t in taken}
     if name.lower() not in low:
         return name
-    stem = re.sub(r" \d+$", "", name)
+    stem = re.sub(r" \d+$", "", name)[:NAME_MAX - 4].rstrip()
     n = 2
     while f"{stem} {n}".lower() in low:
         n += 1
-    return f"{stem[:NAME_MAX - len(str(n)) - 1]} {n}"
+    return f"{stem} {n}"
 
 
 def _file_stem(name):

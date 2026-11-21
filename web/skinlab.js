@@ -66,6 +66,7 @@ export function initSkinLab(ctx) {
       if (m.color) out.materials[id] = look(m.color, m.finish, null, null);
       else if (m.finish && ((preset !== "base" && preset !== "metal") || m.finish.gloss != null)) {
         out.materials[id] = { ...look([0, 0, 0], m.finish, null, null), color: null };
+        if (preset === "metal") out.materials[id].spec = null;
       }
     }
     return out;
@@ -117,13 +118,16 @@ export function initSkinLab(ctx) {
 
   // ------------------------------------------------------------ live preview, then the server's confirmation
   const dirty = () => JSON.stringify(lab.skin) !== lab.saved;
+  // the paint on screen is the draft's (or the model was loaded with it): its materials are the lab's to recolour.
+  // A game paint's materials are kept by the paint switch for later and must stay as they are.
+  const draftShown = () => { const s = ctx.paintSwap(); return !s || String(s.current).startsWith("skin:draft"); };
   function touched() {
-    if (lab.comparing) lab.comparing = false;
-    retint(ctx.liveMaterials(), effective());
-    ctx.invalidate(400);
+    const live = draftShown() && !lab.comparing;
+    lab.comparing = false;
+    if (live) { retint(ctx.liveMaterials(), effective()); ctx.invalidate(400); }
     syncButtons();
     clearTimeout(lab.timer);
-    lab.timer = setTimeout(() => confirm(), CONFIRM_MS);
+    lab.timer = setTimeout(() => confirm(), live ? CONFIRM_MS : 0);
   }
   // the draft goes to the server, which answers with the paint it makes: swapped in like any paint (decals and
   // glass follow here; the layers recoloured live get the same numbers again)
@@ -136,7 +140,7 @@ export function initSkinLab(ctx) {
       if (rev !== lab.rev || !lab.on || lab.comparing) return;
       await ctx.changePaint(r.tag, { keepChoice: true });
       // touched again meanwhile: the paint just swapped in is already old, the live colours go back on top
-      if (lab.on && lab.item === item && rev !== lab.rev) { retint(ctx.liveMaterials(), effective()); ctx.invalidate(300); }
+      if (lab.on && lab.item === item && rev !== lab.rev && draftShown()) { retint(ctx.liveMaterials(), effective()); ctx.invalidate(300); }
     } catch (e) {
       if (lab.on) toast(T("labConfirmFail", { error: e.message }), true);
     }
@@ -336,7 +340,7 @@ export function initSkinLab(ctx) {
   // ------------------------------------------------------------ in and out
   async function enter(opts = {}) {
     const item = ctx.state.current;
-    if (!item || lab.on || lab.entering) return;
+    if (!item || lab.on || lab.entering || ctx.loading()) return;
     if (!ctx.state.tex || !ctx.state.look) { toast(T("labNeedsLook"), true); return; }
     if (ctx.resinOn()) { toast(T("labNeedsNoResin"), true); return; }
     lab.entering = true;
@@ -405,7 +409,10 @@ export function initSkinLab(ctx) {
       if (t.closest(".lab-reset")) { reset(key); renderTools(); touched(); }
       else if (t.closest(".lab-sw")) { setColour(key, rgb(t.closest(".lab-sw").dataset.c)); renderTools(); touched(); }
       else if (t.closest("[data-fin]")) {
-        setFinish(key, { preset: t.closest("[data-fin]").dataset.fin, gloss: null });   // a finish brings its own glossiness
+        const preset = t.closest("[data-fin]").dataset.fin;
+        // metal moves the colour to the reflectance: a part still on its own colour takes it as the skin's
+        if (preset === "metal" && isPart(key) && !lab.skin.materials?.[key.slice(2)]?.color) setColour(key, part(key).color);
+        setFinish(key, { preset, gloss: null });        // a finish brings its own glossiness
         renderTools();
         touched();
       } else if (t.closest(".lab-row-name")) { lab.open = lab.open === key ? null : key; renderTools(); }
@@ -438,5 +445,12 @@ export function initSkinLab(ctx) {
     try { await startNew(tag); } catch (err) { toast(err.message, true); }
   });
 
-  return { enter, exit, confirm, effective, get on() { return lab.on; }, get skin() { return lab.skin; }, state: lab };
+  // the model was loaded again under the lab (Full ship, Interiors): the skin on the bench goes back on
+  function reloaded() {
+    lab.comparing = false;
+    syncButtons();
+    return confirm();
+  }
+
+  return { enter, exit, confirm, reloaded, effective, get on() { return lab.on; }, get skin() { return lab.skin; }, state: lab };
 }
