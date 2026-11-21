@@ -38,8 +38,11 @@ class Material:
     holo: bool = False                    # screen kind: a holographic HUD projection (see-through), not a panel
     rtt: bool = False                     # screen kind: a real monitor the game draws live ($RenderToTexture)
     stencil_decal: bool = False           # MeshDecal + %STENCIL_MAP: a livery sticker (kind decal or hidden by palette)
-    # paint layer coloured by the item's tint palette: {"slot": "A"|"B"|"C", "base": linear RGB that times the
-    # palette colour gives the albedo}. The viewer recolours such materials live (Skin Lab, gamelook.js retint)
+    # where the colour of the paint layer comes from: {"slot", "base", "own", "spec_base"}. slot "A"|"B"|"C": an
+    # entry of the item's tint palette; "m:<name>": the layer's own TintColor (armour, most weapon parts), which a
+    # user skin can replace per material (palette["materials"]). base: linear RGB that times the colour gives the
+    # albedo; own: the layer's own colour as sRGB 0-255 (gamma 2); spec_base: linear RGB that times the colour gives
+    # the reflectance, for metal layers. The viewer recolours such materials live (Skin Lab, gamelook.js retint)
     tint: dict | None = None
 
 
@@ -254,6 +257,15 @@ def _material(el, archive=None, palette=None):
         if color == (1.0, 1.0, 1.0) or shader.lower().startswith(("layerblend", "hardsurface")):
             info = _layer(archive, layer.get("Path"))
             base = info["color"] if info else (1.0, 1.0, 1.0)
+            # PaletteTint 1/2/3: colour from entry A/B/C of the item's tint palette (DataCore); unknown -> dark grey
+            slot = layer.get("PaletteTint", "0")
+            key = "ABC"[int(slot) - 1] if slot in ("1", "2", "3") else None
+            # a layer with its own colour (PaletteTint 0): a user skin may give this material another one
+            own = ((palette or {}).get("materials") or {}).get(name.lower()) if slot in ("0", "") else None
+            if slot in ("0", ""):
+                mat.tint = {"slot": "m:" + name.lower(), "own": [int(round(255 * max(0.0, min(1.0, t)) ** 0.5)) for t in tint]}
+                if own and own.get("color"):
+                    tint = palette_linear(own["color"])
             color = tuple(t * b for t, b in zip(tint, base))
             if info:
                 mat.spec = info["spec"]
@@ -261,17 +273,23 @@ def _material(el, archive=None, palette=None):
                 # TintMode 1 layers whose reflectance is a _spec map: the Perseus interior frames are a rust-brown
                 # metal map under a 0.03 tint (dark worn metal), drawn untinted they shone copper-brown like rust
                 if info["tint_mode"] == 2 or (info["tint_mode"] == 1 and info["spec_map"]):
+                    if mat.tint:
+                        mat.tint["spec_base"] = [round(c, 5) for c in mat.spec]
                     mat.spec = tuple(t * c for t, c in zip(tint, mat.spec))
                 try:
                     mat.gloss = info["gloss"] * float(layer.get("GlossMult", "1"))
                 except ValueError:
                     mat.gloss = info["gloss"]
-            # PaletteTint 1/2/3: colour from entry A/B/C of the item's tint palette (DataCore); unknown -> dark grey
-            slot = layer.get("PaletteTint", "0")
-            key = "ABC"[int(slot) - 1] if slot in ("1", "2", "3") else None
+            if own:                              # the skin's finish for this material
+                if own.get("spec"):
+                    mat.spec = palette_linear(own["spec"])
+                if own.get("gloss") is not None:
+                    mat.gloss = own["gloss"] / 255.0
             paint = None
             if key:
-                mat.tint = {"slot": key, "base": [round(c, 5) for c in (info["diff"] if info else base)]}
+                mat.tint = {"slot": key}
+            if mat.tint:
+                mat.tint["base"] = [round(c, 5) for c in (info["diff"] if info else base)]
             if key and palette and palette.get(key):
                 paint = palette_linear(palette[key])
                 color = tuple(p * b for p, b in zip(paint, base))
@@ -292,7 +310,8 @@ def _material(el, archive=None, palette=None):
                 l_diff, l_norm, mat.metal = info["diffuse"], info["normal"], info["metal"]
                 mat.diffuse = l_diff
                 mat.detail_normal = l_norm
-                if info["spec_map"] and not (key and (palette or {}).get("spec", {}).get(key)):
+                if info["spec_map"] and not (key and (palette or {}).get("spec", {}).get(key)) \
+                        and not (own and own.get("spec")):
                     mat.spec_map, mat.spec_tiled = info["spec_map"], True
                 if l_norm and "_ddna" in l_norm.lower():
                     mat.gloss_map = l_norm

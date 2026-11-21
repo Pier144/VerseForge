@@ -48,6 +48,29 @@ def test_validate_refuses(bad):
     assert e.value.code == "invalid"
 
 
+def test_validate_material_colours():
+    out = skins.validate(skin(materials={"Props_M": {"color": [1, 2, 3], "finish": {"preset": "gloss"}},
+                                         "empty": {}, "Fin": {"finish": {"gloss": 10}}}))
+    assert out["materials"] == {"props_m": {"color": [1, 2, 3], "finish": {"preset": "gloss"}},
+                                "fin": {"finish": {"preset": "base", "gloss": 10}}}
+    assert skins.validate(skin())["materials"] == {}
+    for bad in ({"m": {"color": [1]}}, {"m": {"finish": {"preset": "x"}}}, {"m": 3}, [1]):
+        with pytest.raises(skins.SkinError):
+            skins.validate(skin(materials=bad))
+
+
+def test_effective_material_colours():
+    s = skins.validate(skin(palette={}, materials={
+        "Props_M": {"color": [200, 100, 50]}, "Steel": {"color": [200, 100, 50], "finish": {"preset": "metal"}},
+        "Fin": {"finish": {"preset": "matte"}}, "Same": {"finish": {"preset": "base"}}}))
+    out = skins.effective(PAL, s)["materials"]
+    assert out["props_m"] == {"color": [200, 100, 50], "spec": None, "gloss": None}       # the material's own finish
+    assert out["steel"] == {"color": [40, 20, 10], "spec": [200, 100, 50], "gloss": skins.PRESETS["metal"]}
+    assert out["fin"] == {"color": None, "spec": skins.DIELECTRIC, "gloss": skins.PRESETS["matte"]}
+    assert "same" not in out
+    assert "materials" not in skins.effective(PAL, skin(palette={}))
+
+
 def test_validate_refuses_a_newer_format():
     with pytest.raises(skins.SkinError) as e:
         skins.validate(skin(format=skins.FORMAT + 1))
@@ -82,8 +105,9 @@ def test_effective_base_finish_keeps_the_paints_own_with_a_new_colour():
 
 def test_effective_without_a_base_palette():
     out = skins.effective(None, skin(palette={"A": [10, 20, 30]}))
-    assert out["A"] == [10, 20, 30] and out["B"] == skins.NEUTRAL and out["glass"] is None
-    assert all(out["spec"][k] and out["gloss"][k] is not None for k in "ABC")
+    assert out["A"] == [10, 20, 30] and out["spec"]["A"] == skins.DIELECTRIC and out["gloss"]["A"] is not None
+    # an entry nobody colours stays empty: its layers keep the game's dark grey, as under the paint itself
+    assert out["B"] is None and out["spec"]["B"] is None and out["gloss"]["B"] is None and out["glass"] is None
 
 
 def test_find_base_by_material_and_palette_not_by_position():

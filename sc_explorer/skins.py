@@ -22,8 +22,8 @@ NAME_MAX = 60
 # Finishes. A palette entry sets the tint, the reflectance (specColor, sRGB, gamma 2 like the tint) and the
 # glossiness (0-255) of the paint layers that use it. Glossiness of each preset; "metal" also moves the colour from
 # the tint to the reflectance, the way the game's own metals are a black albedo under a coloured F0.
-PRESETS = {"gloss": 225, "satin": 165, "matte": 95, "metal": 205}
-DIELECTRIC = [51, 51, 51]      # F0 0.04 (paint, plastic): (51 / 255) ** 2
+PRESETS = {"gloss": 250, "satin": 200, "matte": 120, "metal": 235}   # the game's paints: median 218, 5 % under 121
+DIELECTRIC = [59, 59, 59]      # the reflectance of 60 % of the game's paint entries (F0 0.054)
 METAL_TINT = 0.2               # what is left of the colour in a metal's albedo: (0.2) ** 2 = 4 %
 NEUTRAL = [128, 128, 128]      # an entry the paint does not define
 
@@ -93,34 +93,85 @@ def validate(data):
         raise SkinError("invalid", "palette.finish: an object expected")
     fin = {}
     for k, f in finish.items():
-        if k not in SLOTS or not isinstance(f, dict):
+        if k not in SLOTS:
             raise SkinError("invalid", f"palette.finish.{k}: unknown entry")
-        preset = f.get("preset", "base")
-        if preset != "base" and preset not in PRESETS:
-            raise SkinError("invalid", f"palette.finish.{k}: unknown finish")
-        one = {**f, "preset": preset}
-        if f.get("gloss") is None:
-            one.pop("gloss", None)
-        else:
-            g = f["gloss"]
-            if not isinstance(g, (int, float)) or isinstance(g, bool) or not 0 <= g <= 255:
-                raise SkinError("invalid", f"palette.finish.{k}.gloss: a number from 0 to 255 expected")
-            one["gloss"] = int(round(g))
-        fin[k] = one
+        fin[k] = _finish(f, f"palette.finish.{k}")
     clean["finish"] = fin
     out["palette"] = clean
+    out["materials"] = _materials(data.get("materials"))
     out.setdefault("pattern", None)
     out.setdefault("decals", {})
     out["author"] = str(data.get("author") or "")
     return out
 
 
+def _finish(f, what):
+    if not isinstance(f, dict):
+        raise SkinError("invalid", f"{what}: unknown entry")
+    preset = f.get("preset", "base")
+    if preset != "base" and preset not in PRESETS:
+        raise SkinError("invalid", f"{what}: unknown finish")
+    one = {**f, "preset": preset}
+    if f.get("gloss") is None:
+        one.pop("gloss", None)
+    else:
+        g = f["gloss"]
+        if not isinstance(g, (int, float)) or isinstance(g, bool) or not 0 <= g <= 255:
+            raise SkinError("invalid", f"{what}.gloss: a number from 0 to 255 expected")
+        one["gloss"] = int(round(g))
+    return one
+
+
+def _materials(data):
+    """Colours of single materials (those whose paint layer has a colour of its own, not the palette's): armour
+    and most weapon parts. {material name, lowercase: {"color": [r, g, b], "finish": {...}}}."""
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise SkinError("invalid", "materials: an object expected")
+    out = {}
+    for name, m in data.items():
+        if not isinstance(name, str) or not isinstance(m, dict):
+            raise SkinError("invalid", "materials: unknown entry")
+        one = dict(m)
+        if m.get("color") is None:
+            one.pop("color", None)
+        else:
+            one["color"] = _rgb(m["color"], f"materials.{name}.color")
+        if m.get("finish") is None:
+            one.pop("finish", None)
+        else:
+            one["finish"] = _finish(m["finish"], f"materials.{name}.finish")
+        if "color" in one or "finish" in one:
+            out[name.lower()] = one
+    return out
+
+
 # ---------------------------------------------------------------- the paint a skin makes
+
+def _look(colour, f, base_spec=None, base_gloss=None):
+    """(tint, reflectance, glossiness) of a colour under a finish. With the "base" finish the reflectance and the
+    glossiness are the ones given (the paint's own, None to leave the material's)."""
+    f = f or {}
+    preset = f.get("preset", "base")
+    if preset == "base":
+        spec, gloss = base_spec, base_gloss
+    elif preset == "metal":
+        spec, gloss = list(colour), PRESETS["metal"]
+        colour = [int(round(c * METAL_TINT)) for c in colour]
+    else:
+        spec, gloss = list(DIELECTRIC), PRESETS[preset]
+    if f.get("gloss") is not None:
+        gloss = f["gloss"]
+    return list(colour), spec, gloss
+
 
 def effective(base_palette, skin):
     """The palette (variants._palette shape) of `skin` over the palette of the paint it starts from (or None).
-    Entries A, B and C always come out with a colour, a reflectance and a glossiness, so the paint layers never fall
-    back to the layer's own reflectance map while a skin is on: changing a finish only changes numbers."""
+    Every entry that has a colour (the paint's or the skin's) comes out with a reflectance and a glossiness too, so
+    its paint layers never fall back to the layer's own reflectance map while a skin is on: changing a finish only
+    changes numbers. An entry neither of them colours stays empty (None), and the layers that name it keep the dark
+    grey the game gives them, exactly as under the paint itself."""
     base = base_palette or {}
     pal = skin.get("palette") or {}
     finish = pal.get("finish") or {}
@@ -128,21 +179,25 @@ def effective(base_palette, skin):
            "decal": base.get("decal"), "decal_colors": base.get("decal_colors") or [None, None, None],
            "spec": {}, "gloss": {}}
     for k in SLOTS:
-        colour = list(pal.get(k) or base.get(k) or NEUTRAL)
-        f = finish.get(k) or {}
-        preset = f.get("preset", "base")
-        if preset == "base":
-            spec = (base.get("spec") or {}).get(k) or DIELECTRIC
-            gloss = (base.get("gloss") or {}).get(k)
-            gloss = PRESETS["satin"] if gloss is None else gloss
-        elif preset == "metal":
-            spec, gloss = colour, PRESETS["metal"]
-            colour = [int(round(c * METAL_TINT)) for c in colour]
-        else:
-            spec, gloss = DIELECTRIC, PRESETS[preset]
-        if f.get("gloss") is not None:
-            gloss = f["gloss"]
+        if not (pal.get(k) or base.get(k)):
+            out[k], out["spec"][k], out["gloss"][k] = None, None, None
+            continue
+        base_gloss = (base.get("gloss") or {}).get(k)
+        colour, spec, gloss = _look(pal.get(k) or base.get(k), finish.get(k),
+                                    (base.get("spec") or {}).get(k) or DIELECTRIC,
+                                    PRESETS["satin"] if base_gloss is None else base_gloss)
         out[k], out["spec"][k], out["gloss"][k] = colour, list(spec), int(gloss)
+    # single materials: only what the skin sets (a finish without a colour keeps the material's own colour)
+    mats = {}
+    for name, m in (skin.get("materials") or {}).items():
+        if m.get("color"):
+            colour, spec, gloss = _look(m["color"], m.get("finish"))
+            mats[name.lower()] = {"color": colour, "spec": spec, "gloss": gloss}
+        elif (m.get("finish") or {}).get("preset", "base") not in ("base", "metal") or (m.get("finish") or {}).get("gloss") is not None:
+            _, spec, gloss = _look([0, 0, 0], m.get("finish"))
+            mats[name.lower()] = {"color": None, "spec": spec, "gloss": gloss}
+    if mats:
+        out["materials"] = mats
     return out
 
 

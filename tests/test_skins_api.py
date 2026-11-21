@@ -159,9 +159,31 @@ def test_materials_name_the_palette_entry_they_use():
     # base x the palette colour (gamma 2) is the albedo the server sends: what the viewer's retint computes
     want = [b * c for b, c in zip(sh["tint"]["base"], materials.palette_linear(PAL["B"]))]
     assert sh["albedo"] == pytest.approx(want, abs=1e-4)
-    # entry known even when the palette does not fill it; none for a layer with its own colour
+    # entry known even when the palette does not fill it
     assert materials._material(ET.fromstring(LAYER.format(slot=3)), None, None).tint["slot"] == "C"
-    assert materials._material(ET.fromstring(LAYER.format(slot=0)), None, PAL).tint is None
+
+
+OWN = ('<Material Name="Props_M" Shader="LayerBlend_V2" Diffuse="1,1,1"><MatLayers>'
+       '<Layer Path="" TintColor="0.25,0.04,1" PaletteTint="0"/></MatLayers></Material>')
+
+
+def test_a_layer_with_its_own_colour_can_be_recoloured_by_a_skin():
+    el = ET.fromstring(OWN)
+    m = materials._material(el, None, PAL)
+    # named by material, with the colour it has now (sRGB, gamma 2: 0.25 -> 128, 0.04 -> 51)
+    assert m.tint == {"slot": "m:props_m", "own": [128, 51, 255], "base": [1.0, 1.0, 1.0]}
+    assert m.color == pytest.approx((0.25, 0.04, 1.0))
+    pal = skins.effective(PAL, {"materials": {"Props_M": {"color": [255, 0, 0], "finish": {"preset": "matte"}}}})
+    red = materials._material(el, None, pal)
+    assert red.color == pytest.approx((1.0, 0.0, 0.0)) and red.tint["own"] == [128, 51, 255]
+    assert red.gloss == pytest.approx(skins.PRESETS["matte"] / 255)
+    assert red.spec == pytest.approx(materials.palette_linear(skins.DIELECTRIC))
+    # other materials, and this one under a skin that does not name it, stay as they are
+    assert materials._material(el, None, skins.effective(PAL, {"materials": {"other": {"color": [1, 1, 1]}}})).color == m.color
+    # a palette entry is never overridden by a material colour
+    slot = materials._material(ET.fromstring(LAYER.format(slot=1)), None,
+                               skins.effective(PAL, {"materials": {"paint": {"color": [0, 0, 255]}}}))
+    assert slot.color == pytest.approx(materials.palette_linear(PAL["A"]))
 
 
 def test_a_skin_without_changes_colours_like_its_base_paint():

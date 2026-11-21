@@ -746,10 +746,21 @@ def skins_base(path: str, variant: str = None, full: bool = False):
     _require_ready()
     v = state.variant(path, variant)
     m = state.get_model(path, variant, full)
-    used = sorted({p.material.tint["slot"] for p in m.parts if p.material.tint and p.material.kind != "hidden"})
+    used, own = set(), {}
+    for p in m.parts:
+        t = p.material.tint
+        if not t or p.material.kind != "solid":
+            continue
+        if t["slot"].startswith("m:"):
+            # materials with a colour of their own (armour, weapon parts), biggest surface first
+            e = own.setdefault(t["slot"][2:], {"name": p.material.name, "color": t["own"], "faces": 0})
+            e["faces"] += len(p.faces)
+        else:
+            used.add(t["slot"])
     pal = (v or {}).get("palette")
     return {"tag": v["tag"] if v else None, "base": skins.base_ref(v) if not (v or {}).get("custom") else None,
-            "palette": skins.effective(pal, {"palette": {}}), "slots": used,
+            "palette": skins.effective(pal, {"palette": {}}), "slots": sorted(used),
+            "materials": sorted(({"id": k, **e} for k, e in own.items()), key=lambda e: -e["faces"]),
             "glass": bool(pal and pal.get("glass")) and any(p.material.kind == "glass" for p in m.parts),
             "presets": skins.PRESETS, "dielectric": skins.DIELECTRIC, "metal_tint": skins.METAL_TINT}
 
