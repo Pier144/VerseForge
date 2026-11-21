@@ -10,6 +10,7 @@ import { Backdrops, BACKDROPS } from "./backdrops.js";
 import { Batches } from "./batching.js";
 import { ScaleRefs, SCALE_IDS } from "./scale.js";
 import { PaintSwap, groupOf } from "./paint.js";
+import { initSkinLab } from "./skinlab.js";
 
 const $ = (s) => document.querySelector(s);
 const api = async (url, opts) => {
@@ -368,7 +369,7 @@ window.__verseforge = { get root() { return modelRoot; }, anim, get screen() { r
   camera, controls, renderer, scene, frame: () => frame(), load: (item) => loadModel(item), state: () => state, setLighting,
   get backdrop() { return backdrop; }, get batches() { return batches; },
   get batching() { return BATCH_ON; }, set batching(on) { BATCH_ON = !!on; }, get look() { return gameLook; }, stats,
-  get paint() { return paintSwap; }, get scale() { return scaleRefs; }, get info() { return currentInfo; }, changePaint: (tag, o) => changePaint(tag, o), invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
+  get paint() { return paintSwap; }, get scale() { return scaleRefs; }, get info() { return currentInfo; }, get lab() { return skinLab; }, changePaint: (tag, o) => changePaint(tag, o), invalidate: (ms) => invalidate(ms), tick: () => tick() };   // for automated checks (tools/, tests)
 // Render on demand: a frame is drawn only when something changed (camera moving or settling, an animation or the
 // auto-rotate running, a texture/material update, a shadow redraw request, an explicit invalidate()), plus once a
 // second as a safety net. A still model leaves the GPU idle instead of redrawing it 60 times a second.
@@ -790,18 +791,33 @@ async function readWithProgress(res, onProgress) {
   return out.buffer;
 }
 
+// the user's skins of a model (Skin Lab), listed among its paints; none when the list cannot be read
+async function skinsOf(item) {
+  try { return (await api(`/api/skins?path=${encodeURIComponent(item.path)}`).then((r) => r.json())).skins; } catch { return []; }
+}
+const isSkin = (tag) => String(tag ?? "").startsWith("skin:");
+// the categories whose models get the "+" tile of the Skin Lab among their paints (the toolbar button is for all)
+const SKIN_CATS = ["ships", "vehicles", "components", "weapons", "attachments", "armor", "clothing", "tools"];
+
 async function loadModel(item, keepView = false, opts = {}) {
-  if (state.current?.path !== item.path) state.variant = null;
+  if (state.current?.path !== item.path) { state.variant = null; state.keyed = false; }
   state.current = item;
   // The old model stays on screen while this one loads, so its paint (textures included) must stay alive: a swap in
   // progress is only cancelled here, and the PaintSwap is freed together with the model below. Meanwhile paint
   // changes reload.
   if (paintSwap) { paintSwap.seq++; retiredSwap = paintSwap; paintSwap = null; }
   // opts.paint: show this paint without making it the chosen one (Compare with stock on a model that must reload)
-  const paintTag = opts.paint ?? state.variant;
   if (!keepView) state.matOff.clear();
+  const mine = await skinsOf(item);
+  if (state.current !== item) return;
+  // a skin that was deleted meanwhile is not a paint any more
+  if (isSkin(state.variant) && !mine.some((s) => s.tag === state.variant)) state.variant = null;
+  // a model with skins needs its pieces grouped by paint (keyed), whatever the number of game paints: asked for
+  // from here on, also by the Skin Lab (skinlab.js)
+  if (mine.length) state.keyed = true;
+  const paintTag = opts.paint ?? state.variant;
   const v = (paintTag != null ? `&variant=${encodeURIComponent(paintTag)}` : "") + `&full=${state.full}` +
-    `&interior=${state.interior}`;
+    `&interior=${state.interior}` + (state.keyed ? "&keyed=true" : "");
   const swapQuery = paintQuery(item);   // the model this load shows, for its paint requests
   document.querySelectorAll(".results li").forEach((li) => li.classList.toggle("active", li.dataset.path === item.path));
   $("#empty").classList.add("hidden");
@@ -818,6 +834,8 @@ async function loadModel(item, keepView = false, opts = {}) {
     ]);
     if (state.current !== item) return;  // user clicked something else meanwhile
     const info = await infoRes.json();
+    info.gameVariants = info.variants;                  // the game's paints, then the user's skins
+    info.variants = [...info.variants, ...mine];
     if (opts.paint == null) { state.variant = info.variant; state.comparing = false; }
     // download: 0-70 % of the bar, parsing 70-75 %, game textures 75-100 %
     const buf = await readWithProgress(glbRes, (done, total) => {
@@ -934,6 +952,8 @@ async function loadModel(item, keepView = false, opts = {}) {
     applySection();
     $("#fullLabel").textContent = T(info.ground_vehicle ? "fullVehicle" : "fullShip");
     loadRelated(item);
+    // reloaded while the Skin Lab is open (Full ship, Interiors): the skin on the bench goes back on
+    if (skinLab.on && opts.paint == null) skinLab.confirm();
   } catch (e) {
     // failed before the old model went away (it is still on screen, with its paint): paint changes swap again
     if (state.current === item && retiredSwap?.root === modelRoot && retiredSwap.path === item.path) {
@@ -967,7 +987,21 @@ function startScreens(item, info) {
   }
 }
 
-const paintQuery = (item) => `path=${encodeURIComponent(item.path)}&full=${state.full}&interior=${state.interior}`;
+const paintQuery = (item) => `path=${encodeURIComponent(item.path)}&full=${state.full}&interior=${state.interior}` +
+  (state.keyed ? "&keyed=true" : "");
+
+// The paints of the model on screen changed (a skin was saved or deleted in the Skin Lab): list them again and
+// show `tag` (or the stock paint when it is gone).
+async function refreshPaints(item, tag) {
+  const mine = await skinsOf(item);
+  if (state.current !== item || !currentInfo) return;
+  const game = currentInfo.gameVariants || [];
+  currentInfo = { ...currentInfo, variants: [...game, ...mine] };
+  state.variant = currentInfo.variants.some((v) => v.tag === tag) ? tag : (game.find((v) => v.stock) || game[0])?.tag ?? null;
+  state.comparing = false;
+  showInfo(item, { ...currentInfo, variant: state.variant });
+  if (state.variant != null || paintSwap) await changePaint(state.variant);
+}
 
 // Show paint `tag`: swapped in place when the model allows it (paint.js), else reloaded as before.
 // keepChoice: Compare with stock, the menu and the exports keep the chosen paint. The last request wins.
@@ -1065,7 +1099,7 @@ function showInfo(item, info) {
     <div class="specs" title="${esc(sizes)}">
       <b>${fmtSize(size)}</b>${T("triangles")} ${num(s.triangles)} · ${T("parts")} ${num(s.parts)} · ${T("materials")} ${s.materials.length}
     </div>
-    ${info.variants.length > 1 ? `<div class="variant"><div class="paint-head"><span>${paintWord(item)}</span><b id="paintName"></b></div>
+    ${info.variants.length > 1 || labTile(item) ? `<div class="variant"><div class="paint-head"><span>${paintWord(item)}</span><b id="paintName"></b></div>
       <div id="paintGrid" class="paint-grid" role="radiogroup" aria-label="${esc(paintWord(item))}"></div>
       <select id="variantSel" hidden>${info.variants.map((v) => `<option value="${esc(v.tag)}"${v.tag === info.variant ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></div>` : ""}
     ${info.warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join("")}`;
@@ -1086,7 +1120,7 @@ function showInfo(item, info) {
     info.variants.forEach((v) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "paint-sw" + (v.colors ? "" : " stock");
+      b.className = "paint-sw" + (v.colors ? "" : " stock") + (v.custom ? " custom" : "");
       b.dataset.tag = v.tag;
       b.setAttribute("role", "radio");
       b.setAttribute("aria-label", v.label);
@@ -1103,6 +1137,18 @@ function showInfo(item, info) {
       });
       grid.append(b);
     });
+    if (labTile(item)) {
+      // the last tile makes a new skin from the paint shown (Skin Lab)
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "paint-sw new";
+      b.textContent = "+";
+      b.title = T("newSkin");
+      b.setAttribute("aria-label", T("newSkin"));
+      b.addEventListener("pointerenter", () => { name.textContent = T("newSkin"); name.classList.add("peek"); });
+      b.addEventListener("click", () => skinLab.enter({ fresh: true }));
+      grid.append(b);
+    }
     grid.addEventListener("pointerleave", mark);
     mark();
     grid.querySelector(".paint-sw.on")?.scrollIntoView({ block: "nearest" });
@@ -1111,8 +1157,10 @@ function showInfo(item, info) {
       state.comparing = false;
       changePaint(e.target.value);
       showCompare(info);
+      showEditSkin(info);
     });
     showCompare(info);
+    showEditSkin(info);
   }
   $("#exportBox").classList.remove("hidden");
   $("#printBox").classList.remove("hidden");
@@ -1120,6 +1168,24 @@ function showInfo(item, info) {
   $("#decalStatus").textContent = "";
   decalLength = Math.max(...s.size_m);
   showDecalSize();
+}
+
+// the "+" tile among the paints: for the kinds of model people paint, with the game look on (the Skin Lab needs it)
+const labTile = (item) => SKIN_CATS.includes(item.category) && state.tex && state.look;
+
+// "Edit in Skin Lab" under the paint menu while one of the user's skins is the chosen paint
+function showEditSkin(info) {
+  let btn = $("#editSkin");
+  if (!isSkin(state.variant) || !info.variants.some((v) => v.tag === state.variant)) { btn?.remove(); return; }
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.id = "editSkin";
+    btn.type = "button";
+    btn.className = "cmp";
+    btn.textContent = "✎ " + T("editSkin");
+    ($("#cmpStock") || $("#info .variant")).after(btn);
+    btn.onclick = () => skinLab.enter();
+  }
 }
 
 // "Compare with stock paint" under the paint menu: shows the stock paint without changing the chosen one
@@ -1392,7 +1458,7 @@ function showPanels(on) {
 function hasModel(on) {
   if (document.documentElement.classList.contains("vf-nomodel") === !on) return;
   document.documentElement.classList.toggle("vf-nomodel", !on);
-  document.querySelectorAll('.toolbar [data-act="reset"], .toolbar [data-act="wire"], .toolbar [data-act="rotate"], .toolbar [data-act="scale"], .toolbar [data-act="resin"], .toolbar [data-act="shot"]')
+  document.querySelectorAll('.toolbar [data-act="reset"], .toolbar [data-act="wire"], .toolbar [data-act="rotate"], .toolbar [data-act="scale"], .toolbar [data-act="resin"], .toolbar [data-act="shot"], .toolbar [data-act="skinlab"]')
     .forEach((b) => { b.disabled = !on; });
   resize();
 }
@@ -1463,6 +1529,7 @@ function act(a, b = document.querySelector(`[data-act="${a}"]`)) {
     setLighting(state.light);
   }
   if (a === "panels") showPanels(document.documentElement.classList.contains("vf-bare"));
+  if (a === "skinlab") { if (skinLab.on) skinLab.exit(); else skinLab.enter(); }
   if (a === "bg") $("#bgMenu").classList.toggle("hidden");
   if (a === "resin") $("#resinMenu").classList.toggle("hidden");
   if (a === "scale") $("#scaleMenu").classList.toggle("hidden");
@@ -2466,5 +2533,38 @@ $("#repFallback").addEventListener("click", () =>
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+// ---------------------------------------------------------------- Skin Lab (skinlab.js)
+const skinLab = initSkinLab({
+  $, api, T, toast, esc, state, backdrop,
+  loadModel, changePaint, refreshPaints, closeMenus, resize,
+  invalidate: (ms) => { renderer.shadowMap.needsUpdate = true; invalidate(ms); },
+  paintSwap: () => paintSwap,
+  resinOn: () => resin !== "off",
+  showBackdrop: (kind) => backdrop.set(kind).catch(() => backdrop.set("plain")),
+  // the materials on screen (the game materials while a look is drawn over them)
+  liveMaterials: () => {
+    const out = new Set();
+    modelRoot?.traverse((o) => { if (o.isMesh) out.add(o.userData.gameMaterial || o.material); });
+    for (const b of batches.list) out.add(b.userData.gameMaterial || b.material);
+    return out;
+  },
+  gameVariants: () => currentInfo?.gameVariants || [],
+  // the colours of the game's paints of this model, once each, for the swatches
+  gameColours: () => {
+    const seen = new Set(), out = [];
+    for (const v of currentInfo?.gameVariants || []) {
+      for (const c of v.colors || []) {
+        const k = c.join(",");
+        if (!seen.has(k)) { seen.add(k); out.push(c); }
+      }
+    }
+    return out.slice(0, 24);
+  },
+});
+document.querySelector('[data-act="skinlab"]').classList.toggle("on", false);
+new MutationObserver(() => document.querySelector('[data-act="skinlab"]')
+  .classList.toggle("on", document.documentElement.classList.contains("vf-lab")))
+  .observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
 pollStatus();

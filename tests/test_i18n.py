@@ -52,8 +52,8 @@ def test_page_texts_have_keys_and_agree_with_the_script():
 
 
 def test_script_keys_exist():
-    """Every T("key") / plural(.., "key", "key") in app.js is a known text."""
-    src = open(os.path.join(WEB, "app.js"), encoding="utf-8").read()
+    """Every T("key") / plural(.., "key", "key") in the page's scripts is a known text."""
+    src = "".join(open(os.path.join(WEB, f), encoding="utf-8").read() for f in ("app.js", "skinlab.js"))
     used = set(re.findall(r'\bT\(\s*"(\w+)"', src))
     used |= {k for pair in re.findall(r'\bT\([^"()]*\?\s*"(\w+)"\s*:\s*"(\w+)"', src) for k in pair}
     used |= {k for pair in re.findall(r'plural\([^,]+,\s*"(\w+)",\s*"(\w+)"\)', src) for k in pair}

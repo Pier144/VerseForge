@@ -33,6 +33,37 @@ function swapRefs(m, from, to) {
   }
 }
 
+// Skin Lab: recolour paint layers in place, with the numbers the server would give them (materials.py: the palette
+// colour, gamma 2, times the layer's base; the palette's reflectance and glossiness). Only values change, never a
+// define or a texture, so nothing is compiled again. `pal`: the skin's effective palette (skins.effective):
+// {A, B, C: [r, g, b] | null, spec: {A..}, gloss: {A..}, materials: {name: {color, spec, gloss}}}, sRGB 0-255.
+// A layer the palette says nothing about goes back to what the server gave it. Returns how many were set.
+const lin2 = (c) => (c / 255) ** 2;
+export function retint(materials, pal) {
+  let n = 0;
+  for (const m of materials) {
+    const u = m?.userData?.gameUniforms;
+    if (m?.userData?.stencilTinted && u?.gameStencilColors && pal.A && pal.B && pal.C) {
+      ["A", "B", "C"].forEach((k, i) => u.gameStencilColors.value[i]?.set(lin2(pal[k][0]), lin2(pal[k][1]), lin2(pal[k][2])));
+    }
+    const t = m?.userData?.tint;
+    if (!t || !u) continue;
+    const own = t.slot.startsWith("m:");
+    const e = own ? pal.materials?.[t.slot.slice(2)]
+      : pal[t.slot] ? { color: pal[t.slot], spec: pal.spec?.[t.slot], gloss: pal.gloss?.[t.slot] } : null;
+    const col = e?.color ? e.color.map(lin2) : null;
+    if (col) m.color.setRGB(t.base[0] * col[0], t.base[1] * col[1], t.base[2] * col[2]);
+    else m.color.setRGB(...t.was.albedo);
+    let spec = t.was.spec;
+    if (e?.spec) spec = e.spec.map(lin2);
+    else if (col && t.spec_base) spec = t.spec_base.map((s, i) => s * col[i]);   // metal layers: the colour tints F0
+    m.specularColor.setRGB(spec[0] / 0.04, spec[1] / 0.04, spec[2] / 0.04);
+    u.gameGloss.value = e?.gloss != null ? e.gloss / 255 : t.was.gloss;
+    n++;
+  }
+  return n;
+}
+
 // Compressed formats this GPU takes as they are: the server then sends the game's own blocks (DDS) instead of a
 // decoded JPEG/PNG, and they stay compressed in video memory (4-8x smaller than RGBA8). ?gputex=0 turns it off.
 function gpuFormats(renderer) {
@@ -406,6 +437,10 @@ void main() {
     m.color.setRGB(...sh.albedo);
     // F0 = 0.04 * specularColor at ior 1.5 (clamped to 1 per channel by three.js)
     m.specularColor.setRGB(...sh.spec.map((c) => c / 0.04));
+    // paint layers the Skin Lab recolours in place (retint below): where their colour comes from, and what the
+    // server gave them, to go back to
+    if (kind === "solid" && sh.tint) m.userData.tint = { ...sh.tint, was: { albedo: sh.albedo, spec: sh.spec, gloss: sh.gloss } };
+    if (kind === "solid" && sh.stencil?.tinted) m.userData.stencilTinted = true;
     if (kind === "decal") {
       // decals keep their own colour/alpha texture and only take the game's reflectance and gloss
       m.map = decalMap || old.map;
