@@ -51,52 +51,53 @@ Specifica: `docs/superpowers/specs/2026-11-21-skin-lab-colori-design.md`. Ramo `
 ## Task
 
 ### Task 1: `skins.py`, formato e libreria
-- [ ] prove: `validate` (tipi, intervalli, formato più nuovo, nome), scrittura e rilettura, zip rotto, nomi doppi,
+- [x] prove: `validate` (tipi, intervalli, formato più nuovo, nome), scrittura e rilettura, zip rotto, nomi doppi,
       campi sconosciuti conservati, cancellazione
-- [ ] `validate`, `new_id`, `save`, `load`, `list_skins`, `delete`, `import_bytes`, `export_path`
-- [ ] commit
+- [x] `validate`, `new_id`, `save`, `load`, `list_skins`, `delete`, `import_bytes`, `export_path`
+- [x] commit
 
 ### Task 2: `skins.py`, tavolozza effettiva
-- [ ] prove: i cinque preset, tavolozza sempre completa, cursore fine, `find_base` per materiale + tavolozza con
+- [x] prove: i cinque preset, tavolozza sempre completa, cursore fine, `find_base` per materiale + tavolozza con
       elenco riordinato, base sparita → di serie, modello senza vernici
-- [ ] `PRESETS`, `effective(base_palette, skin)`, `find_base(variants, skin)`, `apply(base, skin)`
-- [ ] commit
+- [x] `PRESETS`, `effective(base_palette, skin)`, `find_base(variants, skin)`, `apply(base, skin)`
+- [x] commit
 
 ### Task 3: `tint` nei materiali
-- [ ] prove (su XML finti, come `test_paints.py`): `shading()["tint"]`, base × tinta = albedo, `stencil.tinted`,
+- [x] prove (su XML finti, come `test_paints.py`): `shading()["tint"]`, base × tinta = albedo, `stencil.tinted`,
       skin senza modifiche = vernice di partenza per colore
-- [ ] `Material.tint`, `_material`, `_hull_stencil`, `shading`; `FORMAT` 13
-- [ ] commit
+- [x] `Material.tint`, `_material`, `_hull_stencil`, `shading`; `FORMAT` 13
+- [x] commit
 
 ### Task 4: server, skin come vernice
-- [ ] prove col TestClient (stato finto come `test_paint_api.py`): `State.variant`, 404, chiave che cambia al
+- [x] prove col TestClient (stato finto come `test_paint_api.py`): `State.variant`, 404, chiave che cambia al
       salvataggio, bozza, `keyed`
-- [ ] `State.variant`, `tag_of`, `get_model`, `keyed(path, force)`, `swappable`, bozza, salto della cache su disco
-- [ ] chiamate `/api/skins`, `/api/skins/{id}`, `/api/skins/draft`, `/api/skins/base`, import, export
-- [ ] commit
+- [x] `State.variant`, `tag_of`, `get_model`, `keyed(path, force)`, `swappable`, bozza, salto della cache su disco
+- [x] chiamate `/api/skins`, `/api/skins/{id}`, `/api/skins/draft`, `/api/skins/base`, import, export
+- [x] commit
 
 ### Task 5: testi
-- [ ] chiavi in `i18n.py` e nelle 10 lingue; `tests/test_i18n.py` verde
-- [ ] commit
+- [x] chiavi in `i18n.py` e nelle 10 lingue; `tests/test_i18n.py` verde
+- [x] commit
 
 ### Task 6: `retint` nel visualizzatore
-- [ ] `gamelook.js`: `userData.tint`, `retint(materials, palette)`; `paint.js`: niente da cambiare oltre a esporre
+- [x] `gamelook.js`: `userData.tint`, `retint(materials, palette)`; `paint.js`: niente da cambiare oltre a esporre
       i materiali vivi
-- [ ] commit
+- [x] commit
 
 ### Task 7: schermata Skin Lab
-- [ ] `index.html` + `style.css`: pulsante nella barra, pannello strumenti (sinistra), pannello libreria (destra)
-- [ ] `skinlab.js`: entrata (ricarica con `keyed` se serve, sfondo studio), righe colore con selettore, esadecimale
+- [x] `index.html` + `style.css`: pulsante nella barra, pannello strumenti (sinistra), pannello libreria (destra)
+- [x] `skinlab.js`: entrata (ricarica con `keyed` se serve, sfondo studio), righe colore con selettore, esadecimale
       e campioni, finiture, vetro, dal vivo + conferma a 300 ms, Save / Save as copy / Delete / Import / Export /
       Compare / Exit, conferma all'uscita con modifiche non salvate
-- [ ] `app.js`: skin tra i tasselli con segno, "+ New skin", `keyed` nelle richieste, export con la skin scelta
-- [ ] commit
+- [x] `app.js`: skin tra i tasselli con segno, "+ New skin", `keyed` nelle richieste, export con la skin scelta
+- [x] commit
 
 ### Task 8: prove sul gioco e nell'anteprima
-- [ ] `tests/test_skins_game.py` (saltate senza `Data.p4k`): una nave, un'arma, un'armatura; GLB esportato coi
+- [x] `tests/test_skins_game.py` (saltate senza `Data.p4k`): una nave, un'arma, un'armatura; GLB esportato coi
       colori della skin
-- [ ] `tools/skin_check.py`; prova a mano nell'anteprima con screenshot
-- [ ] tutte le prove verdi; commit
+- [ ] `tools/skin_check.py` (non fatto: misure prese a mano)
+- [x] prova a mano nell'anteprima con screenshot (`docs/anteprime/skin-lab/`)
+- [x] tutte le prove verdi; commit
 
 ## Fuori dal piano
 

@@ -18,6 +18,7 @@ FORMAT = 1
 EXT = ".vfskin"
 SLOTS = "ABC"
 NAME_MAX = 60
+MAX_FILE = 32 * 1024 * 1024      # a skin file someone passed on: no bigger than this, images included
 
 # Finishes. A palette entry sets the tint, the reflectance (specColor, sRGB, gamma 2 like the tint) and the
 # glossiness (0-255) of the paint layers that use it. Glossiness of each preset; "metal" also moves the colour from
@@ -233,6 +234,8 @@ def apply(base, skin, tag):
 
 def read_bytes(data):
     """The skin inside the bytes of a .vfskin file, validated. Raises SkinError."""
+    if len(data) > MAX_FILE:
+        raise SkinError("bad_file", "the file is too large to be a skin")
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             if "skin.json" not in z.namelist():
@@ -381,7 +384,9 @@ def import_bytes(folder, data):
     saved = save(folder, skin)
     try:                                              # the images of the file come along
         with zipfile.ZipFile(io.BytesIO(data)) as z:
-            extra = {n: z.read(n) for n in z.namelist() if n != "skin.json" and not n.endswith("/")}
+            # only the images folder, and no more than a skin file may weigh once unpacked
+            keep = [i for i in z.infolist() if i.filename.startswith("images/") and not i.filename.endswith("/")]
+            extra = {i.filename: z.read(i) for i in keep} if sum(i.file_size for i in keep) <= MAX_FILE else {}
     except zipfile.BadZipFile:
         extra = {}
     if extra:

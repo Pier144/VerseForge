@@ -216,6 +216,23 @@ def test_import_keeps_both_when_the_id_is_taken_and_carries_images(tmp_path):
         assert z.read("images/logo.png") == b"PNG" and json.loads(z.read("skin.json"))["palette"]["B"] == [1, 1, 1]
 
 
+def test_import_takes_only_the_images_and_refuses_huge_files(tmp_path, monkeypatch):
+    lib = str(tmp_path / "lib")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("skin.json", json.dumps(skin()))
+        z.writestr("images/logo.png", b"PNG")
+        z.writestr("../evil.txt", b"x")
+        z.writestr("readme.txt", b"x")
+    got = skins.import_bytes(lib, buf.getvalue())
+    with zipfile.ZipFile(skins.find(lib, got["id"])[1]) as z:
+        assert sorted(z.namelist()) == ["images/logo.png", "skin.json"]
+    monkeypatch.setattr(skins, "MAX_FILE", 10)
+    with pytest.raises(skins.SkinError) as e:
+        skins.import_bytes(lib, buf.getvalue())
+    assert e.value.code == "bad_file"
+
+
 def test_a_file_changed_by_hand_is_read_again(tmp_path):
     lib = str(tmp_path)
     a = skins.save(lib, skin())

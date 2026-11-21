@@ -225,6 +225,51 @@ all'utente. Deve tenere l'aspetto attuale dell'app, senza grafica "da IA".
 - Prove sul gioco vero (saltate senza `Data.p4k`): una nave, un'arma, un'armatura.
 - Export: un GLB esportato con una skin ha i colori della skin.
 
+## Note di realizzazione (21/11/2026, ramo `skin-lab`)
+
+Cose scoperte e decise durante lo sviluppo, che cambiano o precisano quanto sopra.
+
+- **Colori delle parti.** Le armature e molte parti delle armi non prendono i colori dalla tavolozza A/B/C: ogni
+  materiale ha una tinta propria (`TintColor` dello strato, `PaletteTint` 0). Con la sola tavolozza lo Skin Lab su
+  molte armature non avrebbe cambiato nulla. La skin ha quindi anche `materials`: `{nome del materiale: {color,
+  finish}}`. Il server lo passa dentro la tavolozza (`palette["materials"]`) e `materials._material` sostituisce la
+  tinta dello strato. Nel pannello sono la sezione "Part colours", ordinata per superficie (le prime 10, poi "Show
+  all"). Limite noto: il visualizzatore disegna solo il primo strato dei materiali a più strati, quindi si
+  ricolora quello.
+- **Voci della tavolozza vuote.** Una voce che né la vernice né la skin colorano resta vuota: i suoi materiali
+  tengono il grigio scuro che il gioco dà loro. La regola "riflesso e lucidità sempre presenti" vale per le voci
+  che hanno un colore.
+- **Finiture tarate sul gioco.** Su 13.761 voci di tavolozza del gioco: riflesso 59,59,59 nel 60 % dei casi,
+  lucidità mediana 218 (5 % sotto 121). Valori scelti: riflesso dielettrico 59; Gloss 250, Satin 200, Matte 120,
+  Metal 235 con tinta × 0,2.
+- **`tint` nel `shading`** è `{slot, base, own, spec_base}`: `slot` è `A`/`B`/`C` o `m:<materiale>`; `base` × colore
+  (gamma 2) dà l'albedo; `own` è il colore proprio in sRGB; `spec_base` c'è per gli strati metallici, dove il colore
+  tinge il riflesso. La maschera mimetica che usa la tavolozza porta `stencil.tinted`.
+- **Punto unico di risoluzione**: `State.variant(path, tag)` in `server.py`. Le voci con tag `skin:` non vanno mai
+  nella cache su disco. L'elenco delle skin si chiede a `/api/skins?path=` e il visualizzatore lo unisce ai tasselli.
+- **Gruppi di vernice su richiesta**: parametro `keyed=true` su `/api/model/info`, `/api/model/glb`,
+  `/api/model/paint`, mandato quando il modello ha skin o si è nello Skin Lab.
+- **Chiamate in più**: `GET /api/skins/base` (tavolozza completa della vernice di partenza, voci usate, materiali
+  con colore proprio, costanti delle finiture), `GET /api/skins/{id}`.
+- **Import ed Export**: Import con il selettore di file della pagina; Export copia il file nella cartella degli
+  export. Delete sposta il file nella sottocartella `Deleted` della libreria (recuperabile).
+- **Vetro e decal** non si ricolorano dal vivo: seguono la conferma del server (circa mezzo secondo).
+- **Anteprima da approvare prima del codice**: non fatta; l'utente ha dato piena autonomia, la schermata è stata
+  costruita direttamente. Schermate delle prove in `docs/anteprime/skin-lab/`.
+- `diskcache.FORMAT` 13; `start.py --skins-dir` per le prove.
+
+Misure nell'anteprima (21/11, finestra 1440 × 860):
+
+| Modello | Ricolorazione dal vivo | Conferma del server | Pixel diversi tra le due |
+|---|---|---|---|
+| Gladius, nave completa | 0,8 ms | 0,37 s | 0 |
+| Perseus, nave completa + interni (15.129 parti) | 0,8 ms | 0,58-0,60 s | 0 |
+| Elmo Strata (colori delle parti) | meno di 1 ms | meno di 0,5 s | 0 |
+| Granata con una sola vernice (ricaricata coi gruppi all'entrata) | meno di 1 ms | meno di 0,5 s | 0 |
+
+Non fatto: `tools/skin_check.py` (le misure sopra sono state prese a mano dall'anteprima); prova nella finestra
+dell'app installata (WebView2) e su Linux; rilettura delle traduzioni da parte di un madrelingua.
+
 ## Fuori da questa tappa
 
 Motivi, decal, mimetico negli export, scheda di pittura, portare una skin su un altro modello, galleria online.
