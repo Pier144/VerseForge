@@ -350,11 +350,16 @@ def _ammo(idx, comps):
     return got if got and got["max"] > 0 else None
 
 
-def build(data: bytes, read=None):
+def open_index(data: bytes, read=None):
+    """The entities of a DataCore file, ready for build() and gamestats.build()."""
+    return _Index(DataCore(data), getattr(read, "exists", None))
+
+
+def build(data: bytes, read=None, idx=None):
     """read(path) -> bytes or None: reads the vehicle implementation XMLs (port flags); without it no port is
-    known to be invisible."""
-    dc = DataCore(data)
-    idx = _Index(dc, getattr(read, "exists", None))
+    known to be invisible. idx: an index already opened on the same data (open_index)."""
+    idx = idx or open_index(data, read)
+    dc = idx.dc
     found, vehicles, ammo, classes, named = {}, {}, {}, {}, {}
     defs = {}
 

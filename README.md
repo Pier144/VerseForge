@@ -166,6 +166,13 @@ at all, add `--appimage-extract-and-run` at the end of the command.
   (matte, satin, gloss, metal), recolour single parts of weapons and armour, write a text on the ship's name plates
   and put a picture of yours on its livery slots. Your skins sit beside the game's paints, are used by exports and
   snapshots, and each one is a `.vfskin` file you can share and import.
+- **Game values** (tab in the right panel): what the game database says of the object on screen. Weapons: fire
+  mode and rate, damage per shot and by type, DPS, magazine, projectile speed, range. Ships and vehicles: hull
+  health, mass, size, crew, role, and from the factory loadout the SCM and maximum speeds, turn rates, shields,
+  guns with their total DPS, missiles, cargo and quantum speed. Also missiles, shield generators, quantum drives,
+  coolers, thrusters and armour (damage resistances, temperatures). A hull shared by several ships lists each of
+  them. *Table (CSV)* saves one row for every object of the same kind, ready for a spreadsheet; *Everything on
+  this object (JSON)* saves all the game holds on it, the values not shown too. Both also go to the exports folder.
 - **Same folder**: list of the related parts (e.g. stock, magazines, wheels, interiors).
 - **Animations**: when the game links animations to the object (weapons firing and reloading, multi-tools, ship
   canopies, ladders, landing-gear doors, component panels…), an *Animations* panel lists them by group (Canopy:
@@ -307,6 +314,9 @@ attaches it to the release.
 
 **Tools** (`tools/`):
 - `readme_media.py` makes the images and animations of this page in `docs/readme/`.
+- `game_values.py` writes the game values without opening the app: one CSV per kind and `all.json` in the exports
+  folder; `--check` counts how many objects have each value and names the values nothing has any more (a patch
+  renamed a field), `--raw <record>` prints everything on one entity, `--schema <text>` the database's structs.
 - `flash_check.py` films the desktop app while it drives a repeatable random sample of actions and counts the frames
   where a panel is missing (the "flashing panels" check).
 
@@ -329,6 +339,7 @@ sc_explorer/assembly.py  full ship (loadout on item ports) and interiors
 sc_explorer/containers.py object containers (.socpak): placed brushes and entities of ship interiors
 sc_explorer/backdrops.py 360° space panoramas (Pyro, Stanton) from the game's sky textures
 sc_explorer/diskcache.py disk cache of built models (GLB, info) and textures, per program and game version
+sc_explorer/gamestats.py game values of weapons, ships, components and armour, read from DataCore
 sc_explorer/catalog.py   catalogue, categories, in-game names, search
 sc_explorer/i18n.py      every text in English, the languages, and the lookup of translations (web/locales/*.json)
 sc_explorer/export.py    GLB / OBJ / STL
@@ -344,6 +355,7 @@ web/batching.js          big models: pieces sharing a material drawn as one batc
 verseforge_app.py        windowed app (WebView2 on Windows, Qt WebEngine on Linux), entry point of VerseForge.exe
 VerseForge.spec          PyInstaller configuration; installer/VerseForge.iss for Inno Setup
 tests/test_formats.py    tests against the installed game (python -m pytest tests; skipped if Data.p4k is missing)
+tests/test_gamestats.py  game values on a made-up DataCore file (tests/dcb_builder.py writes it; no game needed)
 tests/test_updates.py    version comparison and release parsing of the updater (no network needed)
 tests/test_reports*.py   Feedback: personal data removal, issue text, sending and status against local fake servers
 tools/                   README images, flashing-panels check, benchmarks

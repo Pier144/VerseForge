@@ -669,7 +669,21 @@ textarea::placeholder { color: var(--faint); }
 .ptabs button.on span { display: inline; }
 .ptabs .i { width: 15px; height: 15px; }
 .panel[data-ptab="anim"] .box:not([data-ptab="anim"]), .panel[data-ptab="export"] .box:not([data-ptab="export"]),
-.panel[data-ptab="print"] .box:not([data-ptab="print"]), .panel[data-ptab="mats"] .box:not([data-ptab="mats"]) { display: none; }
+.panel[data-ptab="print"] .box:not([data-ptab="print"]), .panel[data-ptab="mats"] .box:not([data-ptab="mats"]),
+.panel[data-ptab="values"] .box:not([data-ptab="values"]) { display: none; }
+/* game values: one short table per group, the number on the right */
+.values h4 { margin: 16px 0 4px; font-size: 11px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.values #valuesGroups > h4:first-child { margin-top: 0; }
+.values dl { margin: 0; }
+.values dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--divider); font-size: 12.5px; }
+.values dt { color: var(--text-2); }
+.values dd { margin: 0; text-align: right; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.values dd em { font-style: normal; font-weight: 400; color: var(--muted); }
+.values .field-col { margin-bottom: 14px; }
+.values .field-col select { width: 100%; }
+.values .link-btn { display: flex; margin-top: 12px; text-align: left; }
+.values .link-btn + .link-btn { margin-top: 4px; }
+.values .hint { margin-top: 12px; }
 .box.first { margin-top: 16px; padding-top: 0; border-top: 0; }
 .mats, .related { max-height: max(280px, calc(100vh - 560px)); }
 .box.first > h3 { display: none; }               /* the tab already says it */

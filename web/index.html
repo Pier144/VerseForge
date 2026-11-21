@@ -68,6 +68,7 @@
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4.5 16.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-bug" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.2 7.6a2.8 2.8 0 0 1 5.6 0"/><rect x="7.5" y="8" width="9" height="11.5" rx="4.5"/><path d="M12 11.5v8M7.5 12.5H4.5M19.5 12.5h-3M7.6 16.5l-2.8 1.6M16.4 16.5l2.8 1.6M7.9 9.6 5.5 8M16.1 9.6 18.5 8M10.4 5.2 9.3 3.6M13.6 5.2l1.1-1.6"/></g></symbol>
       <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4.5 6.5A2 2 0 0 1 6.5 4.5h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H11l-4.5 3.5v-3.5h0a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.5 9.5h7M8.5 12.5h4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+      <symbol id="i-stats" viewBox="0 0 24 24"><path d="M5 20v-8M12 20V4M19 20v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
       <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 2.8 20.2 7.4v9.2L12 21.2l-8.2-4.6V7.4z M3.8 7.4 12 12l8.2-4.6 M12 12v9.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
       <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
       <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7.5 5.5h3v13h-3zM13.5 5.5h3v13h-3z" fill="currentColor"/></symbol>
@@ -247,6 +248,7 @@
         <div id="ptabs" class="ptabs hidden" role="tablist">
           <button data-ptab="anim" role="tab" title="Animations" data-t-title="animations"><svg class="i"><use href="#i-play"/></svg><span data-t="animations">Animations</span></button>
           <button data-ptab="export" role="tab" title="Export" data-t-title="export"><svg class="i"><use href="#i-download"/></svg><span data-t="export">Export</span></button>
+          <button data-ptab="values" role="tab" title="Game values" data-t-title="gameValues"><svg class="i"><use href="#i-stats"/></svg><span data-t="gameValues">Game values</span></button>
           <button data-ptab="print" role="tab" title="3D print" data-t-title="print3dTitle"><svg class="i"><use href="#i-print"/></svg><span data-t="print3dTitle">3D print</span></button>
           <button data-ptab="mats" role="tab" title="Materials" data-t-title="materials"><svg class="i"><use href="#i-cube"/></svg><span data-t="materials">Materials</span></button>
         </div>
@@ -278,6 +280,15 @@
           <label id="expPoseRow" class="switch hidden" title="Exports and 3D prints freeze the model as you see it: landing gear down, ramp open, any animation paused where you left it. A GLB with its animations keeps the rest pose" data-t-title="expPoseTitle"><input id="expPose" type="checkbox" checked><span class="track"></span><span data-t="expPose">Pose as shown</span></label>
           <p class="hint stl-note" data-t="stlNote">This STL is the game's surface as it is, not closed: for a print use the 3D print tab.</p>
           <button type="button" class="link-btn open-exports"><svg class="i"><use href="#i-folder"/></svg><span data-t="openExports">Open exports folder</span></button>
+        </section>
+
+        <section id="valuesBox" class="box values first hidden" data-ptab="values">
+          <h3 data-t="gameValues">Game values</h3>
+          <label id="valuesPick" class="field-col hidden"><span data-t="valuesRecord">Shown for</span><select id="valuesRecord"></select></label>
+          <div id="valuesGroups"></div>
+          <button id="valuesTable" type="button" class="link-btn" title="One row for each object of this kind, with the same values: opens in a spreadsheet" data-t-title="valuesTableTitle"><svg class="i"><use href="#i-download"/></svg><span></span></button>
+          <button id="valuesRaw" type="button" class="link-btn" title="Everything the game database holds on this object, the values not shown here too" data-t-title="valuesRawTitle"><svg class="i"><use href="#i-download"/></svg><span data-t="valuesRaw">Everything on this object (JSON)</span></button>
+          <p class="hint" data-t="valuesHint">Read from the game files of the version you have installed.</p>
         </section>
 
         <section id="printBox" class="box print first hidden" data-ptab="print">

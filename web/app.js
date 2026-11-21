@@ -958,6 +958,7 @@ async function loadModel(item, keepView = false, opts = {}) {
     applySection();
     $("#fullLabel").textContent = T(info.ground_vehicle ? "fullVehicle" : "fullShip");
     loadRelated(item);
+    loadValues(item);
     // reloaded while the Skin Lab is open (Full ship, Interiors): the skin on the bench goes back on
     if (skinLab.on && opts.paint == null) skinLab.reloaded();
   } catch (e) {
@@ -1420,6 +1421,54 @@ async function loadRelated(item) {
     $("#relBox").classList.toggle("hidden", others.length === 0);
   } catch { $("#relBox").classList.add("hidden"); }
 }
+
+// ---------------------------------------------------------------- game values
+// What the game database says of the object on screen (DPS, magazine, speeds, health…: /api/values). A model shared
+// by several ships or items has one entry each, chosen from the list above the tables.
+const values = { path: null, records: [] };
+async function loadValues(item) {
+  if (values.path !== item.path) {
+    let records = [];
+    try { records = (await (await api(`/api/values?path=${encodeURIComponent(item.path)}`)).json()).records; } catch { /* no values */ }
+    if (state.current !== item) return;
+    values.path = item.path;
+    values.records = records;
+    $("#valuesRecord").innerHTML = records.map((r, i) =>
+      `<option value="${i}">${esc(r.name === r.record ? r.record : `${r.name} · ${r.record}`)}</option>`).join("");
+  }
+  $("#valuesPick").classList.toggle("hidden", values.records.length < 2);
+  $("#valuesBox").classList.toggle("hidden", !values.records.length);
+  showValues();
+}
+function showValues() {
+  const r = values.records[+$("#valuesRecord").value || 0];
+  if (!r) return;
+  const shown = (v) => (typeof v === "number" ? v.toLocaleString(I18N.lang, { maximumFractionDigits: 5 }) : esc(v));
+  $("#valuesGroups").innerHTML = r.groups.map((g) => `<h4>${esc(g.label)}</h4><dl>${g.rows.map((row) =>
+    `<div><dt>${esc(row.label)}</dt><dd>${shown(row.value)}${row.unit ? ` <em>${esc(row.unit)}</em>` : ""}</dd></div>`).join("")}</dl>`).join("");
+  $("#valuesTable span").textContent = T("valuesTable", { kind: r.kind_label });
+}
+$("#valuesRecord").addEventListener("change", showValues);
+async function saveValues(btn, url) {
+  btn.disabled = true;
+  try {
+    const r = await api(url);
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="(.+)"/)?.[1] || "values.json";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast(T("exported", { name, dir: r.headers.get("X-Saved-To") || T("exportsDir") }));
+  } catch (e) {
+    toast(T("exportFailed", { error: e.message }), true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+const valuesShown = () => values.records[+$("#valuesRecord").value || 0];
+$("#valuesTable").addEventListener("click", (e) => valuesShown() && saveValues(e.currentTarget, `/api/values/table?kind=${encodeURIComponent(valuesShown().kind)}`));
+$("#valuesRaw").addEventListener("click", (e) => valuesShown() && saveValues(e.currentTarget, `/api/values/raw?record=${encodeURIComponent(valuesShown().record)}`));
 
 // ---------------------------------------------------------------- toolbar
 document.querySelectorAll(".toolbar [data-act]").forEach((b) => b.addEventListener("click", () => act(b.dataset.act, b)));

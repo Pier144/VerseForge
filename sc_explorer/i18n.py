@@ -48,6 +48,7 @@ MESSAGES = {
     "nothing_to_export": "No geometry to export",
     "no_decals": "This model has no markings to print at this scale",
     "no_decals_big": "The markings are larger than the page at this scale: try a smaller model",
+    "no_values": "The game has no values for {name}",
     "blender_missing": "Blender not found: install it or set the path to the Blender program in the settings.",
     "queued": "Queued…",
     "done": "Completed",
@@ -127,6 +128,39 @@ WEAPON_TYPES = {"brfl": "rifle", "rfl": "rifle", "smg": "SMG", "lmg": "LMG", "sg
                 "snpr": "sniper rifle", "pstl": "pistol", "glau": "grenade launcher", "rlau": "rocket launcher",
                 "melee": "melee weapon", "knif": "knife", "gdgt": "gadget", "optc": "optic", "mgzn": "magazine",
                 "cmpn": "compensator", "brrl": "barrel", "undr": "underbarrel"}
+
+
+# game values (gamestats.py): stat id -> label; the units are gamestats.UNITS
+STATS = {
+    "type": "Type", "size": "Size", "grade": "Grade", "manufacturer": "Manufacturer", "mass": "Mass",
+    "health": "Health", "role": "Role", "career": "Career", "crew": "Crew", "length": "Length", "width": "Width",
+    "height": "Height", "hull_hp": "Hull health", "scm_speed": "SCM speed", "max_speed": "Max speed",
+    "boost_speed": "Boost speed, forward", "boost_speed_back": "Boost speed, backward", "pitch": "Pitch rate",
+    "yaw": "Yaw rate", "roll": "Roll rate", "shield_hp": "Shield health", "shield_regen": "Shield regeneration",
+    "shields": "Shield generators", "regen_delay_damaged": "Regeneration delay after a hit",
+    "regen_delay_down": "Regeneration delay when down", "weapons": "Guns", "weapons_dps": "Guns DPS, all together",
+    "missiles": "Missiles", "cargo": "Cargo", "quantum_speed": "Quantum speed", "spool_time": "Spool-up time",
+    "cooldown": "Cooldown", "quantum_fuel_rate": "Quantum fuel use", "fire_mode": "Fire mode",
+    "fire_rate": "Fire rate", "pellets": "Pellets per shot", "alpha": "Damage per shot", "dps": "DPS",
+    "dmg_physical": "Physical damage", "dmg_energy": "Energy damage", "dmg_distortion": "Distortion damage",
+    "dmg_thermal": "Thermal damage", "dmg_biochemical": "Biochemical damage", "dmg_stun": "Stun damage",
+    "magazine": "Magazine", "ammo_speed": "Projectile speed", "range": "Range",
+    "explosion_damage": "Explosion damage", "explosion_radius": "Explosion radius", "capacitor": "Capacitor, shots",
+    "capacitor_regen": "Capacitor recharge", "other_modes": "Other fire modes", "speed": "Speed",
+    "lock_time": "Lock time", "lock_range": "Lock range", "tracking": "Tracking", "cooling_rate": "Cooling rate",
+    "thrust": "Thrust", "res_physical": "Physical resistance", "res_energy": "Energy resistance",
+    "res_distortion": "Distortion resistance", "res_thermal": "Thermal resistance",
+    "res_biochemical": "Biochemical resistance", "res_stun": "Stun resistance", "temp_min": "Lowest temperature",
+    "temp_max": "Highest temperature",
+}
+STAT_GROUPS = {"general": "General", "vehicle": "Hull", "flight": "Flight", "loadout": "Factory loadout",
+               "weapon": "Weapon", "missile": "Missile", "shield": "Shield", "quantum": "Quantum drive",
+               "cooler": "Cooler", "thruster": "Thruster", "armor": "Armor"}
+# what a table of values holds (gamestats.KINDS)
+STAT_KINDS = {"ship": "Ships", "vehicle": "Ground vehicles", "weapon": "Personal weapons",
+              "ship_weapon": "Ship weapons", "missile": "Missiles", "shield": "Shield generators",
+              "quantum_drive": "Quantum drives", "cooler": "Coolers", "thruster": "Thrusters", "armor": "Armor"}
+STAT_MODES = {"single": "Single", "rapid": "Automatic", "burst": "Burst", "charged": "Charged", "beam": "Beam"}
 
 
 # texts built by the page's script (web/app.js: T("key", {vars})); the fixed texts of the page are in web/index.html
@@ -228,6 +262,8 @@ UI = {
     "labExported": "Saved to {path}",
     "labImported": "Skin imported: {name}",
     "labImportedOther": "Skin imported: {name}. Open {model} to use it.",
+    # game values (the Values tab)
+    "valuesTable": "Table: {kind} (CSV)",
 }
 
 _lang = "en"
@@ -330,7 +366,8 @@ def reference():
     new language."""
     return {"messages": dict(MESSAGES), "categories": dict(CATEGORIES), "categories_short": dict(CATEGORIES_SHORT),
             "subcategories": {c: dict(s) for c, s in SUBCATEGORIES.items()}, "weapon_types": dict(WEAPON_TYPES),
-            "ui": {**page_texts(), **UI}}
+            "stats": dict(STATS), "stat_groups": dict(STAT_GROUPS), "stat_kinds": dict(STAT_KINDS),
+            "stat_modes": dict(STAT_MODES), "ui": {**page_texts(), **UI}}
 
 
 def page_strings():
@@ -354,6 +391,22 @@ def subcategory(cat, sub):
 
 def weapon_type(code):
     return _section("weapon_types").get(code) or WEAPON_TYPES.get(code, "")
+
+
+def stat(key):
+    return _section("stats").get(key) or STATS.get(key, key)
+
+
+def stat_group(key):
+    return _section("stat_groups").get(key) or STAT_GROUPS.get(key, key)
+
+
+def stat_kind(key):
+    return _section("stat_kinds").get(key) or STAT_KINDS.get(key, key)
+
+
+def stat_mode(key):
+    return _section("stat_modes").get(key) or STAT_MODES.get(key, key)
 
 
 def t(key, **kw):

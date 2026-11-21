@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, dialogs, diskcache, entities, export, i18n, materials, model, modelcache, paints, paths, printing, reports, screens, skindecals, skins, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, dialogs, diskcache, entities, export, gamestats, i18n, materials, model, modelcache, paints, paths, printing, reports, screens, skindecals, skins, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -73,6 +73,7 @@ class State:
         self.by_path = {}
         self.variants = {}               # geometry path (lowercase) -> paint variants from DataCore
         self.entities = {}               # geometry path -> Mannequin animation database (see entities.py)
+        self.gamestats = {}              # game values of the entities: DPS, speeds, health… (see gamestats.py)
         # messages are (i18n key, {args}) tuples, turned into text when the interface asks for them
         self.status = {"ready": False, "message": ("starting",), "progress": 0.0, "error": None}
         self.models = modelcache.ModelCache()   # built models, LRU within a memory budget (modelcache.py)
@@ -107,6 +108,7 @@ class State:
             except Exception:                # objects still load, animations just keep their file names
                 traceback.print_exc()
                 self.entities = {}
+                self.gamestats = {}
             names = self._names(arch)
             self.status.update(message=("reading_paints",), progress=0.7)
             try:
@@ -166,20 +168,49 @@ class State:
         return out
 
     def _entities(self, arch):
+        """The entity index, and with it the game values (self.gamestats): DataCore is opened once for both, and
+        only when one of the two is not in the cache yet."""
         st = os.stat(arch.path)
-        cache = os.path.join(CACHE_DIR, f"entities_v13_{st.st_size}_{int(st.st_mtime)}.json")
-        if os.path.exists(cache):
-            return json.load(open(cache, encoding="utf-8"))
-        dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
-        out = entities.build(arch.read(dcb), entities.archive_reader(arch))
-        for old in os.listdir(CACHE_DIR):
-            if old.startswith("entities_"):
-                try:
-                    os.remove(os.path.join(CACHE_DIR, old))
-                except OSError:
-                    pass
-        json.dump(out, open(cache, "w", encoding="utf-8"))
-        return out
+        stamp = f"{st.st_size}_{int(st.st_mtime)}"
+        caches = {"entities": f"entities_v13_{stamp}.json", "gamestats": f"gamestats_v{gamestats.VERSION}_{stamp}.json"}
+        out = {}
+        for kind, name in caches.items():
+            try:
+                with open(os.path.join(CACHE_DIR, name), encoding="utf-8") as f:
+                    out[kind] = json.load(f)
+            except (OSError, ValueError):
+                pass
+        if len(out) < len(caches):
+            dcb = next(n for n in arch.names if n.lower().endswith(".dcb"))
+            data, read = arch.read(dcb), entities.archive_reader(arch)
+            idx = entities.open_index(data, read)
+            for kind in caches:
+                if kind in out:
+                    continue
+                if kind == "entities":
+                    out[kind] = entities.build(data, read, idx=idx)
+                else:
+                    try:
+                        out[kind] = gamestats.build(idx, read)
+                    except Exception:        # the models still open, the Values tab stays away
+                        traceback.print_exc()
+                        out[kind] = {}
+                        continue
+                for old in os.listdir(CACHE_DIR):
+                    if old.startswith(f"{kind}_"):
+                        try:
+                            os.remove(os.path.join(CACHE_DIR, old))
+                        except OSError:
+                            pass
+                with open(os.path.join(CACHE_DIR, caches[kind]), "w", encoding="utf-8") as f:
+                    json.dump(out[kind], f)
+        self.gamestats = out["gamestats"]
+        return out["entities"]
+
+    def datacore(self):
+        """The game database, opened for a question the indexes do not answer (the raw values of one record)."""
+        dcb = next(n for n in self.archive.names if n.lower().endswith(".dcb"))
+        return entities.open_index(self.archive.read(dcb)).dc
 
     def variant_list(self, path):
         return self.variants.get(path.lower().replace("\\", "/"), [])
@@ -453,19 +484,25 @@ def _model_info(path, variant, full, interior, keyed=False):
                             "speed": a.speed, "pose": a.pose} for a in m.animations]}
 
 
+def _game_text(key):
+    """A text of the game (global.ini) by its key, with or without the "@"; "" when the game has none."""
+    key = (key or "").lstrip("@").strip().lower()
+    if not key:
+        return ""
+    if state.loc is None:
+        try:
+            state.loc = catalog.localization(state.archive, i18n.game_language())
+        except Exception:
+            state.loc = {}
+    return state.loc.get(key) or ""
+
+
 def _room_label(r):
     """The name the game shows for a room when it has one (global.ini), else its entity name tidied up:
     Room_RN_habs_bunks_closet in the habs container -> "Bunks closet"."""
-    key = (r.get("key") or "").lstrip("@").lower()
-    if key:
-        if state.loc is None:
-            try:
-                state.loc = catalog.localization(state.archive, i18n.game_language())
-            except Exception:
-                state.loc = {}
-        text = state.loc.get(key)
-        if text:
-            return text, text
+    text = _game_text(r.get("key"))
+    if text:
+        return text, text
     n = re.sub(r"(?i)room_?rn|_rn\b|\broom\b", " ", r.get("name") or "")
     n = re.sub(r"([a-z])([A-Z])", r"\1 \2", n)
     words = [w for w in re.split(r"[\s_\-]+", n) if w and not w.isdigit()]
@@ -863,6 +900,78 @@ def skins_export(skin_id: str):
         raise HTTPException(404, tr("skin_missing"))
     with open(hit[1], "rb") as f:
         return {"saved": _save_export(f.read(), os.path.basename(hit[1]))}
+
+
+# ---------------------------------------------------------------- game values
+def _value_text(stat, value):
+    """A value as the interface shows it: the game's own text for a key ("@vehicle_focus_fighter"), the fire
+    modes in the interface's language; numbers stay numbers."""
+    if not isinstance(value, str):
+        return value
+    if value.startswith("@"):
+        # no text in the game for this key: what is left of the key says more than nothing
+        return _game_text(value) or re.sub(r"(?i)^@|^(vehicle_(focus|class)|manufacturer_name|item_name)_?", "",
+                                           value.lstrip("@")).replace("_", " ").strip().capitalize()
+    if stat == "fire_mode":
+        return i18n.stat_mode(value)
+    if stat == "other_modes":
+        return " · ".join(" ".join([i18n.stat_mode(m.split(" ", 1)[0]), *m.split(" ", 1)[1:]]) for m in value.split(" · "))
+    return value
+
+
+def _values_json(entry):
+    return {"record": entry["record"], "name": _game_text(entry["name"]) or entry["record"], "kind": entry["kind"],
+            "kind_label": i18n.stat_kind(entry["kind"]),
+            "groups": [{"id": g, "label": i18n.stat_group(g),
+                        "rows": [{"id": k, "label": i18n.stat(k), "value": _value_text(k, v),
+                                  "unit": gamestats.UNITS.get(k, "")} for k, v in rows]}
+                       for g, rows in entry["groups"]]}
+
+
+@app.get("/api/values")
+def values(path: str):
+    """The game values of the entities that use a model (a hull shared by several ships has one entry each), the
+    one named like the file first. No entry: the game tells nothing about this model."""
+    _require_ready()
+    return {"records": [_values_json(e) for e in gamestats.for_path(state.gamestats, path)[:60]]}
+
+
+def _download(data, name, media):
+    saved = _save_export(data, name)
+    return Response(data, media_type=media,
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "X-Saved-To": saved})
+
+
+@app.get("/api/values/table")
+def values_table(kind: str, fmt: str = Query("csv", pattern="^(csv|json)$")):
+    """Every entity of a kind (ships, personal weapons…) with its values: a CSV that opens in a spreadsheet, one
+    row each, or the same as JSON."""
+    _require_ready()
+    entries = gamestats.of_kind(state.gamestats, kind)
+    if not entries:
+        raise HTTPException(404, tr("no_values", name=i18n.stat_kind(kind)))
+    stem = f"values_{gamestats.slug(kind)}"
+    name = lambda e: _game_text(e["name"]) or e["record"]   # noqa: E731
+    if fmt == "json":
+        data = json.dumps([{"record": e["record"], "name": name(e),
+                            **{k: _value_text(k, v) for k, v in gamestats.flat(e).items()}} for e in entries],
+                          indent=1, ensure_ascii=False).encode("utf-8")
+        return _download(data, f"{stem}.json", "application/json")
+    return _download(gamestats.csv_bytes(gamestats.table(entries, i18n.stat, _value_text, name)), f"{stem}.csv", "text/csv")
+
+
+@app.get("/api/values/raw")
+def values_raw(record: str):
+    """Everything the game database holds on one entity, with the records it points to (ammunition, manufacturer,
+    damage tables), as a JSON file: the values VerseForge does not show are there too."""
+    _require_ready()
+    dc = state.datacore()
+    ri = gamestats.find_record(dc, record)
+    if ri is None:
+        raise HTTPException(404, tr("no_values", name=record))
+    data = json.dumps(gamestats.raw(dc, ri), indent=1, ensure_ascii=False,
+                      default=lambda o: o.item() if hasattr(o, "item") else str(o)).encode("utf-8")
+    return _download(data, f"{gamestats.slug(dc.record_name(ri).split('.', 1)[-1])}_raw.json", "application/json")
 
 
 def _save_export(data, filename):
