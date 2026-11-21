@@ -519,6 +519,10 @@
     "labDeleted": "スキンを削除しました。ファイルはスキンの Deleted フォルダにあります。",
     "labExported": "{path} に保存しました",
     "labImported": "スキンをインポートしました：{name}",
-    "labImportedOther": "スキンをインポートしました：{name}。使用するには {model} を開いてください。"
+    "labImportedOther": "スキンをインポートしました：{name}。使用するには {model} を開いてください。",
+    "labDecals": "デカール",
+    "labText": "船体のテキスト",
+    "labLogoPick": "ロゴ画像…",
+    "labLogoRemove": "画像を削除"
   }
 }

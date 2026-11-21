@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, dialogs, diskcache, entities, export, i18n, materials, model, modelcache, paints, paths, printing, reports, screens, skins, textures, updates, variants
+from . import APP_NAME, __version__, animations, assembly, backdrops, catalog, decalsheet, dialogs, diskcache, entities, export, i18n, materials, model, modelcache, paints, paths, printing, reports, screens, skindecals, skins, textures, updates, variants
 from .p4k import P4kArchive
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -215,7 +215,8 @@ class State:
             skin, key = self.skin_of(tag)
             if skin is None or not skins._same_model(skin["target"]["model"], path):
                 raise HTTPException(404, tr("skin_missing"))
-            return {**skins.apply(skins.find_base(vs, skin)[0], skin, tag), "key": key}
+            return {**skins.apply(skins.find_base(vs, skin)[0], skin, tag), "key": key,
+                    "images": lambda name, sid=skin.get("id"): skins.read_image(SKINS_DIR, sid, name)}
         return next((x for x in vs if x["tag"] == tag), vs[0] if vs else None)
 
     def tag_of(self, path, variant):
@@ -279,9 +280,14 @@ class State:
         full = bool(full) and self.can_full(path)
         if v is None:
             return self._base_model(path, full)
-        return self.models.get_or_build(
-            (path.lower(), key, full),
-            lambda: model.with_variant(self._base_model(path, full), self.archive, v["material"], v["palette"]))
+        return self.models.get_or_build((path.lower(), key, full), lambda: self._painted(path, v, full))
+
+    def _painted(self, path, v, full):
+        """The model in paint `v`; a user skin's decals go on the sticker slots the game leaves open."""
+        m = model.with_variant(self._base_model(path, full), self.archive, v["material"], v["palette"])
+        if v.get("decals"):
+            m = skindecals.decorate(m, v["decals"], self.archive, v.get("images"))
+        return m
 
     def _interior(self, path, tag, full):
         hull = self.get_model(path, tag, full)
@@ -761,6 +767,7 @@ def skins_base(path: str, variant: str = None, full: bool = False):
     return {"tag": v["tag"] if v else None, "base": skins.base_ref(v) if not (v or {}).get("custom") else None,
             "palette": skins.effective(pal, {"palette": {}}), "slots": sorted(used),
             "materials": sorted(({"id": k, **e} for k, e in own.items()), key=lambda e: -e["faces"]),
+            "decal_slots": skindecals.slots(m),
             "glass": bool(pal and pal.get("glass")) and any(p.material.kind == "glass" for p in m.parts),
             "presets": skins.PRESETS, "dielectric": skins.DIELECTRIC, "metal_tint": skins.METAL_TINT}
 
@@ -804,6 +811,26 @@ def skins_save(data: dict = Body(...)):
         raise HTTPException(500, tr("skin_folder", path=SKINS_DIR))
     _forget_skin(f"skin:{skin['id']}:")
     return {"skin": _skin_meta(skin), "data": skin}
+
+
+@app.post("/api/skins/{skin_id}/image")
+def skins_image(skin_id: str, name: str = "logo.png", data: bytes = Body(..., media_type="application/octet-stream")):
+    """Keep a picture in the skin's file, for its decals; answers with the name to put in decals.image.file."""
+    _require_ready()
+    from PIL import Image
+    try:
+        Image.open(io.BytesIO(data)).verify()
+    except Exception:
+        raise HTTPException(422, tr("skin_invalid", why="not a picture"))
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(name))[-60:] or "logo.png"
+    try:
+        saved = skins.set_image(SKINS_DIR, skin_id, "images/" + safe, data)
+    except skins.SkinError as e:
+        raise HTTPException(404, tr("skin_missing")) if e.code == "missing" else _skin_error(e)
+    except OSError:
+        raise HTTPException(500, tr("skin_folder", path=SKINS_DIR))
+    _forget_skin(f"skin:{skin_id}:")
+    return {"file": saved}
 
 
 @app.get("/api/skins/{skin_id}")

@@ -333,6 +333,19 @@
             <div id="labPartRows"></div>
             <button id="labPartMore" type="button" class="link-btn hidden"></button>
           </section>
+          <section id="labDecalSec" class="lab-sec">
+            <h3 data-t="labDecals">Decals</h3>
+            <div id="labTextRow" class="lab-decal-row">
+              <input id="labTextColor" type="color" class="lab-color" value="#ebebeb">
+              <input id="labText" type="text" maxlength="40" spellcheck="false" placeholder="Text on the hull" data-t-ph="labText">
+            </div>
+            <div id="labLogoRow" class="lab-decal-row">
+              <button id="labLogoPick" type="button" class="ghost" data-t="labLogoPick">Logo image…</button>
+              <span id="labLogoName" class="hint"></span>
+              <button id="labLogoRemove" type="button" class="lab-reset" title="Remove the image" data-t-title="labLogoRemove">✕</button>
+            </div>
+            <input id="labLogoFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+          </section>
         </div>
         <div class="lab-foot">
           <button id="labCompare" type="button" class="cmp"></button>

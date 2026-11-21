@@ -182,8 +182,17 @@ export function initSkinLab(ctx) {
     const more = $("#labPartMore");
     more.classList.toggle("hidden", b.materials.length <= PARTS_SHOWN);
     more.textContent = lab.allParts ? T("labShowLess") : T("labShowAll", { n: b.materials.length });
+    // decals: a text on the ship's name plates, a picture on its livery slots (when the model has them)
+    const ds = b.decal_slots || {}, dec = lab.skin.decals || {};
+    $("#labDecalSec").classList.toggle("hidden", !ds.text && !ds.image);
+    $("#labTextRow").classList.toggle("hidden", !ds.text);
+    $("#labLogoRow").classList.toggle("hidden", !ds.image);
+    if (document.activeElement !== $("#labText")) $("#labText").value = dec.text?.value || "";
+    $("#labTextColor").value = hex(dec.text?.color || [235, 235, 235]);
+    $("#labLogoName").textContent = dec.image?.file ? dec.image.file.split("/").pop() : "";
+    $("#labLogoRemove").disabled = !dec.image;
     const note = $("#labNote");
-    note.textContent = !slots.length && !b.materials.length ? T("labNoParts") : lab.baseGone ? T("labBaseGone") : "";
+    note.textContent = !slots.length && !b.materials.length && !ds.text && !ds.image ? T("labNoParts") : lab.baseGone ? T("labBaseGone") : "";
     note.classList.toggle("hidden", !note.textContent);
     syncButtons();
   }
@@ -229,7 +238,7 @@ export function initSkinLab(ctx) {
     await loadBase(tag);
     lab.baseGone = false;
     lab.skin = { name: T("labNewName"), target: { model: lab.item.path, label: lab.item.name }, base: lab.base.base,
-      palette: { finish: {} }, materials: {} };
+      palette: { finish: {} }, materials: {}, decals: {} };
     return opened();
   }
   async function openSkin(id) {
@@ -243,6 +252,7 @@ export function initSkinLab(ctx) {
     lab.skin.palette ||= {};
     lab.skin.palette.finish ||= {};
     lab.skin.materials ||= {};
+    lab.skin.decals ||= {};
     lab.saved = JSON.stringify(lab.skin);
     lab.comparing = false;
     lab.open = lab.base.slots[0] || (lab.base.materials[0] ? "m:" + lab.base.materials[0].id : null);
@@ -291,6 +301,7 @@ export function initSkinLab(ctx) {
       lab.skin.palette ||= {};
       lab.skin.palette.finish ||= {};
       lab.skin.materials ||= {};
+      lab.skin.decals ||= {};
       lab.saved = JSON.stringify(lab.skin);
       $("#labName").value = lab.skin.name;
       toast(T("labSaved"));
@@ -421,6 +432,32 @@ export function initSkinLab(ctx) {
   for (const ev of ["input", "change", "click"]) $("#labTools").addEventListener(ev, onTools);
   $("#labName").addEventListener("input", (e) => { lab.skin.name = e.target.value.trim() || T("labNewName"); syncButtons(); });
   $("#labPartMore").addEventListener("click", () => { lab.allParts = !lab.allParts; renderTools(); });
+  // decals: drawn by the server, so they follow its confirmation (no live preview)
+  function setText() {
+    const value = $("#labText").value.trim();
+    lab.skin.decals ||= {};
+    if (value) lab.skin.decals.text = { value, color: rgb($("#labTextColor").value) || [235, 235, 235] };
+    else delete lab.skin.decals.text;
+    touched();
+  }
+  $("#labText").addEventListener("input", setText);
+  $("#labTextColor").addEventListener("input", setText);
+  $("#labLogoPick").addEventListener("click", () => $("#labLogoFile").click());
+  $("#labLogoRemove").addEventListener("click", () => { delete lab.skin.decals?.image; renderTools(); touched(); });
+  $("#labLogoFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    try {
+      // the picture is kept inside the skin's file: the skin has to be in the library first
+      if (!lab.skin.id && !(await save())) return;
+      const r = await api(`/api/skins/${encodeURIComponent(lab.skin.id)}/image?name=${encodeURIComponent(f.name)}`,
+        { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: await f.arrayBuffer() }).then((x) => x.json());
+      (lab.skin.decals ||= {}).image = { file: r.file };
+      renderTools();
+      touched();
+    } catch (err) { toast(err.message, true); }
+  });
   $("#labCompare").addEventListener("click", async () => {
     lab.comparing = !lab.comparing;
     syncButtons();

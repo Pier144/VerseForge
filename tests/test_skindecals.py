@@ -1,0 +1,144 @@
+"""Custom decals of user skins (sc_explorer/skindecals.py): a text on the name plates, a picture on the livery slots.
+On made-up quads; the last test needs Data.p4k (the Liberator)."""
+import io
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+import numpy as np
+import pytest
+from PIL import Image
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from sc_explorer import materials, model, skindecals, skins, textures  # noqa: E402
+
+PLATE = ('<Material Name="RTT_Text_To_Decal" Shader="MeshDecal" Diffuse="1,1,1"><Textures>'
+         '<Texture Map="TexSlot1" File="$RenderToTexture"/></Textures></Material>')
+LOGO = ('<Material Name="Decal_Branding" Shader="MeshDecal" Diffuse="1,1,1" StringGenMask="%STENCIL_MAP"><Textures>'
+        '<Texture Map="TexSlot7" File="textures/logo_stencil.tif"/></Textures></Material>')
+HULL = '<Material Name="hull" Shader="Illum" Diffuse="0.5,0.5,0.5"/>'
+
+
+def _quad(mat, x0, w, h, uv_box):
+    """A flat quad w x h metres whose corners take the corners of a UV box."""
+    u0, v0, u1, v1 = uv_box
+    verts = np.array([[x0, 0, 0], [x0 + w, 0, 0], [x0 + w, 0, -h], [x0, 0, -h]], np.float32)
+    uvs = np.array([[u0, v0], [u1, v0], [u1, v1], [u0, v1]], np.float32)
+    return model.Part("q", mat, verts, np.array([[0, 1, 2], [0, 2, 3]]), "t", uvs=uvs)
+
+
+def _model():
+    plate = materials._material(ET.fromstring(PLATE), None, None)
+    logo = materials._material(ET.fromstring(LOGO), None, None)
+    hull = materials._material(ET.fromstring(HULL), None, None)
+    parts = [_quad(plate, 0, 6.0, 1.0, (0.0, 0.0, 1.0, 0.0625)), _quad(plate, 10, 6.0, 1.0, (0.0, 0.0, 1.0, 0.0625)),
+             _quad(plate, 20, 2.0, 0.5, (0.0, 0.75, 1.0, 1.0)), _quad(logo, 30, 2.0, 2.0, (0.5, 0.5, 1.0, 1.0)),
+             _quad(hull, 40, 1.0, 1.0, (0, 0, 1, 1))]
+    return model.Model("m.cga", parts=parts)
+
+
+def _png(color=(255, 0, 0, 255)):
+    buf = io.BytesIO()
+    Image.new("RGBA", (64, 64), color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_the_game_s_open_slots_are_marked():
+    plate = materials._material(ET.fromstring(PLATE), None, None)
+    logo = materials._material(ET.fromstring(LOGO), None, None)
+    # never drawn as they are (the game fills them at run time), but known as sticker slots
+    assert plate.kind == "hidden" and plate.stencil_decal and plate.rtt and skindecals.kind_of(plate) == "text"
+    assert logo.kind == "hidden" and logo.stencil_decal and not logo.rtt and skindecals.kind_of(logo) == "image"
+    assert skindecals.kind_of(materials._material(ET.fromstring(HULL), None, None)) is None
+    assert skindecals.slots(_model()) == {"text": 3, "image": 1}
+
+
+def test_islands_know_their_region_and_proportions():
+    m = _model()
+    (u0, v0, u1, v1, aspect), = skindecals._islands(m.parts[0])
+    assert (u0, v0, u1, v1) == pytest.approx((0.0, 0.0, 1.0, 0.0625)) and aspect == pytest.approx(6.0, rel=1e-3)
+    assert skindecals._islands(m.parts[2])[0][4] == pytest.approx(4.0, rel=1e-3)
+    assert skindecals._islands(m.parts[3])[0][4] == pytest.approx(1.0, rel=1e-3)
+
+
+def test_text_and_picture_go_on_their_slots():
+    m = _model()
+    out = skindecals.decorate(m, {"text": {"value": "r/StarCitizen", "color": [255, 255, 255]}, "image": {"file": "images/a.png"}},
+                              None, lambda name: _png())
+    plate, logo, hull = out.parts[0].material, out.parts[3].material, out.parts[4].material
+    assert plate.kind == "decal" and plate.diffuse.startswith("skinimg:") and plate.stencil_decal
+    assert out.parts[1].material.diffuse == plate.diffuse == out.parts[2].material.diffuse      # one picture per material
+    assert logo.kind == "decal" and logo.diffuse.startswith("skinimg:") and logo.diffuse != plate.diffuse
+    assert hull == m.parts[4].material and m.parts[0].material.kind == "hidden"                 # the model given is untouched
+    # the text is drawn inside the plates' regions and nowhere else
+    sheet = np.asarray(textures.TextureCache(None).get(plate.diffuse, 2048))
+    assert sheet.shape == (2048, 2048, 4)
+    alpha = sheet[..., 3]
+    assert alpha[:128].any() and alpha[1536:].any() and not alpha[140:1500].any()
+    # the picture keeps its proportions inside the logo's region (the lower right quarter)
+    pic = np.asarray(textures.TextureCache(None).get(logo.diffuse, 2048))
+    ys, xs = np.nonzero(pic[..., 3])
+    assert xs.min() >= 1024 and ys.min() >= 1024 and (xs.max() - xs.min()) == pytest.approx(ys.max() - ys.min(), abs=4)
+    assert tuple(pic[1536, 1536]) == (255, 0, 0, 255)
+    # smaller on request, like any texture
+    assert textures.TextureCache(None).get(plate.diffuse, 512).size == (512, 512)
+
+
+def test_nothing_asked_nothing_changed():
+    m = _model()
+    assert skindecals.decorate(m, {}, None, None) is m
+    assert skindecals.decorate(m, {"image": {"file": "images/a.png"}}, None, lambda name: None) is m     # picture missing
+    only_text = skindecals.decorate(m, {"text": {"value": "X"}}, None, None)
+    assert only_text.parts[0].material.kind == "decal" and only_text.parts[3].material.kind == "hidden"
+    # a text in capitals and one with small letters both draw something
+    for text in ("ABC", "abc"):
+        tile = skindecals._text_tile(None, text, [255, 255, 255], 6.0)
+        assert tile.size == (1536, 256) and np.asarray(tile)[..., 3].any()
+
+
+def test_a_skin_s_decals_are_validated():
+    base = {"name": "s", "target": {"model": "m.cga"}}
+    ok = skins.validate({**base, "decals": {"text": {"value": "  r/StarCitizen  "}, "image": {"file": "images/logo.png"}, "x": 1}})
+    assert ok["decals"] == {"text": {"value": "r/StarCitizen", "color": [235, 235, 235]}, "image": {"file": "images/logo.png"}, "x": 1}
+    assert skins.validate({**base, "decals": {"text": {"value": "   "}}})["decals"] == {}
+    assert len(skins.validate({**base, "decals": {"text": {"value": "a" * 99}}})["decals"]["text"]["value"]) == skins.TEXT_MAX
+    for bad in ({"image": {"file": "../x.png"}}, {"image": {"file": "images/x.exe"}}, {"text": "hi"},
+                {"text": {"value": "a", "color": [1]}}, []):
+        with pytest.raises(skins.SkinError):
+            skins.validate({**base, "decals": bad})
+    assert skins.apply(None, ok, "skin:x")["decals"] == ok["decals"]
+
+
+def test_pictures_live_in_the_skin_file(tmp_path):
+    lib = str(tmp_path)
+    s = skins.save(lib, {"name": "s", "target": {"model": "m.cga"}})
+    assert skins.set_image(lib, s["id"], "images/logo.png", _png()) == "images/logo.png"
+    assert skins.read_image(lib, s["id"], "images/logo.png") == _png()
+    assert skins.read_image(lib, s["id"], "images/none.png") is None and skins.read_image(lib, s["id"], "skin.json") is None
+    skins.set_image(lib, s["id"], "images/logo.png", _png((0, 255, 0, 255)))                      # replaced, not doubled
+    assert skins.read_image(lib, s["id"], "images/logo.png") == _png((0, 255, 0, 255))
+    again = skins.save(lib, {**s, "decals": {"image": {"file": "images/logo.png"}}})              # saving keeps it
+    assert skins.read_image(lib, again["id"], "images/logo.png") == _png((0, 255, 0, 255))
+    with pytest.raises(skins.SkinError):
+        skins.set_image(lib, "00000000", "images/logo.png", _png())
+    with pytest.raises(skins.SkinError):
+        skins.set_image(lib, s["id"], "images/../x.png", _png())
+
+
+def test_the_liberator_has_plates_and_logo_slots():
+    from sc_explorer.p4k import P4kArchive
+    from sc_explorer.server import CACHE_DIR, load_config
+    p4k = load_config()["p4k_path"]
+    if not os.path.isfile(p4k):
+        pytest.skip("Data.p4k not found")
+    a = P4kArchive(p4k, CACHE_DIR)
+    a.load()
+    want = "objects/spaceships/ships/anvl/liberator/exterior/anvl_liberator.cga"
+    path = next(n.replace("\\", "/")[5:] for n in a.names if n.replace("\\", "/").lower().endswith(want))
+    base = model.load_model(a, path, None)
+    assert skindecals.slots(base) == {"text": 5, "image": 4}
+    out = skindecals.decorate(base, {"text": {"value": "r/StarCitizen"}}, a, None)
+    plates = [p for p in out.parts if (p.material.diffuse or "").startswith("skinimg:")]
+    assert len(plates) == 3 and all(p.material.name == "RTT_Text_To_Decal" for p in plates)
+    sheet = np.asarray(textures.custom_image(plates[0].material.diffuse, 2048))[..., 3]
+    assert sheet[:127].any() and sheet[1536:].any()             # the two regions the Liberator's plates use

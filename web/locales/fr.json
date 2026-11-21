@@ -519,6 +519,10 @@
     "labDeleted": "Skin supprimé. Son fichier est dans le dossier Deleted de vos skins.",
     "labExported": "Enregistré dans {path}",
     "labImported": "Skin importé : {name}",
-    "labImportedOther": "Skin importé : {name}. Ouvrez {model} pour l'utiliser."
+    "labImportedOther": "Skin importé : {name}. Ouvrez {model} pour l'utiliser.",
+    "labDecals": "Décalcomanies",
+    "labText": "Texte sur la coque",
+    "labLogoPick": "Image du logo…",
+    "labLogoRemove": "Retirer l'image"
   }
 }

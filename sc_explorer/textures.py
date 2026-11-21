@@ -191,6 +191,37 @@ _GPU_KINDS = {"color": {71, 74, 77, 98}, "hal": {71, 74, 77, 98}, "mask": {71, 7
               "normal": {71, 74, 77, 98, 83, 84}, "gloss": {71, 74, 77, 98, 80}}
 
 
+# Pictures made by the program, not read from the game: the decals of user skins (skindecals.py). A material names
+# one as "skinimg:<key>" in place of a texture path; the key is the hash of the picture, so the same picture is
+# kept once and a path never changes meaning.
+CUSTOM_PREFIX = "skinimg:"
+CUSTOM_KEEP = 96
+_custom = OrderedDict()          # key -> PNG bytes, oldest first
+_custom_lock = threading.Lock()
+
+
+def register_custom(key, png):
+    """Keep a picture (PNG bytes) and return the path materials use for it."""
+    with _custom_lock:
+        _custom[key] = png
+        _custom.move_to_end(key)
+        while len(_custom) > CUSTOM_KEEP:
+            _custom.popitem(last=False)
+    return CUSTOM_PREFIX + key
+
+
+def custom_image(path, max_size=1024):
+    """The picture behind a "skinimg:" path as an RGBA image no larger than max_size, or None when it is gone."""
+    with _custom_lock:
+        png = _custom.get(path[len(CUSTOM_PREFIX):])
+    if png is None:
+        return None
+    img = Image.open(io.BytesIO(png)).convert("RGBA")
+    if max(img.size) > max_size:
+        img.thumbnail((max_size, max_size), Image.LANCZOS)
+    return img
+
+
 def gpu_dds(head):
     """DXGI code and WebGL family of a DDS answer made by gpu_blocks (None when it is not one)."""
     if len(head) < 148 or head[:4] != b"DDS " or head[84:88] != b"DX10":
@@ -280,6 +311,8 @@ class TextureCache:
         """RGB(A) PIL image or None. normal=True returns a 3-channel tangent-space normal map."""
         if not path:
             return None
+        if path.startswith(CUSTOM_PREFIX):
+            return custom_image(path, max_size)
         key = (dds_path(path).lower(), max_size, normal)
         with self._lock:
             if key in self._items:
@@ -300,7 +333,7 @@ class TextureCache:
 
     def gpu(self, path, kind, max_size=1024, accept=("s3tc", "rgtc", "bptc")):
         """Compressed blocks of a map as a DDS file (see gpu_blocks), or None to use the decoded image instead."""
-        if not path:
+        if not path or path.startswith(CUSTOM_PREFIX):
             return None
         key = ("gpu", dds_path(path).lower(), kind, max_size, tuple(sorted(accept)))
         hit = self.memo(key)

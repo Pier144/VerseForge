@@ -102,7 +102,7 @@ def validate(data):
     out["palette"] = clean
     out["materials"] = _materials(data.get("materials"))
     out.setdefault("pattern", None)
-    out.setdefault("decals", {})
+    out["decals"] = _decals(data.get("decals"))
     out["author"] = str(data.get("author") or "")
     return out
 
@@ -122,6 +122,40 @@ def _finish(f, what):
             raise SkinError("invalid", f"{what}.gloss: a number from 0 to 255 expected")
         one["gloss"] = int(round(g))
     return one
+
+
+IMAGE_NAME = re.compile(r"images/[A-Za-z0-9_.-]{1,60}\.(png|jpg|jpeg|webp)")
+MAX_IMAGE = 8 * 1024 * 1024      # a picture kept in a skin file
+TEXT_MAX = 40
+
+
+def _decals(data):
+    """Custom decals (skindecals.py): {"text": {"value", "color"}, "image": {"file": "images/<name>"}}."""
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise SkinError("invalid", "decals: an object expected")
+    out = dict(data)
+    text = data.get("text")
+    if text is None:
+        out.pop("text", None)
+    else:
+        if not isinstance(text, dict) or not isinstance(text.get("value", ""), str):
+            raise SkinError("invalid", "decals.text: a text expected")
+        value = " ".join(text.get("value", "").split())[:TEXT_MAX].rstrip()
+        one = {**text, "value": value, "color": _rgb(text.get("color") or [235, 235, 235], "decals.text.color")}
+        if value:
+            out["text"] = one
+        else:
+            out.pop("text", None)
+    image = data.get("image")
+    if image is None:
+        out.pop("image", None)
+    else:
+        if not isinstance(image, dict) or not isinstance(image.get("file"), str) or not IMAGE_NAME.fullmatch(image["file"]):
+            raise SkinError("invalid", "decals.image: a picture of the skin file expected (images/name.png)")
+        out["image"] = dict(image)
+    return out
 
 
 def _materials(data):
@@ -229,7 +263,8 @@ def apply(base, skin, tag):
     """The paint variant of `skin` over `base` (a variant of the model, or None for a model without paints)."""
     b = base or {}
     return {"tag": tag, "label": skin.get("name") or "", "material": b.get("material"),
-            "palette": effective(b.get("palette"), skin), "stock": False, "custom": True}
+            "palette": effective(b.get("palette"), skin), "stock": False, "custom": True,
+            "decals": skin.get("decals") or {}}
 
 
 # ---------------------------------------------------------------- files
@@ -367,6 +402,38 @@ def save(folder, data):
         except OSError:
             pass
     return skin
+
+
+def read_image(folder, skin_id, name):
+    """The bytes of a picture kept in a skin's file ("images/<name>"), or None."""
+    hit = find(folder, skin_id) if skin_id else None
+    if not hit or not IMAGE_NAME.fullmatch(name or ""):
+        return None
+    try:
+        with zipfile.ZipFile(hit[1]) as z:
+            if name not in z.namelist() or z.getinfo(name).file_size > MAX_IMAGE:
+                return None
+            return z.read(name)
+    except (OSError, zipfile.BadZipFile):
+        return None
+
+
+def set_image(folder, skin_id, name, data):
+    """Put a picture into a skin's file under "images/<name>" (in place of one of the same name)."""
+    hit = find(folder, skin_id)
+    if not hit:
+        raise SkinError("missing", "this skin is not in the library")
+    if not IMAGE_NAME.fullmatch(name) or len(data) > MAX_IMAGE:
+        raise SkinError("invalid", "the picture is too large or its name is not allowed")
+    with zipfile.ZipFile(hit[1]) as z:
+        members = {n: z.read(n) for n in z.namelist() if n != name}
+    members[name] = data
+    tmp = hit[1] + ".tmp"
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        for n, blob in members.items():
+            z.writestr(n, blob)
+    os.replace(tmp, hit[1])
+    return name
 
 
 def delete(folder, skin_id):

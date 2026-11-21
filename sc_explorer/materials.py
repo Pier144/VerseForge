@@ -36,7 +36,8 @@ class Material:
     detail_normal: str | None = None      # normal map of the tiled layer (repeats `tiling` times)
     albedo: tuple | None = None           # diffuse colour of the game shading (None = `color`); black for metals
     holo: bool = False                    # screen kind: a holographic HUD projection (see-through), not a panel
-    rtt: bool = False                     # screen kind: a real monitor the game draws live ($RenderToTexture)
+    rtt: bool = False                     # the game draws it live ($RenderToTexture): a monitor (screen kind), or a
+                                          # name plate (stencil_decal: see skindecals.py)
     stencil_decal: bool = False           # MeshDecal + %STENCIL_MAP: a livery sticker (kind decal or hidden by palette)
     # where the colour of the paint layer comes from: {"slot", "base", "own", "spec_base"}. slot "A"|"B"|"C": an
     # entry of the item's tint palette; "m:<name>": the layer's own TintColor (armour, most weapon parts), which a
@@ -202,6 +203,12 @@ def _material(el, archive=None, palette=None):
         else:
             mat.kind = "hidden"
     gen = el.get("StringGenMask") or ""
+    # a name plate: the game writes the ship's name on it ($RenderToTexture). A sticker slot like the livery ones
+    # (never drawn as it is; a user skin can put a text there, skindecals.py)
+    if shader.lower() in ("meshdecal", "decal") and any(
+            (t.get("File") or "").lower() == "$rendertotexture" for t in el.findall("Textures/Texture")):
+        mat.stencil_decal = True
+        mat.rtt = True
     # decal shaders with no picture of their own: placeholders filled by liveries, ship names drawn live
     # ($RenderToTexture). Drawn as they are they were plain white slabs over the hull (Cutlass Black)
     if mat.kind == "decal" and shader.lower() in ("meshdecal", "decal") and not mat.diffuse and not mat.normal \

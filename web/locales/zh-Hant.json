@@ -519,6 +519,10 @@
     "labDeleted": "外觀已刪除。檔案在外觀的 Deleted 資料夾中。",
     "labExported": "已儲存到 {path}",
     "labImported": "已匯入外觀：{name}",
-    "labImportedOther": "已匯入外觀：{name}。開啟 {model} 即可使用。"
+    "labImportedOther": "已匯入外觀：{name}。開啟 {model} 即可使用。",
+    "labDecals": "貼花",
+    "labText": "船體文字",
+    "labLogoPick": "標誌圖片…",
+    "labLogoRemove": "移除圖片"
   }
 }

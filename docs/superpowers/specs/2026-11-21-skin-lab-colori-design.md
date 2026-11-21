@@ -267,6 +267,18 @@ Misure nell'anteprima (21/11, finestra 1440 × 860):
 | Elmo Strata (colori delle parti) | meno di 1 ms | meno di 0,5 s | 0 |
 | Granata con una sola vernice (ricaricata coi gruppi all'entrata) | meno di 1 ms | meno di 0,5 s | 0 |
 
+**Anticipo della tappa 3 (decal), fatto il 21/11 su richiesta dell'utente.** `sc_explorer/skindecals.py`: le navi
+hanno due tipi di riquadro che il gioco riempie al volo e che il visualizzatore non disegnava: le targhe del nome
+(MeshDecal con `$RenderToTexture`) e i riquadri del logo (MeshDecal + `%STENCIL_MAP`). La skin ha
+`decals: {text: {value, color}, image: {file}}`: il testo va sulle targhe, l'immagine (tenuta dentro il file
+`.vfskin`, `POST /api/skins/{id}/image`) sui riquadri del logo. Per ogni riquadro si trova la zona di UV e le sue
+proporzioni reali, e vi si disegna dentro; l'immagine risultante è servita come una texture qualunque (percorso
+`skinimg:<hash>`), quindi vale per visualizzatore, export e fogli decal. Un testo tutto maiuscolo usa il carattere
+del gioco (solo maiuscole), altrimenti un grassetto di sistema. Nello Skin Lab è la sezione "Decals" (niente
+anteprima dal vivo: segue la conferma del server). Provato sulla Liberator (5 targhe, 4 riquadri del logo). Resta
+della tappa 3: scegliere tra i decal del gioco, sostituire i decal che hanno già un'immagine propria, scegliere su
+quali riquadri mettere cosa, dimensione e carattere del testo.
+
 Non fatto: `tools/skin_check.py` (le misure sopra sono state prese a mano dall'anteprima); prova nella finestra
 dell'app installata (WebView2) e su Linux; rilettura delle traduzioni da parte di un madrelingua.
 

@@ -519,6 +519,10 @@
     "labDeleted": "Skin excluída. O arquivo está na pasta Deleted das suas skins.",
     "labExported": "Salvo em {path}",
     "labImported": "Skin importada: {name}",
-    "labImportedOther": "Skin importada: {name}. Abra {model} para usá-la."
+    "labImportedOther": "Skin importada: {name}. Abra {model} para usá-la.",
+    "labDecals": "Decalques",
+    "labText": "Texto no casco",
+    "labLogoPick": "Imagem do logo…",
+    "labLogoRemove": "Remover a imagem"
   }
 }

@@ -519,6 +519,10 @@
     "labDeleted": "스킨이 삭제되었습니다. 파일은 스킨의 Deleted 폴더에 있습니다.",
     "labExported": "{path}에 저장됨",
     "labImported": "스킨을 가져왔습니다: {name}",
-    "labImportedOther": "스킨을 가져왔습니다: {name}. 사용하려면 {model}을(를) 여세요."
+    "labImportedOther": "스킨을 가져왔습니다: {name}. 사용하려면 {model}을(를) 여세요.",
+    "labDecals": "데칼",
+    "labText": "선체 텍스트",
+    "labLogoPick": "로고 이미지…",
+    "labLogoRemove": "이미지 제거"
   }
 }

@@ -823,3 +823,9 @@ button.ghost.danger, .lab-ask .danger { color: var(--err); }
   html.vf-lab .panel.lab-pane { transform: none; }
   html.vf-lab .drawer-btn { display: none; }
 }
+
+/* Skin Lab, decals: a text for the name plates, a picture for the livery slots */
+.lab-decal-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; }
+.lab-decal-row input[type=text] { flex: 1; min-width: 0; height: 30px; padding: 0 9px; font-size: 13px; }
+.lab-decal-row .ghost { height: 30px; padding: 0 12px; font-size: 12.5px; }
+.lab-decal-row .hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

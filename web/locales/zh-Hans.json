@@ -519,6 +519,10 @@
     "labDeleted": "皮肤已删除。文件在皮肤的 Deleted 文件夹中。",
     "labExported": "已保存到 {path}",
     "labImported": "已导入皮肤：{name}",
-    "labImportedOther": "已导入皮肤：{name}。打开 {model} 即可使用。"
+    "labImportedOther": "已导入皮肤：{name}。打开 {model} 即可使用。",
+    "labDecals": "贴花",
+    "labText": "船体文字",
+    "labLogoPick": "标志图片…",
+    "labLogoRemove": "移除图片"
   }
 }
