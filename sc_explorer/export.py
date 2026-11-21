@@ -211,8 +211,10 @@ def glb_material(mat, has_uv, textures, tex_size, lite=False, group=None, off=Fa
         rgb, metallic, rough = np.asarray(body), 0.0, 0.05
     if off:
         alpha_mode, alpha = "BLEND", 0.0
-    elif group is not None and mat.stencil_decal:
-        alpha_mode = "BLEND"                       # keyed GLB: one shape in every paint (see keyed_form)
+    elif mat.stencil_decal and (group is not None or kind == "decal"):
+        # keyed GLB: one shape in every paint (see keyed_form); a skin's own decal sheet is see-through around
+        # its drawing (skindecals.py) even when the viewer loads the picture by itself (lite: no base here)
+        alpha_mode = "BLEND"
     elif base is not None and base.mode == "RGBA":
         alpha_mode = "BLEND" if kind == "decal" else "MASK"
     else:

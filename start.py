@@ -17,9 +17,12 @@ def main():
     ap.add_argument("--no-browser", action="store_true", help="do not open the browser")
     ap.add_argument("--no-disk-cache", action="store_true",
                     help="do not read or write the disk cache (benchmarks; several servers side by side)")
+    ap.add_argument("--skins-dir", help="folder of the user's skins instead of Documents/VerseForge/Skins (checks)")
     args = ap.parse_args()
     if args.no_disk_cache:
         os.environ["VERSEFORGE_DISK_CACHE"] = "0"
+    if args.skins_dir:
+        os.environ["VERSEFORGE_SKINS_DIR"] = os.path.abspath(args.skins_dir)
     url = f"http://127.0.0.1:{args.port}/"
 
     try:
