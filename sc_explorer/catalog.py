@@ -424,9 +424,12 @@ def build(archive, names=None, vehicles=()):
     # ground vehicles: like the ships, the list shows the vehicle, not its doors, racks and wheels (the Ground list
     # held 444 files for 20 vehicles, forty of them under names such as "Door Control" or "Personal Storage"). The
     # pieces stay one switch away (Main models off). Folders without a vehicle of the game keep all their files
+    # (a vehicle's pieces can sit in a folder of their own, named like it: GRIN/mdc beside the MDC in GRIN/MXC)
     driven = {"/".join(it.path.lower().split("/")[:4]) for it in items if it.whole and it.category == "vehicles"}
+    called = {compact(it.name) for it in items if it.whole and it.category == "vehicles"}
     for it in items:
-        if it.category == "vehicles" and not it.whole and "/".join(it.path.lower().split("/")[:4]) in driven:
+        segs = it.path.lower().split("/")
+        if it.category == "vehicles" and not it.whole and len(segs) > 4 and                 ("/".join(segs[:4]) in driven or compact(segs[3]) in called):
             it.main = False
     best = {}
     for it in items:
