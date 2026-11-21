@@ -61,6 +61,24 @@ def test_islands_know_their_region_and_proportions():
     assert skindecals._islands(m.parts[3])[0][4] == pytest.approx(1.0, rel=1e-3)
 
 
+def test_a_slot_cut_into_quads_is_one_region():
+    def at(x0, x1):
+        return np.array([x0, 0.0, 0.0]), np.array([x1, 0.0, 2.0])
+    # a 4 x 2 m slot made of two quads side by side, another on its own, and a copy of the first (the other side)
+    isl = [(0.0, 0.0, 0.25, 0.25, 1.0, *at(0, 2)), (0.25, 0.0, 0.5, 0.25, 1.0, *at(2, 4)),
+           (0.6, 0.6, 1.0, 0.8, 3.0, *at(10, 16)), (0.0, 0.0, 0.25, 0.25, 1.0, *at(50, 52))]
+    regions = sorted(skindecals._regions(isl))
+    assert len(regions) == 2 and [sorted(r[2]) for r in regions] == [[0, 1, 3], [2]]
+    assert regions[0][0] == pytest.approx((0.0, 0.0, 0.5, 0.25)) and regions[0][1] == pytest.approx(2.0)
+    assert regions[1][0] == pytest.approx((0.6, 0.6, 1.0, 0.8)) and regions[1][1] == pytest.approx(3.0)
+    # neighbours in the texture that are far apart on the ship are two slots of the game's atlas
+    assert len(skindecals._regions([(0.0, 0.0, 0.25, 0.25, 1.0, *at(0, 2)), (0.25, 0.0, 0.5, 0.25, 1.0, *at(30, 32))])) == 2
+    # a small slot inside a wide one (the game's atlas) is not a piece of it, even next to it on the ship
+    assert len(skindecals._regions([(0.0, 0.0, 1.0, 0.5, 4.0, *at(0, 4)), (0.1, 0.1, 0.3, 0.3, 1.0, *at(4, 5))])) == 2
+    # boxes that only meet at a corner stay apart
+    assert len(skindecals._regions([(0.0, 0.0, 0.5, 0.5, 1.0, *at(0, 2)), (0.5, 0.5, 1.0, 1.0, 1.0, *at(2, 4))])) == 2
+
+
 def test_text_and_picture_go_on_their_slots():
     m = _model()
     out = skindecals.decorate(m, {"text": {"value": "r/StarCitizen", "color": [255, 255, 255]}, "image": {"file": "images/a.png"}},
@@ -70,16 +88,21 @@ def test_text_and_picture_go_on_their_slots():
     assert out.parts[1].material.diffuse == plate.diffuse == out.parts[2].material.diffuse      # one picture per material
     assert logo.kind == "decal" and logo.diffuse.startswith("skinimg:") and logo.diffuse != plate.diffuse
     assert hull == m.parts[4].material and m.parts[0].material.kind == "hidden"                 # the model given is untouched
-    # the text is drawn inside the plates' regions and nowhere else
+    # the sheet is the skin's own: one cell per slot (two kinds of plate: a row each), the quads moved onto them
     sheet = np.asarray(textures.TextureCache(None).get(plate.diffuse, 2048))
     assert sheet.shape == (2048, 2048, 4)
     alpha = sheet[..., 3]
-    assert alpha[:128].any() and alpha[1536:].any() and not alpha[140:1500].any()
-    # the picture keeps its proportions inside the logo's region (the lower right quarter)
+    assert alpha[:1024].any() and alpha[1024:].any()
+    long, short = out.parts[0].uvs, out.parts[2].uvs
+    assert long.min() > 0 and long[:, 0].max() > 0.99 and long[:, 1].max() < 0.5 and np.allclose(long, out.parts[1].uvs)
+    assert short[:, 1].min() > 0.5 and short.max() < 1
+    assert np.allclose(m.parts[0].uvs[:, 1].max(), 0.0625)                                      # not the model's own
+    # the picture, whole and in proportion, fills the logo's cell (the only one of its sheet)
     pic = np.asarray(textures.TextureCache(None).get(logo.diffuse, 2048))
     ys, xs = np.nonzero(pic[..., 3])
-    assert xs.min() >= 1024 and ys.min() >= 1024 and (xs.max() - xs.min()) == pytest.approx(ys.max() - ys.min(), abs=4)
-    assert tuple(pic[1536, 1536]) == (255, 0, 0, 255)
+    assert (xs.min() + xs.max()) / 2 == pytest.approx(1024, abs=4) and (xs.max() - xs.min()) == pytest.approx(ys.max() - ys.min(), abs=4)
+    assert tuple(pic[1024, 1024]) == (255, 0, 0, 255)
+    assert out.parts[3].uvs.min() > 0 and out.parts[3].uvs.max() < 1
     # smaller on request, like any texture
     assert textures.TextureCache(None).get(plate.diffuse, 512).size == (512, 512)
 
@@ -140,5 +163,5 @@ def test_the_liberator_has_plates_and_logo_slots():
     out = skindecals.decorate(base, {"text": {"value": "r/StarCitizen"}}, a, None)
     plates = [p for p in out.parts if (p.material.diffuse or "").startswith("skinimg:")]
     assert len(plates) == 3 and all(p.material.name == "RTT_Text_To_Decal" for p in plates)
-    sheet = np.asarray(textures.custom_image(plates[0].material.diffuse, 2048))[..., 3]
-    assert sheet[:127].any() and sheet[1536:].any()             # the two regions the Liberator's plates use
+    assert np.asarray(textures.custom_image(plates[0].material.diffuse, 2048))[..., 3].any()
+    assert all(0 < p.uvs.min() and p.uvs.max() < 1 for p in plates)

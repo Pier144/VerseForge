@@ -1,6 +1,8 @@
 """Instant paint switching (web/paint.js). The viewer's GLB of a model with several paints groups its parts by where
 their material comes from, which does not depend on the paint, so every paint has the same geometry; a paint is then
 just a table of materials, one per group, written as the GLB would write them (export.glb_material)."""
+import numpy as np
+
 from . import export, materials
 from . import model as model_mod
 
@@ -67,6 +69,8 @@ def check(ref, model, groups):
     for g, a, b in zip(groups, ref.parts, model.parts):
         if a.node != b.node or len(a.faces) != len(b.faces):
             return False
+        if a.uvs is not b.uvs and not np.array_equal(a.uvs, b.uvs):
+            return False                           # a skin's decals move their quads on the sheet: new geometry
         mb = b.material
         if g in first:
             if first[g] is not mb and text(first[g]) != text(mb):
