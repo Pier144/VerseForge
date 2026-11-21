@@ -162,6 +162,10 @@ at all, add `--appimage-extract-and-run` at the end of the command.
   paint's three colours, and on most models the paint changes at once, without reloading; *Compare with stock* flips
   between the chosen paint and the default one. Colours and materials come from the
   game database (`Game2.dcb`); the first entry is the default paint. Exports use the selected variant too.
+- **Skin Lab**: make your own paint. Start from one of the game's, change its three colours and their finish
+  (matte, satin, gloss, metal), recolour single parts of weapons and armour, write a text on the ship's name plates
+  and put a picture of yours on its livery slots. Your skins sit beside the game's paints, are used by exports and
+  snapshots, and each one is a `.vfskin` file you can share and import.
 - **Same folder**: list of the related parts (e.g. stock, magazines, wheels, interiors).
 - **Animations**: when the game links animations to the object (weapons firing and reloading, multi-tools, ship
   canopies, ladders, landing-gear doors, component panels…), an *Animations* panel lists them by group (Canopy:

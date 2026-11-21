@@ -1,7 +1,7 @@
 ; Inno Setup script for VerseForge  ->  "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\VerseForge.iss
 ; Builds dist\VerseForge-<version>-Setup.exe from the PyInstaller folder dist\VerseForge.
 #define AppName "VerseForge"
-#define AppVersion "1.16.5"
+#define AppVersion "1.17.0"
 #define AppExe "VerseForge.exe"
 
 [Setup]
